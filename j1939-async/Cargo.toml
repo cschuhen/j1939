@@ -1,7 +1,14 @@
 [package]
-name = "j1939"
-version = "1.86.0"
+authors = ["Corey Schuhen <cschuhen@gmail.com>"]
+name = "j1939-async"
+version = "0.1.0-alpha1"
 edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "A J1939 Library able to be used async (or not)."
+keywords = ["embedded", "async", "embassy", "embedded-hal", "j1939"]
+categories = ["embedded", "hardware-support", "no-std", "asynchronous"]
+repository = "https://github.com/cschuhen/j1939"
+readme = "README.md"
 
 [features]
 default = []
@@ -19,10 +26,13 @@ embedded-hal = "1.0.0"
 #bxcan = "0.7.0"
 heapless = "0.8"
 rtt-target = { version = "0.3.1", features = ["cortex-m"] }
-lexical-core = { version = "0.8.5", default-features=false, features=["write-floats", "format"]}
+lexical-core = { version = "0.8.5", default-features = false, features = [
+    "write-floats",
+    "format",
+] }
 embedded-hal-async = "1.0.0"
 
-embassy-sync = { version = "0.7", path = "/home/cschuhen/rust/embassy-corey/embassy-sync", features = [ "defmt"], optional=true  }
+embassy-sync = { version = "0.7", path = "/home/cschuhen/rust/embassy-corey/embassy-sync", features = [
+    "defmt",
+], optional = true }
 defmt = { version = "0.3", optional = false }
-
-
