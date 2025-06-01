@@ -1,0 +1,28 @@
+[package]
+name = "j1939"
+version = "1.86.0"
+edition = "2021"
+
+[features]
+default = []
+js1 = []
+embassy = ["embassy-sync"]
+defmt = []
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+bitfield = "0.19"
+#defmt = "0.3"
+embedded-can = "0.4.0"
+embedded-hal = "1.0.0"
+#bxcan = "0.7.0"
+heapless = "0.8"
+rtt-target = { version = "0.3.1", features = ["cortex-m"] }
+lexical-core = { version = "0.8.5", default-features=false, features=["write-floats", "format"]}
+embedded-hal-async = "1.0.0"
+
+embassy-sync = { version = "0.7", path = "/home/cschuhen/rust/embassy-corey/embassy-sync", features = [ "defmt"], optional=true  }
+defmt = { version = "0.3", optional = false }
+
+
