@@ -85,7 +85,7 @@ impl Name {
         }
         self.set_raw(raw);
     }
-    pub fn bytes_iter(&self) -> NameBytesIter {
+    pub fn bytes_iter(&self) -> NameBytesIter<'_> {
         NameBytesIter {
             nameref: self,
             index: 0,
