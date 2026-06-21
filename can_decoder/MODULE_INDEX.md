@@ -171,3 +171,32 @@ This document provides a compact reference for each source file, its public API,
 - Imports `Source` trait from `traits.rs`.
 - Uses `sources::*`, `pipeline::*` for concrete types and pipeline wiring.
 - Uses `clap::Parser` for CLI parsing.
+
+---
+
+## device_manager.rs — Device Management & State
+
+**Purpose:** Tracks active devices on the bus, handles address claims, and maintains a parameter cache for enriched decoding.
+
+### Public Types
+
+| Type | Line | Description |
+|---|---|---|
+| `Device` | 5 | Represents a device on the bus: `address`, `name`, `last_seen_timestamp`, `is_claimed` |
+| `DeviceEvent` | 13 | Events emitted by manager: `Claimed`, `Conflict`, `Expired` |
+| `DeviceManager` | 19 | The stateful manager for device tracking and parameter caching |
+
+### Key Methods
+
+- `new(ttl_seconds)` — Constructor with TTL for device expiration.
+- `update(timestamp, address, name)` — Updates device state and handles expiration/conflicts.
+- `handle_claim(address, name, timestamp)` — Processes J1939 address claim messages.
+- `update_parameter(address, pgn, data)` — Stores data in the parameter cache for enrichment.
+- `get_parameter(address, pgn)` — Retrieves cached data for a specific device/PGN.
+
+### Dependencies
+
+- Imports `PGN` and `RawFrame` from `types.rs`.
+- Uses `std::collections::HashMap` for storage.
+
+---

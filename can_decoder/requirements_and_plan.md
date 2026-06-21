@@ -138,8 +138,8 @@ Global Config:
 ### Phase 2: Input Drivers & Device Management
 - [x] Implement `SocketCanSource` (live mode with "Request all address claims" broadcast).
 - [x] Implement `CandumpFileSource`.
-- [ ] Implement `DeviceManager`: dynamic claim handling, parameter cache, TTL expiration, address conflict detection.
-- [ ] **Testing**: Integration tests for data flow from source through processing pipeline.
+- [x] Implement `DeviceManager`: dynamic claim handling, parameter cache, TTL expiration, address conflict detection.
+- [x] **Testing**: Integration tests for data flow from source through processing pipeline.
 
 ### Phase 3: J1939 & Protocol Decoding
 - [ ] Implement J1939 Transport Protocol (TP) reassembly with timeout logic and `--force-output-partial-tp`.

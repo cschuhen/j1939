@@ -58,7 +58,7 @@ impl AssembledMessage {
 
 /// J1939 Protocol Group Number parsed from a 29-bit CAN ID.
 /// Format matches j1939-async: [priority:3 bits@26][PGN:18 bits@8][source:8 bits@0]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PGN {
     /// Message priority (0-7), from bits 26-28 of CAN ID.
     pub priority: u8,
