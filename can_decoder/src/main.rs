@@ -27,6 +27,7 @@ async fn main() {
 
     println!("Detail level: {:?}", cli.detail_level);
     println!("Force partial TP: {}", cli.force_output_partial_tp);
+    println!("Debug mode: {}", cli.debug);
     println!("Filters: {}", cli.filter.len());
     println!("Output format: {:?}", cli.output_format);
 
@@ -57,7 +58,7 @@ async fn main() {
     }
 
     // Wire up Decoder → Filter → Renderer
-    let decoder = Box::new(NullDecoder);
+    let decoder = Box::new(can_decoder::pipeline::NullDecoder { debug: cli.debug });
     pipeline.spawn_decoder(decoder);
 
     let filter = Arc::new(tokio::sync::Mutex::new(PassThroughFilter));

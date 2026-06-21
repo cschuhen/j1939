@@ -39,6 +39,10 @@ pub struct Cli {
     #[arg(long)]
     pub force_output_partial_tp: bool,
 
+    /// Enable extra debugging information
+    #[arg(short, long, default_value_t = false)]
+    pub debug: bool,
+
     /// Add a filter rule (repeatable; applied to decoded PrettyOutput)
     #[arg(long)]
     pub filter: Vec<String>,

@@ -97,7 +97,7 @@ impl Pipeline {
                 match rx.recv().await {
                     Some(output) => {
                         let f = filter.lock().await;
-                        if f.matches(&output).await {
+                        if f.matches(output.clone()).await {
                             if filter_tx.send(output).is_err() {
                                 break;
                             }
@@ -133,7 +133,9 @@ impl Pipeline {
 }
 
 /// Stub decoder that echoes PrettyOutput items without modification.
-pub struct NullDecoder;
+pub struct NullDecoder {
+    pub debug: bool,
+}
 
 impl Decoder for NullDecoder {
     fn name(&self) -> &str {
@@ -143,8 +145,15 @@ impl Decoder for NullDecoder {
     fn decode(
         &mut self,
         frame: RawFrame,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<PrettyOutput>, Box<dyn std::error::Error + Send + Sync>>> + Send>> {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<PrettyOutput>, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>> {
         Box::pin(async move {
+            if self.debug {
+                let pgn_info = crate::types::PGN::from_can_id(frame.can_id);
+                if pgn_info.pgn == 0xEE00 {
+                    println!("[DEBUG] Processing address claim");
+                }
+                println!("[DEBUG] Decoding frame: ID={:08X}, Data={:02X?}", frame.can_id, frame.data);
+            }
             let text = format!(
                 "CAN {:08X} len={} data={}",
                 frame.can_id,
@@ -169,7 +178,7 @@ impl Filter for PassThroughFilter {
 
     fn matches(
         &self,
-        _output: &PrettyOutput,
+        _output: PrettyOutput,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send>> {
         Box::pin(async move { true })
     }
@@ -186,7 +195,7 @@ impl Renderer for ConsoleRenderer {
     fn render(
         &mut self,
         output: PrettyOutput,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<String, Box<dyn std::error::Error + Send + Sync>>> + Send>> {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<String, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>> {
         Box::pin(async move { Ok(format_output(&output)) })
     }
 }

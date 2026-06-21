@@ -163,66 +163,86 @@ impl CandumpFileSource {
     /// Parse a single candump line into a RawFrame.
     ///
     /// Expected format: `(1234567890.123456) can0 7E8#DEADBEEF`
+    /// or `(1234567890.123456) can0 7E8 [8] DE AD BE EF`
     /// Returns None for blank lines or comment lines starting with '#'.
     fn parse_line(line: &str) -> Option<RawFrame> {
         let line = line.trim();
-
-        // Skip empty lines and comments
         if line.is_empty() || line.starts_with('#') {
             return None;
         }
 
-        // Parse: (timestamp_sec.usec) interface can_id#data
+        // 1. Parse timestamp: (1782030641.660891)
         let open_paren = line.find('(')?;
         let close_paren = line.find(')')?;
         let timestamp_str = &line[open_paren + 1..close_paren];
 
-        let rest = &line[close_paren + 2..]; // skip ") "
-
-        // Split off interface name, then can_id#data
-        // Format: "(timestamp) iface can_id#data"
-        let space_after_iface = rest.find(' ')?;
-        let id_data = &rest[space_after_iface + 1..]; // skip "can0 "
-
-        // Split can_id#data
-        let hash_pos = id_data.find('#')?;
-        let id_str = &id_data[..hash_pos].trim();
-        let data_str = &id_data[hash_pos + 1..];
-
-        // Parse timestamp as seconds.microseconds
         let parts: Vec<&str> = timestamp_str.split('.').collect();
         if parts.len() != 2 {
             eprintln!("Warning: malformed timestamp '{}'", timestamp_str);
             return None;
         }
-
         let sec: u64 = parts[0].parse().ok()?;
         let usec: u64 = parts[1].parse().ok()?;
         let timestamp = (sec * 1_000_000) + (usec % 1_000_000);
 
-        // Parse CAN ID (hex, may be 3-digit standard or 8-digit extended)
-        let can_id: u32 = u32::from_str_radix(id_str.trim(), 16).ok()?;
+        // 2. Parse the rest: interface can_id [dlc] data
+        let rest = line[close_paren + 1..].trim();
+        let tokens: Vec<&str> = rest.split_whitespace().collect();
 
-        // Parse data bytes (hex pairs separated by spaces, or continuous hex string)
-        let data_bytes: Vec<u8> = if data_str.contains(' ') {
-            data_str.split_whitespace()
-                .filter_map(|b| u8::from_str_radix(b, 16).ok())
-                .collect()
+        if tokens.len() < 2 {
+            return None;
+        }
+
+        // tokens[0] is interface
+        // tokens[1] is can_id (or can_id#data)
+
+        let (can_id_str, data_tokens) = if tokens[1].contains('#') {
+            let split: Vec<&str> = tokens[1].split('#').collect();
+            if split.len() != 2 {
+                return None;
+            }
+            (Some(split[0]), Some(split[1].split_whitespace().collect::<Vec<&str>>()))
         } else {
-            // Continuous hex string like DEADBEEF -> [DE, AD, BE, EF]
-            (0..data_str.len())
-                .step_by(2)
-                .filter_map(|i| {
-                    if i + 2 <= data_str.len() {
-                        u8::from_str_radix(&data_str[i..i+2], 16).ok()
-                    } else {
-                        None
-                    }
-                })
-                .collect()
+            let can_id_str = tokens[1];
+            let mut data_tokens = tokens[2..].to_vec();
+
+            // Check if tokens[2] is [dlc]
+            if data_tokens.len() > 0 && data_tokens[0].starts_with('[') && data_tokens[0].ends_with(']') {
+                data_tokens.remove(0);
+            }
+            (Some(can_id_str), Some(data_tokens))
         };
 
-        Some(RawFrame { timestamp, can_id, data: data_bytes })
+        let can_id_str = can_id_str?;
+        let data_tokens = data_tokens?;
+
+        let can_id: u32 = u32::from_str_radix(can_id_str.trim(), 16).ok()?;
+
+        let mut data_bytes = Vec::new();
+        if data_tokens.len() == 1 && data_tokens[0].len() > 1 && !data_tokens[0].contains(' ') {
+            // Continuous hex string: DEADBEEF
+            let s = data_tokens[0];
+            for i in (0..s.len()).step_by(2) {
+                if i + 2 <= s.len() {
+                    if let Ok(b) = u8::from_str_radix(&s[i..i+2], 16) {
+                        data_bytes.push(b);
+                    }
+                }
+            }
+        } else {
+            // Space separated: DE AD BE EF
+            for token in data_tokens {
+                if let Ok(b) = u8::from_str_radix(token, 16) {
+                    data_bytes.push(b);
+                }
+            }
+        }
+
+        Some(RawFrame {
+            timestamp,
+            can_id,
+            data: data_bytes,
+        })
     }
 
     /// Read and parse all frames from the file in a blocking task.

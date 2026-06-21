@@ -19,7 +19,7 @@ impl Source for MockSource {
     fn start(
         self: Arc<Self>,
         tx: mpsc::UnboundedSender<RawFrame>,
-    ) -> Pin<Box<dyn Future<Output = Result<(), Box<dyn Error + Send + Sync>>> + Send>> {
+    ) -> Pin<Box<dyn Future<Output = Result<(), Box<dyn Error + Send + Sync>>> + Send + 'static>> {
         Box::pin(async move {
             for frame in self.frames.iter() {
                 tx.send(frame.clone()).map_err(|e| e.to_string())?;
@@ -39,7 +39,7 @@ impl Decoder for MockDecoder {
     fn decode(
         &mut self,
         frame: RawFrame,
-    ) -> Pin<Box<dyn Future<Output = Result<Vec<PrettyOutput>, Box<dyn Error + Send + Sync>>> + Send>> {
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<PrettyOutput>, Box<dyn Error + Send + Sync>>> + Send + 'static>> {
         Box::pin(async move {
             Ok(vec![PrettyOutput::StringMessage {
                 severity: Severity::Info,
@@ -60,7 +60,7 @@ impl Filter for MockFilter {
 
     fn matches(
         &self,
-        output: &PrettyOutput,
+        output: PrettyOutput,
     ) -> Pin<Box<dyn Future<Output = bool> + Send>> {
         let pattern = self.pattern.clone();
         Box::pin(async move {
@@ -85,7 +85,7 @@ impl Renderer for MockRenderer {
     fn render(
         &mut self,
         output: PrettyOutput,
-    ) -> Pin<Box<dyn Future<Output = Result<String, Box<dyn Error + Send + Sync>>> + Send>> {
+    ) -> Pin<Box<dyn Future<Output = Result<String, Box<dyn Error + Send + Sync>>> + Send + 'static>> {
         let received = self.received.clone();
         Box::pin(async move {
             let text = match output {

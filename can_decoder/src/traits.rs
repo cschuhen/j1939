@@ -17,7 +17,7 @@ pub trait Source: Send + Sync {
     fn start(
         self: Arc<Self>,
         tx: mpsc::UnboundedSender<RawFrame>,
-    ) -> Pin<Box<dyn Future<Output = Result<(), Box<dyn Error + Send + Sync>>> + Send>>;
+    ) -> Pin<Box<dyn Future<Output = Result<(), Box<dyn Error + Send + Sync>>> + Send + 'static>>;
 }
 
 /// Decodes raw CAN frames into structured PrettyOutput items.
@@ -30,7 +30,7 @@ pub trait Decoder: Send {
     fn decode(
         &mut self,
         frame: RawFrame,
-    ) -> Pin<Box<dyn Future<Output = Result<Vec<PrettyOutput>, Box<dyn Error + Send + Sync>>> + Send>>;
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<PrettyOutput>, Box<dyn Error + Send + Sync>>> + Send + '_>>;
 }
 
 /// Renders PrettyOutput items to a human-readable string format.
@@ -43,7 +43,7 @@ pub trait Renderer: Send {
     fn render(
         &mut self,
         output: PrettyOutput,
-    ) -> Pin<Box<dyn Future<Output = Result<String, Box<dyn Error + Send + Sync>>> + Send>>;
+    ) -> Pin<Box<dyn Future<Output = Result<String, Box<dyn Error + Send + Sync>>> + Send + '_>>;
 }
 
 /// Filters PrettyOutput items based on configurable rules.
@@ -55,6 +55,6 @@ pub trait Filter: Send {
     /// Return true if the given PrettyOutput item passes this filter.
     fn matches(
         &self,
-        output: &PrettyOutput,
+        output: PrettyOutput,
     ) -> Pin<Box<dyn Future<Output = bool> + Send>>;
 }
