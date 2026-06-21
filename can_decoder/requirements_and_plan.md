@@ -129,15 +129,15 @@ Global Config:
 ## Implementation Roadmap
 
 ### Phase 1: Foundation & Core Traits
-- [ ] Workspace setup with dependencies listed above.
-- [ ] Define `Source`, `Decoder`, `Renderer`, and `Filter` traits.
-- [ ] Implement core data types (`RawFrame`, `AssembledMessage`, `PrettyOutput`, `Numeric`).
-- [ ] Implement basic Tokio-based multi-threaded pipeline with channels.
+- [x] Workspace setup with dependencies listed above.
+- [x] Define `Source`, `Decoder`, `Renderer`, and `Filter` traits.
+- [x] Implement core data types (`RawFrame`, `AssembledMessage`, `PrettyOutput`, `Numeric`).
+- [x] Implement basic Tokio-based multi-threaded pipeline with channels.
 - [ ] **Testing**: Unit tests for core traits, data types, and channel communication.
 
 ### Phase 2: Input Drivers & Device Management
-- [ ] Implement `SocketCanSource` (live mode with "Request all address claims" broadcast).
-- [ ] Implement `CandumpFileSource`.
+- [x] Implement `SocketCanSource` (live mode with "Request all address claims" broadcast).
+- [x] Implement `CandumpFileSource`.
 - [ ] Implement `DeviceManager`: dynamic claim handling, parameter cache, TTL expiration, address conflict detection.
 - [ ] **Testing**: Integration tests for data flow from source through processing pipeline.
 
@@ -148,9 +148,9 @@ Global Config:
 - [ ] **Testing**: Unit tests for every decoded PGN against known byte sequences; fuzz testing of YAML configs.
 
 ### Phase 4: Filtering & Console UI
+- [x] Full CLI structure with all flags from the spec.
 - [ ] Implement post-interpretation pluggable Filtering Engine (address, PGN, name, severity, regex).
-- [ ] Implement Phase 1 Console Renderer (colorized, columnar output).
-- [ ] Implement `--detail-level` logic and full CLI structure.
+- [ ] Implement Phase 1 Console Renderer (colorized, columnar output using `owo-colors`).
 - [ ] **Testing**: Filter logic tests with complex expressions; end-to-end console rendering tests.
 
 ### Phase 5: Structured Output & Advanced UI
@@ -175,3 +175,12 @@ Global Config:
 
 - [ ] **Pretty-print output** is the primary user-facing output (console, JSON, CSV).
 - [ ] A separate **debug log** should be available (e.g., to stderr or a file) for troubleshooting protocol issues, timeout events, device expiration, and address conflicts. This is independent of the filtering applied to pretty-print output.
+
+## Agent Workflow Guidelines
+
+When working on this project, use subagents to manage context size effectively:
+
+- **One task per subagent**: Delegate discrete features (e.g., "Implement DeviceManager", "Add JSON renderer") to separate subagent invocations rather than handling everything in a single conversation.
+- **File-level scoping**: When assigning a task, specify exactly which files the agent should read and modify. This prevents unnecessary context loading.
+- **Incremental verification**: After each subagent completes its work, run `cargo build` and `cargo test` to verify correctness before proceeding to the next task.
+- **Documentation first**: Before starting complex features, have a subagent create or update the module documentation (doc comments) so subsequent agents understand the existing API surface without re-reading every file.

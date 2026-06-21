@@ -58,13 +58,13 @@ impl SocketCanSource {
     ///
     /// Per requirements: when running in live mode, send this request onto the bus.
     fn send_request_all_address_claims(sock: &CanSocket) -> Result<(), Box<dyn Error + Send + Sync>> {
-        // PGN Request for "all address claims" uses PDU1 format:
-        // [3-bit priority][1-bit DP][8-bit reserved][7-bit PGN extension][8-bit PGN base]
+        // PGN Request for "all address claims" uses PDU1 format.
+        // J1939 CAN ID layout: [3-bit priority][1-bit DP][8-bit dest][18-bit PGN]
         let pgn = 0x0EA00u32;
         let priority = 6u32;
 
-        // Build extended CAN ID for J1939 TP DM Request All Address Claims
-        let can_id = ((priority as u32) << 26) | (pgn & 0x1FFFFF);
+        // Build extended CAN ID per j1939-async convention in this workspace.
+        let can_id = ((priority as u32) << 26) | (pgn & 0x3FFFF) << 8;
 
         if let Some(frame) = CanDataFrame::new(
             socketcan::Id::Extended(socketcan::ExtendedId::new(can_id).unwrap()),
