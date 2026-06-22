@@ -78,6 +78,11 @@ The output of the processing layer for each message includes:
     - Data-byte Regex (on raw input)
     - Resolved Source/Destination Names
     - Filtered by output type (`Value`, `StringMessage`, `Flag`) or severity level
+- **Filter Engine API**: There should be a generic API to the list of possible filters. This should allow the different front-ends to generate a 'UI' of some description to the user. For the CLI, this would be a simple list of filter options with descriptions, also the ability for the program to generate and install bash-completion config. For TUI/GPUI, the filter UI would be generated dynamically based on the available filters. This generic API needs to support different types of filters:
+- **Filter Types**: 
+    - **Value Filter**: Matches numeric values in the decoded output. Some with the option to enter in HEX.
+    - **Regex Filter**: Matches string messages in the decoded output or Tiles or PGN names.
+    - **Enum Filter**: Matches based on a list of predefined enum values.
 - **TUI / GPUI Consideration**: The system retains the full message history in RAM. In TUI/GPUI modes, users see a live scrollable list of all messages and can adjust filters dynamically at runtime without restarting. Console mode uses upfront CLI filter options.
 - **Renderer**:
     - **Phase 1**: Pretty-printed console output (Colorized, Columnar).

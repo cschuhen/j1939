@@ -97,7 +97,7 @@ impl Pipeline {
                 match rx.recv().await {
                     Some(output) => {
                         let f = filter.lock().await;
-                        if f.matches(output.clone()).await {
+                        if f.matches(&output).await {
                             if filter_tx.send(output).is_err() {
                                 break;
                             }
@@ -178,8 +178,8 @@ impl Filter for PassThroughFilter {
 
     fn matches(
         &self,
-        _output: PrettyOutput,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send>> {
+        _output: &PrettyOutput,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + '_>> {
         Box::pin(async move { true })
     }
 }

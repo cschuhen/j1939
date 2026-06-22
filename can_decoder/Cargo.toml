@@ -18,3 +18,4 @@ owo-colors = "4"
 
 # SocketCAN support
 socketcan = "3"
+regex = "1.12.4"

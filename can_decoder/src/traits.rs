@@ -48,13 +48,13 @@ pub trait Renderer: Send {
 
 /// Filters PrettyOutput items based on configurable rules.
 /// Multiple filters can be chained to narrow down the output.
-pub trait Filter: Send {
+pub trait Filter: Send + Sync {
     /// Human-readable name of this filter implementation.
     fn name(&self) -> &str;
 
     /// Return true if the given PrettyOutput item passes this filter.
     fn matches(
         &self,
-        output: PrettyOutput,
-    ) -> Pin<Box<dyn Future<Output = bool> + Send>>;
+        output: &PrettyOutput,
+    ) -> Pin<Box<dyn Future<Output = bool> + Send + '_>>;
 }

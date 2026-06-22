@@ -60,16 +60,14 @@ impl Filter for MockFilter {
 
     fn matches(
         &self,
-        output: PrettyOutput,
-    ) -> Pin<Box<dyn Future<Output = bool> + Send>> {
+        output: &PrettyOutput,
+    ) -> Pin<Box<dyn std::future::Future<Output = bool> + Send + '_>> {
         let pattern = self.pattern.clone();
-        Box::pin(async move {
-            if let PrettyOutput::StringMessage { text, .. } = output {
-                text.contains(&pattern)
-            } else {
-                false
-            }
-        })
+        let is_match = match output {
+            PrettyOutput::StringMessage { text, .. } => text.contains(&pattern),
+            _ => false,
+        };
+        Box::pin(async move { is_match })
     }
 }
 
