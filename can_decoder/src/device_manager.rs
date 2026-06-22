@@ -33,26 +33,36 @@ impl DeviceManager {
 
     pub fn update(&mut self, timestamp: u64, address: u8, name: Option<String>) -> Vec<DeviceEvent> {
         let mut events = Vec::new();
-        
+
         if let Some(device) = self.devices.get_mut(&address) {
-            // Check for name change/conflict
-            if let Some(new_name) = name.clone() {
-                if let Some(old_name) = &device.name {
-                    if old_name != &new_name && device.is_claimed {
-                        events.push(DeviceEvent::Conflict {
-                            address,
-                            name1: old_name.clone(),
-                            name2: new_name.clone(),
-                            timestamp,
-                        });
+            // Check if this device is about to expire before we refresh it
+            if timestamp - device.last_seen_timestamp > self.ttl_microseconds {
+                // Device was last seen more than TTL ago, emit expiration and remove
+                events.push(DeviceEvent::Expired {
+                    address: device.address,
+                    timestamp,
+                });
+                self.devices.remove(&address);
+            } else {
+                // Not expired yet - update normally
+                if let Some(new_name) = name.clone() {
+                    if let Some(old_name) = &device.name {
+                        if old_name != &new_name && device.is_claimed {
+                            events.push(DeviceEvent::Conflict {
+                                address,
+                                name1: old_name.clone(),
+                                name2: new_name.clone(),
+                                timestamp,
+                            });
+                        }
                     }
+                    device.name = Some(new_name);
                 }
-                device.name = Some(new_name);
+                device.last_seen_timestamp = timestamp;
+                device.is_claimed = true;
             }
-            device.last_seen_timestamp = timestamp;
-            device.is_claimed = true;
         } else {
-            // New device
+            // New device (not a refresh of expired one)
             self.devices.insert(address, Device {
                 address,
                 name,
@@ -61,7 +71,7 @@ impl DeviceManager {
             });
         }
 
-        // Check for expirations
+        // Check for expirations of OTHER devices (not the one we just updated)
         let expired_addresses: Vec<u8> = self.devices.iter()
             .filter(|(_, d)| timestamp - d.last_seen_timestamp > self.ttl_microseconds)
             .map(|(addr, _)| *addr)

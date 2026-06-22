@@ -40,11 +40,11 @@ async fn test_device_manager_update_name_change_conflict() {
 
 #[tokio::test]
 async fn test_device_manager_expiration() {
-    let mut dm = DeviceManager::new(1); // 1 second TTL
-    dm.update(1000, 0x20, Some("Engine".to_string()));
+    let mut dm = DeviceManager::new(1); // 1 second TTL (in microseconds: 1_000_000)
+    dm.update(1_000_000, 0x20, Some("Engine".to_string()));
     
-    // Update with timestamp 3 seconds later
-    let events = dm.update(4000, 0x20, Some("Engine".to_string()));
+    // Update with timestamp 3 seconds later (4_000_000 - 1_000_000 = 3_000_000 > 1_000_000 TTL)
+    let events = dm.update(4_000_000, 0x20, Some("Engine".to_string()));
     
     assert_eq!(events.len(), 1);
     if let DeviceEvent::Expired { address, .. } = &events[0] {

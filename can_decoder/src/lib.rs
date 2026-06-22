@@ -5,6 +5,10 @@ pub mod pipeline;
 pub mod sources;
 /// Core traits defining the pipeline architecture.
 pub mod traits;
+/// J1939 Transport Protocol reassembly module.
+pub mod tp_reassembler;
+/// PGN decoder engine with YAML configuration support.
+pub mod pgn_decoder;
 /// Data models for CAN frames, messages, and decoded output.
 pub mod types;
 
