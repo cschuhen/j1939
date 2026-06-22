@@ -1,6 +1,6 @@
 use std::sync::Arc;
-use can_decoder::{Cli, DetailLevel, OutputFormat, SourceType};
-use can_decoder::pipeline::{ConsoleRenderer, NullDecoder, PassThroughFilter, Pipeline};
+use can_decoder::{Cli, SourceType};
+use can_decoder::pipeline::{ConsoleRenderer, PassThroughFilter, Pipeline};
 use can_decoder::sources::{CandumpFileSource, SocketCanSource};
 use can_decoder::traits::Source;
 use clap::Parser;
@@ -58,7 +58,7 @@ async fn main() {
     }
 
     // Wire up Decoder → Filter → Renderer
-    let decoder = Box::new(can_decoder::pipeline::NullDecoder { debug: cli.debug });
+    let decoder = Box::new(can_decoder::pgn_decoder::J1939Decoder::new(cli.force_output_partial_tp, 5000));
     pipeline.spawn_decoder(decoder);
 
     let filter = Arc::new(tokio::sync::Mutex::new(PassThroughFilter));

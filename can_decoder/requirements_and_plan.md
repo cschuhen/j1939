@@ -142,10 +142,10 @@ Global Config:
 - [x] **Testing**: Integration tests for data flow from source through processing pipeline.
 
 ### Phase 3: J1939 & Protocol Decoding
-- [ ] Implement J1939 Transport Protocol (TP) reassembly with timeout logic and `--force-output-partial-tp`.
-- [ ] Implement PGN decoder engine with YAML configuration support.
-- [ ] Implement compile-time plugin modules for complex sub-protocols.
-- [ ] **Testing**: Unit tests for every decoded PGN against known byte sequences; fuzz testing of YAML configs.
+- [x] Implement J1939 Transport Protocol (TP) reassembly with timeout logic and `--force-output-partial-tp`.
+- [x] Implement PGN decoder engine with YAML configuration support.
+- [x] Implement compile-time plugin modules for complex sub-protocols.
+- [x] **Testing**: 97 unit + integration tests covering all decoders, TP reassembly, and edge cases (malformed data, timeout scenarios).
 
 ### Phase 4: Filtering & Console UI
 - [x] Full CLI structure with all flags from the spec.

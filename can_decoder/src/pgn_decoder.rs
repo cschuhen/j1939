@@ -549,6 +549,19 @@ impl Decoder for J1939Decoder {
 mod tests {
     use super::*;
 
+    trait NumericExt {
+        fn unwrap_float(&self) -> f64;
+    }
+
+    impl NumericExt for Numeric {
+        fn unwrap_float(&self) -> f64 {
+            match self {
+                Numeric::Float(v) => *v,
+                _ => panic!("Expected Float"),
+            }
+        }
+    }
+
     fn make_assembled(pgn_val: u32, source: u8, data: Vec<u8>) -> AssembledMessage {
         let pgn = PGN::from_can_id((3u32 << 26) | (pgn_val << 8) | source as u32);
         AssembledMessage {
@@ -1051,18 +1064,5 @@ pgns:
     fn test_new_decoder_with_force_partial() {
         let decoder = J1939Decoder::new(true, 5000);
         assert!(decoder.config.pgns.len() >= 8);
-    }
-}
-
-trait NumericExt {
-    fn unwrap_float(&self) -> f64;
-}
-
-impl NumericExt for Numeric {
-    fn unwrap_float(&self) -> f64 {
-        match self {
-            Numeric::Float(v) => *v,
-            _ => panic!("Expected Float"),
-        }
     }
 }

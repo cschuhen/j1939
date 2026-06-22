@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use crate::types::{PGN, RawFrame};
+use crate::types::PGN;
 
 #[derive(Debug, Clone)]
 pub struct Device {

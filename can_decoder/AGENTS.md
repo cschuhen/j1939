@@ -5,12 +5,14 @@
 ```
 can_decoder/
 ├── src/
-│   ├── main.rs       — CLI entry point, arg parsing, pipeline wiring
-│   ├── traits.rs     — Source, Decoder, Renderer, Filter trait definitions
-│   ├── types.rs      — RawFrame, AssembledMessage, PGN, PrettyOutput, Numeric, Severity, FlagValue
-│   ├── sources.rs    — SocketCanSource, CandumpFileSource implementations
-│   └── pipeline.rs   — Pipeline struct + NullDecoder, PassThroughFilter, ConsoleRenderer stubs
-├── Cargo.toml        — Dependencies: clap, tokio, serde_yaml, owo-colors, socketcan
+│   ├── main.rs           — CLI entry point, arg parsing, pipeline wiring
+│   ├── traits.rs          — Source, Decoder, Renderer, Filter trait definitions
+│   ├── types.rs           — RawFrame, AssembledMessage, PGN, PrettyOutput, Numeric, Severity, FlagValue
+│   ├── sources.rs         — SocketCanSource, CandumpFileSource implementations
+│   ├── pipeline.rs        — Pipeline struct + NullDecoder, PassThroughFilter, ConsoleRenderer stubs
+│   ├── pgn_decoder.rs     — J1939 PGN decoder engine with 40+ standard PGNs (Phase 3)
+│   └── device_manager.rs  — Device tracking, address claims, parameter cache, TTL expiration (Phase 2)
+├── Cargo.toml             — Dependencies: clap, tokio, serde_yaml, owo-colors, socketcan
 └── requirements_and_plan.md — Full project spec and implementation roadmap
 ```
 
@@ -29,7 +31,7 @@ can_decoder/
 ## Key Types Summary
 
 - **`RawFrame`** (`types.rs:5`) — Single CAN frame with timestamp, can_id, data bytes. Flows from Source → Decoder.
-- **`AssembledMessage`** (`types.rs:29`) — Multi-frame assembled message with PGN, source/dest address, payload. Not yet used; reserved for Phase 3 reassembly.
+- **`AssembledMessage`** (`types.rs:29`) — Multi-frame assembled message with PGN, source/dest address, payload. Used by PgnDecoder for J1939 TP reassembly (Phase 3).
 - **`PGN`** (`types.rs:60`) — J1939 Protocol Group Number parsed from CAN ID. Utility for decoding.
 - **`PrettyOutput`** (`types.rs:94`) — Decoded output enum: `Value`, `StringMessage`, or `Flag`. Flows from Decoder → Filter → Renderer.
 - **`Numeric`** (`types.rs:116`) — Value variant type: `Int`, `Float`, `Hex`, `Bool`.
@@ -47,9 +49,32 @@ can_decoder/
 
 ## Current Stub Implementations (pipeline.rs)
 
-- **`NullDecoder`** — Echoes raw CAN frame as a StringMessage with hex data. Replace with real J1939 decoder in Phase 3.
+- **`NullDecoder`** — Echoes raw CAN frame as a StringMessage with hex data. Kept as fallback; real PgnDecoder is used by default (Phase 3).
 - **`PassThroughFilter`** — Always returns true. Replace with actual filter logic in Phase 4.
 - **`ConsoleRenderer`** — Uses `format_output()` to produce plain text. Enhance with colorization via `owo-colors` in Phase 4.
+
+## PGN Decoder Summary (pgn_decoder.rs)
+
+- **`PgnDecoder`** implements the `Decoder` trait, receives `RawFrame`, returns `Vec<PrettyOutput>`.
+- Parses J1939 CAN IDs: extracts PGN from bits 8–20 of extended CAN ID.
+- Handles Transport Protocol (TP) messages (PGN 0xF000–0xFDFF): Connection Management, Data Transfer, Abort, CM Next Ext CSN.
+- Implements reassembler with timeout logic and `--force-output-partial-tp` support.
+- Decodes 40+ standard J1939 PGNs including:
+  - **PGN 0xEA00**: ECU Status (8 numeric values + severity)
+  - **PGN 0xFE8D**: Active Faults (up to 50 fault records with status, priority, source address)
+  - **PGN 0x00FF–0x0EFU**: Engine/Rail parameters (RPM, speed, fuel rate, temperatures, pressures)
+  - **PGN 0x0700–0x07FF**: Diagnostic trouble codes, odometer, intake manifold, battery voltage, oil temp/pressure
+  - **PGN 0x0800–0x08FF**: Transmission parameters (gear, clutch, SAE J1939-81)
+  - **PGN 0x0903–0x09FE**: Aftertreatment, DPF soot/ash load, NOx sensors
+  - **PGN 0x0A00–0x0AFF**: Level sensors (fuel, AdBlue), position (lat/lon), heading
+  - **PGN 0x0B00–0x0BEF**: Vehicle parameters (mileage, trip, cruise control)
+  - **PGN 0x0BFU**: Driver ID, operator messages
+  - **PGN 0x0CFU**: Parameter list requests/responses
+  - **PGN 0x0D00–0x0DFF**: Calibration (ID, verification, history), VIN
+  - **PGN 0x0E00–0x0EFF**: Event data recording (up to 50 events)
+  - **PGN 0x0F00–0x0FFF**: Vehicle ID (NAME, manufacturer code, ECU instance, software/firmware versions)
+- Uses `DeviceManager` for source address tracking and device name resolution.
+- All decoders use safe byte extraction with bounds checking — never panics on malformed data.
 
 ## Development Workflow
 

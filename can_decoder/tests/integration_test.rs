@@ -109,7 +109,7 @@ async fn test_pipeline_flow() {
     let source = Arc::new(MockSource { frames });
     
     let decoder = Box::new(MockDecoder);
-    pipeline.spawn_decoder(decoder);
+    let _decoder_handle = pipeline.spawn_decoder(decoder);
     
     let filter = Arc::new(Mutex::new(MockFilter { pattern: "00000123".to_string() }));
     let (filter_rx, _filter_handle) = pipeline.spawn_filter(filter);
