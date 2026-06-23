@@ -88,13 +88,14 @@ async fn main() -> Result<()> {
     let (filter_rx, _filter_handle) = pipeline.spawn_filter(filter);
 
     let renderer = Box::new(ConsoleRenderer);
-    Pipeline::spawn_renderer(filter_rx, renderer);
+    let renderer_handle = Pipeline::spawn_renderer(filter_rx, renderer);
 
     println!("Pipeline ready. Press Ctrl+C to stop.");
 
     if cli.source == SourceType::Candump {
-        // Batch mode: wait for source to finish processing the file
-        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+        // Batch mode: wait for the renderer to finish
+        drop(pipeline);
+        let _ = renderer_handle.await;
         println!("\nShutting down...");
     } else {
         // Live mode: wait for Ctrl+C
