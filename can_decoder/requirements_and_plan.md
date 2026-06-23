@@ -138,7 +138,7 @@ Global Config:
 - [x] Define `Source`, `Decoder`, `Renderer`, and `Filter` traits.
 - [x] Implement core data types (`RawFrame`, `AssembledMessage`, `PrettyOutput`, `Numeric`).
 - [x] Implement basic Tokio-based multi-threaded pipeline with channels.
-- [ ] **Testing**: Unit tests for core traits, data types, and channel communication.
+- [x] **Testing**: Unit tests for core traits, data types, and channel communication.
 
 ### Phase 2: Input Drivers & Device Management
 - [x] Implement `SocketCanSource` (live mode with "Request all address claims" broadcast).
@@ -154,7 +154,7 @@ Global Config:
 
 ### Phase 4: Filtering & Console UI
 - [x] Full CLI structure with all flags from the spec.
-- [ ] Implement post-interpretation pluggable Filtering Engine (address, PGN, name, severity, regex).
+- [x] Implement post-interpretation pluggable Filtering Engine (address, PGN, name, severity, regex).
 - [ ] Implement Phase 1 Console Renderer (colorized, columnar output using `owo-colors`).
 - [ ] **Testing**: Filter logic tests with complex expressions; end-to-end console rendering tests.
 

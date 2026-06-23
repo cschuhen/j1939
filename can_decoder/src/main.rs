@@ -1,13 +1,36 @@
 use std::sync::Arc;
-use can_decoder::{Cli, SourceType};
-use can_decoder::pipeline::{ConsoleRenderer, PassThroughFilter, Pipeline};
+
+use anyhow::Result;
+use can_decoder::filters::{CompositeFilter, FilterParser};
+use can_decoder::pipeline::{ConsoleRenderer, Pipeline};
 use can_decoder::sources::{CandumpFileSource, SocketCanSource};
 use can_decoder::traits::Source;
+use can_decoder::Cli;
+use can_decoder::SourceType;
 use clap::Parser;
+
+/// Parse CLI filter expressions into a CompositeFilter.
+fn build_filters(cli_filters: &[String]) -> Result<Arc<tokio::sync::Mutex<dyn can_decoder::traits::Filter>>> {
+    if cli_filters.is_empty() {
+        // No filters specified - use pass-through (match all)
+        let empty = Arc::new(tokio::sync::Mutex::new(CompositeFilter::new(vec![])));
+        return Ok(empty);
+    }
+
+    let mut parsed: Vec<Box<dyn can_decoder::traits::Filter>> = Vec::new();
+
+    for expr in cli_filters {
+        let filter = FilterParser::parse(expr)?;
+        parsed.push(filter);
+    }
+
+    let composite = Arc::new(tokio::sync::Mutex::new(CompositeFilter::new(parsed)));
+    Ok(composite)
+}
 
 /// Entry point: parse CLI args and print configuration summary.
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     println!("can_decoder starting...");
@@ -61,7 +84,7 @@ async fn main() {
     let decoder = Box::new(can_decoder::pgn_decoder::J1939Decoder::new(cli.force_output_partial_tp, 5000));
     pipeline.spawn_decoder(decoder);
 
-    let filter = Arc::new(tokio::sync::Mutex::new(PassThroughFilter));
+    let filter = build_filters(&cli.filter)?;
     let (filter_rx, _filter_handle) = pipeline.spawn_filter(filter);
 
     let renderer = Box::new(ConsoleRenderer);
@@ -78,4 +101,6 @@ async fn main() {
         tokio::signal::ctrl_c().await.unwrap();
         println!("\nShutting down...");
     }
+
+    Ok(())
 }

@@ -11,6 +11,8 @@ pub mod tp_reassembler;
 pub mod pgn_decoder;
 /// Data models for CAN frames, messages, and decoded output.
 pub mod types;
+/// Filter implementations and filter expression parsing.
+pub mod filters;
 
 use clap::Parser;
 use std::path::PathBuf;

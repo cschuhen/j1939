@@ -53,8 +53,8 @@ pub trait Filter: Send + Sync {
     fn name(&self) -> &str;
 
     /// Return true if the given PrettyOutput item passes this filter.
-    fn matches(
-        &self,
-        output: &PrettyOutput,
-    ) -> Pin<Box<dyn Future<Output = bool> + Send + '_>>;
+    fn matches<'a>(
+        &'a self,
+        output: &'a PrettyOutput,
+    ) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>>;
 }
