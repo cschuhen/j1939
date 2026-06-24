@@ -202,6 +202,7 @@ impl Renderer for ConsoleRenderer {
 
 /// Format a PrettyOutput item into a human-readable string.
 fn format_output(output: &PrettyOutput) -> String {
+    use owo_colors::Colorize;
     match output {
         PrettyOutput::Value {
             title,
@@ -224,24 +225,24 @@ fn format_output(output: &PrettyOutput) -> String {
                 crate::types::Numeric::Bool(v) => format!("{}", v),
             };
             if let Some(ref unit) = unit {
-                format!("[{}] {} {}", title, val_str, unit)
+                format!("[{}] {} {}", title.bold(), val_str, unit)
             } else {
-                format!("[{}] {}", title, val_str)
+                format!("[{}] {}", title.bold(), val_str)
             }
         }
         PrettyOutput::StringMessage { severity, text } => match severity {
-            crate::types::Severity::Info => format!("INFO:  {}", text),
-            crate::types::Severity::Warning => format!("WARN:  {}", text),
-            crate::types::Severity::Error => format!("ERROR: {}", text),
+            crate::types::Severity::Info => format!("INFO:  {}", text.green()),
+            crate::types::Severity::Warning => format!("WARN:  {}", text.yellow()),
+            crate::types::Severity::Error => format!("ERROR: {}", text.red().bold()),
         },
         PrettyOutput::Flag { title, value } => {
-            let flag_str = match value {
-                crate::types::FlagValue::Off => "OFF",
-                crate::types::FlagValue::On => "ON",
-                crate::types::FlagValue::Error => "ERR",
-                crate::types::FlagValue::Unavailable => "N/A",
+            let flag_text = match value {
+                crate::types::FlagValue::Off => "OFF".red().to_string(),
+                crate::types::FlagValue::On => "ON".green().to_string(),
+                crate::types::FlagValue::Error => "ERR".red().bold().to_string(),
+                crate::types::FlagValue::Unavailable => "N/A".dimmed().to_string(),
             };
-            format!("[{}] {}", title, flag_str)
+            format!("[{}] {}", title.bold(), flag_text)
         }
     }
 }
