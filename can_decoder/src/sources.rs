@@ -57,14 +57,16 @@ impl SocketCanSource {
     /// Send a J1939 "Request all address claims" broadcast (PGN 0x0EA00).
     ///
     /// Per requirements: when running in live mode, send this request onto the bus.
-    fn send_request_all_address_claims(sock: &CanSocket) -> Result<(), Box<dyn Error + Send + Sync>> {
+    fn send_request_all_address_claims(
+        sock: &CanSocket,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
         // PGN Request for "all address claims" uses PDU1 format.
         // J1939 CAN ID layout: [3-bit priority][1-bit DP][8-bit dest][18-bit PGN]
         let pgn = 0x0EA00u32;
         let priority = 6u32;
 
         // Build extended CAN ID per j1939-async convention in this workspace.
-        let can_id = ((priority as u32) << 26) | (pgn & 0x3FFFF) << 8;
+        let can_id = priority << 26 | (pgn & 0x3FFFF) << 8;
 
         if let Some(frame) = CanDataFrame::new(
             socketcan::Id::Extended(socketcan::ExtendedId::new(can_id).unwrap()),
@@ -102,7 +104,10 @@ impl Source for SocketCanSource {
 
                     // Send "Request all address claims" broadcast per requirements
                     if SocketCanSource::send_request_all_address_claims(&s).is_err() {
-                        eprintln!("[{}] Warning: Failed to send request all address claims", name);
+                        eprintln!(
+                            "[{}] Warning: Failed to send request all address claims",
+                            name
+                        );
                     }
 
                     // Wrap socket in Arc so it can be shared across spawn_blocking calls
@@ -112,10 +117,13 @@ impl Source for SocketCanSource {
                             let sock_clone = Arc::clone(&sock);
                             tokio::task::spawn_blocking(move || sock_clone.read_frame())
                                 .await
-                                .map_err(|e| Box::new(std::io::Error::new(
-                                    std::io::ErrorKind::Other, format!("Join error: {}", e)
-                                )) as Box<dyn Error + Send + Sync>)
-                                .and_then(|r| r.map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>))
+                                .map_err(|e| {
+                                    Box::new(std::io::Error::other(format!("Join error: {}", e)))
+                                        as Box<dyn Error + Send + Sync>
+                                })
+                                .and_then(|r| {
+                                    r.map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)
+                                })
                         };
 
                         match frame_result {
@@ -135,7 +143,9 @@ impl Source for SocketCanSource {
 
                     Ok(())
                 }
-                Err(e) => Err(format!("Failed to open CAN interface '{}': {}", sock_iface, e).into()),
+                Err(e) => {
+                    Err(format!("Failed to open CAN interface '{}': {}", sock_iface, e).into())
+                }
             }
         })
     }
@@ -157,7 +167,10 @@ impl CandumpFileSource {
     pub fn new(input_file: impl Into<PathBuf>) -> Self {
         let path = input_file.into();
         let name = format!("candump:{}", path.display());
-        CandumpFileSource { name, input_file: path }
+        CandumpFileSource {
+            name,
+            input_file: path,
+        }
     }
 
     /// Parse a single candump line into a RawFrame.
@@ -201,13 +214,19 @@ impl CandumpFileSource {
             if split.len() != 2 {
                 return None;
             }
-            (Some(split[0]), Some(split[1].split_whitespace().collect::<Vec<&str>>()))
+            (
+                Some(split[0]),
+                Some(split[1].split_whitespace().collect::<Vec<&str>>()),
+            )
         } else {
             let can_id_str = tokens[1];
             let mut data_tokens = tokens[2..].to_vec();
 
             // Check if tokens[2] is [dlc]
-            if data_tokens.len() > 0 && data_tokens[0].starts_with('[') && data_tokens[0].ends_with(']') {
+            if !data_tokens.is_empty()
+                && data_tokens[0].starts_with('[')
+                && data_tokens[0].ends_with(']')
+            {
                 data_tokens.remove(0);
             }
             (Some(can_id_str), Some(data_tokens))
@@ -224,7 +243,7 @@ impl CandumpFileSource {
             let s = data_tokens[0];
             for i in (0..s.len()).step_by(2) {
                 if i + 2 <= s.len() {
-                    if let Ok(b) = u8::from_str_radix(&s[i..i+2], 16) {
+                    if let Ok(b) = u8::from_str_radix(&s[i..i + 2], 16) {
                         data_bytes.push(b);
                     }
                 }
@@ -257,7 +276,11 @@ impl CandumpFileSource {
                     if let Some(frame) = CandumpFileSource::parse_line(&line) {
                         frames.push(frame);
                     } else if !line.trim().is_empty() && !line.trim().starts_with('#') {
-                        eprintln!("Warning: skipping malformed line {}: {}", line_num + 1, line);
+                        eprintln!(
+                            "Warning: skipping malformed line {}: {}",
+                            line_num + 1,
+                            line
+                        );
                     }
                 }
                 Err(e) => {
@@ -287,9 +310,10 @@ impl Source for CandumpFileSource {
 
             // Read entire file in blocking task
             let display_path = path.clone();
-            let frames_result = tokio::task::spawn_blocking(move || CandumpFileSource::read_file(&path))
-                .await
-                .map_err(|e| format!("Join error: {}", e))?;
+            let frames_result =
+                tokio::task::spawn_blocking(move || CandumpFileSource::read_file(&path))
+                    .await
+                    .map_err(|e| format!("Join error: {}", e))?;
 
             match frames_result {
                 Ok(frames) => {
@@ -305,7 +329,9 @@ impl Source for CandumpFileSource {
                     println!("[{}] Finished sending all frames.", name);
                     Ok(())
                 }
-                Err(e) => Err(format!("Failed to read file '{}': {}", display_path.display(), e).into()),
+                Err(e) => {
+                    Err(format!("Failed to read file '{}': {}", display_path.display(), e).into())
+                }
             }
         })
     }

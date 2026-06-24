@@ -9,6 +9,7 @@ use crate::types::{PrettyOutput, RawFrame};
 
 /// Abstracts data sources that produce raw CAN frames.
 /// Implementations handle different input methods (live SocketCAN or candump files).
+#[allow(clippy::type_complexity)]
 pub trait Source: Send + Sync {
     /// Human-readable name of this source implementation.
     fn name(&self) -> &str;
@@ -22,6 +23,7 @@ pub trait Source: Send + Sync {
 
 /// Decodes raw CAN frames into structured PrettyOutput items.
 /// Implementations handle protocol-specific decoding (J1939, ISO11783, etc.).
+#[allow(clippy::type_complexity)]
 pub trait Decoder: Send {
     /// Human-readable name of this decoder implementation.
     fn name(&self) -> &str;
@@ -30,11 +32,18 @@ pub trait Decoder: Send {
     fn decode(
         &mut self,
         frame: RawFrame,
-    ) -> Pin<Box<dyn Future<Output = Result<Vec<PrettyOutput>, Box<dyn Error + Send + Sync>>> + Send + '_>>;
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<Vec<PrettyOutput>, Box<dyn Error + Send + Sync>>>
+                + Send
+                + '_,
+        >,
+    >;
 }
 
 /// Renders PrettyOutput items to a human-readable string format.
 /// Implementations produce different output formats (console, JSON, CSV).
+#[allow(clippy::type_complexity)]
 pub trait Renderer: Send {
     /// Human-readable name of this renderer implementation.
     fn name(&self) -> &str;

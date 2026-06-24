@@ -4,9 +4,9 @@ use std::pin::Pin;
 
 use serde::Deserialize;
 
+use crate::tp_reassembler::{TpReassembler, TpReassemblyResult};
 use crate::traits::Decoder;
-use crate::tp_reassembler::{TpReassemblyResult, TpReassembler};
-use crate::types::{AssembledMessage, Numeric, PGN, PrettyOutput, RawFrame, Severity};
+use crate::types::{AssembledMessage, Numeric, PrettyOutput, RawFrame, Severity, PGN};
 
 /// YAML configuration for the PGN decoder engine.
 #[derive(Debug, Clone, Deserialize)]
@@ -86,7 +86,9 @@ impl DecoderConfigLoader {
     }
 
     /// Load config from a YAML string.
-    pub fn load_from_str(yaml: &str) -> Result<DecoderConfig, Box<dyn std::error::Error + Send + Sync>> {
+    pub fn load_from_str(
+        yaml: &str,
+    ) -> Result<DecoderConfig, Box<dyn std::error::Error + Send + Sync>> {
         let config: DecoderConfig = serde_yaml::from_str(yaml)?;
         Ok(config)
     }
@@ -319,13 +321,19 @@ impl J1939Decoder {
             severity: Severity::Info,
             text: format!(
                 "Unrecognized PGN={:#06X} source={:#04X}: {} bytes",
-                pgn_key, msg.source_address, msg.data.len()
+                pgn_key,
+                msg.source_address,
+                msg.data.len()
             ),
         }]
     }
 
     /// Decode components of a message based on a PGN definition.
-    fn decode_components(&self, msg: &AssembledMessage, pgn_def: &PgnDefinition) -> Vec<PrettyOutput> {
+    fn decode_components(
+        &self,
+        msg: &AssembledMessage,
+        pgn_def: &PgnDefinition,
+    ) -> Vec<PrettyOutput> {
         let mut outputs = Vec::new();
 
         for comp in &pgn_def.components {
@@ -340,7 +348,9 @@ impl J1939Decoder {
                 severity: Severity::Warning,
                 text: format!(
                     "{} PGN={:#06X}: insufficient data for {} components",
-                    pgn_def.title, msg.pgn.pgn, pgn_def.components.len()
+                    pgn_def.title,
+                    msg.pgn.pgn,
+                    pgn_def.components.len()
                 ),
             });
         }
@@ -356,13 +366,19 @@ impl J1939Decoder {
         if end > data.len() {
             eprintln!(
                 "[DECODER] Component '{}' offset={}+length={} exceeds data length={}",
-                comp.name, comp.offset, comp.length, data.len()
+                comp.name,
+                comp.offset,
+                comp.length,
+                data.len()
             );
             return Some(PrettyOutput::StringMessage {
                 severity: Severity::Warning,
                 text: format!(
                     "Component '{}': data too short (need {} bytes at offset {}, have {})",
-                    comp.name, comp.length, comp.offset, data.len()
+                    comp.name,
+                    comp.length,
+                    comp.offset,
+                    data.len()
                 ),
             });
         }
@@ -441,14 +457,12 @@ impl J1939Decoder {
                     decimal_places: comp.decimal_places,
                 })
             }
-            ValueType::Hex => {
-                Some(PrettyOutput::Value {
-                    title: comp.name.clone(),
-                    value: Numeric::Hex(slice.to_vec()),
-                    unit: None,
-                    decimal_places: None,
-                })
-            }
+            ValueType::Hex => Some(PrettyOutput::Value {
+                title: comp.name.clone(),
+                value: Numeric::Hex(slice.to_vec()),
+                unit: None,
+                decimal_places: None,
+            }),
             ValueType::Bool => {
                 let val = slice[0] != 0;
                 Some(PrettyOutput::Value {
@@ -540,7 +554,13 @@ impl Decoder for J1939Decoder {
     fn decode(
         &mut self,
         frame: RawFrame,
-    ) -> Pin<Box<dyn Future<Output = Result<Vec<PrettyOutput>, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>> {
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<Vec<PrettyOutput>, Box<dyn std::error::Error + Send + Sync>>>
+                + Send
+                + '_,
+        >,
+    > {
         Box::pin(async move { Ok(self.decode_raw_frame(frame)) })
     }
 }
@@ -632,7 +652,10 @@ pgns:
     #[test]
     fn test_default_pgn_definitions_count() {
         let defs = default_pgn_definitions();
-        assert!(defs.len() >= 8, "Should have at least 8 built-in definitions");
+        assert!(
+            defs.len() >= 8,
+            "Should have at least 8 built-in definitions"
+        );
     }
 
     #[test]
@@ -770,7 +793,9 @@ pgns:
 
         let result = J1939Decoder::decode_component(&data, &comp).unwrap();
         match result {
-            PrettyOutput::Value { value, .. } => assert_eq!(value, Numeric::Hex(vec![0xAA, 0xBB, 0xCC])),
+            PrettyOutput::Value { value, .. } => {
+                assert_eq!(value, Numeric::Hex(vec![0xAA, 0xBB, 0xCC]))
+            }
             _ => panic!("Expected Value"),
         }
     }
@@ -901,7 +926,9 @@ pgns:
         assert!(!outputs.is_empty());
 
         match &outputs[0] {
-            PrettyOutput::Value { title, value, unit, .. } => {
+            PrettyOutput::Value {
+                title, value, unit, ..
+            } => {
                 assert_eq!(title, "RPM");
                 assert_eq!(*value, Numeric::Float(2500.0));
                 assert_eq!(unit.as_ref(), Some(&"rpm".to_string()));
@@ -922,7 +949,9 @@ pgns:
         assert!(!outputs.is_empty());
 
         match &outputs[0] {
-            PrettyOutput::Value { title, value, unit, .. } => {
+            PrettyOutput::Value {
+                title, value, unit, ..
+            } => {
                 assert_eq!(title, "Speed");
                 assert_eq!(*value, Numeric::Float(60.0));
                 assert_eq!(unit.as_ref(), Some(&"km/h".to_string()));
@@ -956,7 +985,9 @@ pgns:
 
         assert!(!outputs.is_empty());
         match &outputs[0] {
-            PrettyOutput::StringMessage { severity, .. } => assert_eq!(*severity, Severity::Warning),
+            PrettyOutput::StringMessage { severity, .. } => {
+                assert_eq!(*severity, Severity::Warning)
+            }
             _ => panic!("Expected StringMessage"),
         }
     }

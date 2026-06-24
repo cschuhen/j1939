@@ -1,8 +1,8 @@
-use std::pin::Pin;
-use std::future::Future;
 use crate::traits::Filter;
-use crate::types::{PrettyOutput, Numeric, FlagValue, Severity};
+use crate::types::{FlagValue, Numeric, PrettyOutput, Severity};
 use regex::Regex;
+use std::future::Future;
+use std::pin::Pin;
 
 /// A filter that matches string messages using a regular expression.
 pub struct RegexFilter {
@@ -50,10 +50,10 @@ impl Filter for NumericFilter {
                 match value {
                     Numeric::Int(i) => {
                         let val: f64 = *i as f64;
-                        (self.min.map_or(true, |m| val >= m)) && (self.max.map_or(true, |m| val <= m))
+                        (self.min.is_none_or(|m| val >= m)) && (self.max.is_none_or(|m| val <= m))
                     }
                     Numeric::Float(f) => {
-                        (self.min.map_or(true, |m| *f >= m)) && (self.max.map_or(true, |m| *f <= m))
+                        (self.min.is_none_or(|m| *f >= m)) && (self.max.is_none_or(|m| *f <= m))
                     }
                     _ => false,
                 }
@@ -155,9 +155,13 @@ impl Filter for TitleFilter {
 
     fn matches(&self, output: &PrettyOutput) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
         let result = match output {
-            PrettyOutput::Value { title, .. } => title.to_lowercase().contains(&self.title_contains),
+            PrettyOutput::Value { title, .. } => {
+                title.to_lowercase().contains(&self.title_contains)
+            }
             PrettyOutput::Flag { title, .. } => title.to_lowercase().contains(&self.title_contains),
-            PrettyOutput::StringMessage { text, .. } => text.to_lowercase().contains(&self.title_contains),
+            PrettyOutput::StringMessage { text, .. } => {
+                text.to_lowercase().contains(&self.title_contains)
+            }
         };
         Box::pin(async move { result })
     }
@@ -179,7 +183,10 @@ impl Filter for CompositeFilter {
         "composite"
     }
 
-    fn matches<'a>(&'a self, output: &'a PrettyOutput) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>> {
+    fn matches<'a>(
+        &'a self,
+        output: &'a PrettyOutput,
+    ) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>> {
         Box::pin(async move {
             let mut result = true;
             for i in 0..self.filters.len() {
@@ -242,21 +249,25 @@ impl FilterParser {
             }
             let title = parts[0].to_string();
             let range_str = parts[1];
-            let min = if range_str.starts_with(">=") {
-                Some(range_str[2..].parse::<f64>()?)
+            let min = if let Some(stripped) = range_str.strip_prefix(">=") {
+                Some(stripped.parse::<f64>()?)
             } else {
                 None
             };
-            let max = if range_str.starts_with("<=") {
-                Some(range_str[2..].parse::<f64>()?)
+            let max = if let Some(stripped) = range_str.strip_prefix("<=") {
+                Some(stripped.parse::<f64>()?)
             } else {
                 None
             };
             Ok(Box::new(NumericFilter { title, min, max }))
         } else if let Some(rest) = expr.strip_prefix("regex:") {
-            RegexFilter::new(rest).map(|f| Box::new(f) as Box<dyn Filter>).map_err(anyhow::Error::from)
+            RegexFilter::new(rest)
+                .map(|f| Box::new(f) as Box<dyn Filter>)
+                .map_err(anyhow::Error::from)
         } else {
-            Err(anyhow::anyhow!("unknown filter type (use title:, pgn:, severity:, flag:, numeric:, regex:)"))
+            Err(anyhow::anyhow!(
+                "unknown filter type (use title:, pgn:, severity:, flag:, numeric:, regex:)"
+            ))
         }
     }
 }

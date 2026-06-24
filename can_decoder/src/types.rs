@@ -92,15 +92,9 @@ pub enum PrettyOutput {
         decimal_places: Option<u8>,
     },
     /// A text message (status, warning, error) from a device.
-    StringMessage {
-        severity: Severity,
-        text: String,
-    },
+    StringMessage { severity: Severity, text: String },
     /// A flag/switch state (on/off/error/unavailable).
-    Flag {
-        title: String,
-        value: FlagValue,
-    },
+    Flag { title: String, value: FlagValue },
 }
 
 /// Numeric values that can be decoded from CAN data.
@@ -212,7 +206,11 @@ mod tests {
         ];
         for (can_id, expected_priority) in test_cases {
             let pgn = PGN::from_can_id(can_id);
-            assert_eq!(pgn.priority, expected_priority, "priority mismatch for can_id={:#x}", can_id);
+            assert_eq!(
+                pgn.priority, expected_priority,
+                "priority mismatch for can_id={:#x}",
+                can_id
+            );
         }
     }
 
@@ -226,13 +224,21 @@ mod tests {
         ];
         for &can_id in &test_ids {
             let pgn = PGN::from_can_id(can_id);
-            assert_eq!(pgn.to_u32(), can_id, "roundtrip failed for can_id={:#x}", can_id);
+            assert_eq!(
+                pgn.to_u32(),
+                can_id,
+                "roundtrip failed for can_id={:#x}",
+                can_id
+            );
         }
     }
 
     #[test]
     fn pgn_to_u32_preserves_fields() {
-        let pgn = PGN { priority: 4, pgn: 0xDEADBEEF & 0x3FFFF };
+        let pgn = PGN {
+            priority: 4,
+            pgn: 0xDEADBEEF & 0x3FFFF,
+        };
         let reconstructed = PGN::from_can_id(pgn.to_u32());
         assert_eq!(reconstructed.priority, pgn.priority);
         assert_eq!(reconstructed.pgn, pgn.pgn);
@@ -268,13 +274,19 @@ mod tests {
 
     #[test]
     fn pgn_to_u32_zero() {
-        let pgn = PGN { priority: 0, pgn: 0 };
+        let pgn = PGN {
+            priority: 0,
+            pgn: 0,
+        };
         assert_eq!(pgn.to_u32(), 0);
     }
 
     #[test]
     fn pgn_to_u32_max_priority_pgn() {
-        let pgn = PGN { priority: 7, pgn: 0x1FFFFF };
+        let pgn = PGN {
+            priority: 7,
+            pgn: 0x1FFFFF,
+        };
         assert_eq!(pgn.to_u32(), (7 << 26) | (0x1FFFFF << 8));
     }
 
@@ -320,7 +332,12 @@ mod tests {
             decimal_places: Some(1),
         };
         match output {
-            PrettyOutput::Value { ref title, ref value, ref unit, decimal_places } => {
+            PrettyOutput::Value {
+                ref title,
+                ref value,
+                ref unit,
+                decimal_places,
+            } => {
                 assert_eq!(title, "Speed");
                 assert_eq!(value, &Numeric::Float(55.5));
                 assert_eq!(unit.as_ref(), Some(&"km/h".to_string()));
@@ -381,9 +398,13 @@ mod tests {
     #[test]
     fn assembled_message_new_timestamp() {
         let pgn = PGN::from_can_id(0x18EF4000);
-        let before = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+        let before = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default();
         let msg = AssembledMessage::new(pgn, 0x20, vec![0x01]);
-        let after = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+        let after = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default();
 
         assert!(msg.timestamp >= before.as_micros() as u64);
         assert!(msg.timestamp <= after.as_micros() as u64 + 100_000);

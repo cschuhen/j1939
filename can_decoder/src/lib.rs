@@ -1,18 +1,18 @@
 pub mod device_manager;
+/// Filter implementations and filter expression parsing.
+pub mod filters;
+/// PGN decoder engine with YAML configuration support.
+pub mod pgn_decoder;
 /// Async channel-based pipeline wiring stages together.
 pub mod pipeline;
 /// Input sources (SocketCAN, candump files).
 pub mod sources;
-/// Core traits defining the pipeline architecture.
-pub mod traits;
 /// J1939 Transport Protocol reassembly module.
 pub mod tp_reassembler;
-/// PGN decoder engine with YAML configuration support.
-pub mod pgn_decoder;
+/// Core traits defining the pipeline architecture.
+pub mod traits;
 /// Data models for CAN frames, messages, and decoded output.
 pub mod types;
-/// Filter implementations and filter expression parsing.
-pub mod filters;
 
 use clap::Parser;
 use std::path::PathBuf;

@@ -10,7 +10,9 @@ use can_decoder::SourceType;
 use clap::Parser;
 
 /// Parse CLI filter expressions into a CompositeFilter.
-fn build_filters(cli_filters: &[String]) -> Result<Arc<tokio::sync::Mutex<dyn can_decoder::traits::Filter>>> {
+fn build_filters(
+    cli_filters: &[String],
+) -> Result<Arc<tokio::sync::Mutex<dyn can_decoder::traits::Filter>>> {
     if cli_filters.is_empty() {
         // No filters specified - use pass-through (match all)
         let empty = Arc::new(tokio::sync::Mutex::new(CompositeFilter::new(vec![])));
@@ -81,7 +83,10 @@ async fn main() -> Result<()> {
     }
 
     // Wire up Decoder → Filter → Renderer
-    let decoder = Box::new(can_decoder::pgn_decoder::J1939Decoder::new(cli.force_output_partial_tp, 5000));
+    let decoder = Box::new(can_decoder::pgn_decoder::J1939Decoder::new(
+        cli.force_output_partial_tp,
+        5000,
+    ));
     pipeline.spawn_decoder(decoder);
 
     let filter = build_filters(&cli.filter)?;

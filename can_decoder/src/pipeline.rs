@@ -22,8 +22,13 @@ pub struct Pipeline {
     output_rx: Option<mpsc::UnboundedReceiver<PrettyOutput>>,
 }
 
+impl Default for Pipeline {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Pipeline {
-    /// Create a new pipeline with unbounded channels.
     pub fn new() -> Self {
         let (source_tx, decoder_rx) = mpsc::unbounded_channel();
         let (output_tx, output_rx) = mpsc::unbounded_channel();
@@ -49,9 +54,7 @@ impl Pipeline {
         source: Arc<dyn Source>,
     ) -> JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>> {
         let tx = self.source_tx.clone();
-        tokio::spawn(async move {
-            source.start(tx).await
-        })
+        tokio::spawn(async move { source.start(tx).await })
     }
 
     /// Spawn a Decoder task that reads RawFrames and emits PrettyOutput items.
@@ -64,19 +67,16 @@ impl Pipeline {
         let mut rx = self.decoder_rx.take().expect("decoder_rx already consumed");
         let tx = self.output_tx.clone();
         tokio::spawn(async move {
-            loop {
-                match rx.recv().await {
-                    Some(frame) => match decoder.decode(frame).await {
-                        Ok(outputs) => {
-                            for output in outputs {
-                                if tx.send(output).is_err() {
-                                    return Ok(());
-                                }
+            while let Some(frame) = rx.recv().await {
+                match decoder.decode(frame).await {
+                    Ok(outputs) => {
+                        for output in outputs {
+                            if tx.send(output).is_err() {
+                                return Ok(());
                             }
                         }
-                        Err(e) => eprintln!("Decoder error: {}", e),
-                    },
-                    None => break,
+                    }
+                    Err(e) => eprintln!("Decoder error: {}", e),
                 }
             }
             Ok(())
@@ -93,17 +93,10 @@ impl Pipeline {
         let mut rx = self.output_rx.take().expect("output_rx already consumed");
         let (filter_tx, filter_rx) = mpsc::unbounded_channel();
         let handle = tokio::spawn(async move {
-            loop {
-                match rx.recv().await {
-                    Some(output) => {
-                        let f = filter.lock().await;
-                        if f.matches(&output).await {
-                            if filter_tx.send(output).is_err() {
-                                break;
-                            }
-                        }
-                    }
-                    None => break,
+            while let Some(output) = rx.recv().await {
+                let f = filter.lock().await;
+                if f.matches(&output).await && filter_tx.send(output).is_err() {
+                    break;
                 }
             }
         });
@@ -118,13 +111,10 @@ impl Pipeline {
         mut renderer: Box<dyn Renderer>,
     ) -> JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>> {
         tokio::spawn(async move {
-            loop {
-                match rx.recv().await {
-                    Some(output) => match renderer.render(output).await {
-                        Ok(line) => println!("{}", line),
-                        Err(e) => eprintln!("Render error: {}", e),
-                    },
-                    None => break,
+            while let Some(output) = rx.recv().await {
+                match renderer.render(output).await {
+                    Ok(line) => println!("{}", line),
+                    Err(e) => eprintln!("Render error: {}", e),
                 }
             }
             Ok(())
@@ -145,20 +135,35 @@ impl Decoder for NullDecoder {
     fn decode(
         &mut self,
         frame: RawFrame,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<PrettyOutput>, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>> {
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = Result<Vec<PrettyOutput>, Box<dyn std::error::Error + Send + Sync>>,
+                > + Send
+                + '_,
+        >,
+    > {
         Box::pin(async move {
             if self.debug {
                 let pgn_info = crate::types::PGN::from_can_id(frame.can_id);
                 if pgn_info.pgn == 0xEE00 {
                     println!("[DEBUG] Processing address claim");
                 }
-                println!("[DEBUG] Decoding frame: ID={:08X}, Data={:02X?}", frame.can_id, frame.data);
+                println!(
+                    "[DEBUG] Decoding frame: ID={:08X}, Data={:02X?}",
+                    frame.can_id, frame.data
+                );
             }
             let text = format!(
                 "CAN {:08X} len={} data={}",
                 frame.can_id,
                 frame.data.len(),
-                frame.data.iter().map(|b| format!("{:02X}", b)).collect::<Vec<_>>().join(" ")
+                frame
+                    .data
+                    .iter()
+                    .map(|b| format!("{:02X}", b))
+                    .collect::<Vec<_>>()
+                    .join(" ")
             );
             Ok(vec![PrettyOutput::StringMessage {
                 severity: crate::types::Severity::Info,
@@ -195,14 +200,24 @@ impl Renderer for ConsoleRenderer {
     fn render(
         &mut self,
         output: PrettyOutput,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<String, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>> {
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = Result<String, Box<dyn std::error::Error + Send + Sync>>,
+                > + Send
+                + '_,
+        >,
+    > {
         Box::pin(async move { Ok(format_output(&output)) })
     }
 }
 
 /// Format a PrettyOutput item into a human-readable string.
 fn format_output(output: &PrettyOutput) -> String {
-    use owo_colors::Colorize;
+    use owo_colors::OwoColorize;
+    let w1 = 20;
+    let w2 = 15;
+
     match output {
         PrettyOutput::Value {
             title,
@@ -220,21 +235,42 @@ fn format_output(output: &PrettyOutput) -> String {
                     }
                 }
                 crate::types::Numeric::Hex(v) => {
-                    format!("0x{}", v.iter().map(|b| format!("{:02X}", b)).collect::<String>())
+                    format!(
+                        "0x{}",
+                        v.iter().map(|b| format!("{:02X}", b)).collect::<String>()
+                    )
                 }
                 crate::types::Numeric::Bool(v) => format!("{}", v),
             };
-            if let Some(ref unit) = unit {
-                format!("[{}] {} {}", title.bold(), val_str, unit)
-            } else {
-                format!("[{}] {}", title.bold(), val_str)
-            }
+            let title_part = format!("[{}]", title.bold().cyan());
+            let unit_part = unit
+                .as_ref()
+                .map(|u| u.dimmed().to_string())
+                .unwrap_or_else(|| "".to_string());
+            format!(
+                "{:<w1$} | {:<w2$} | {}",
+                title_part,
+                val_str,
+                unit_part,
+                w1 = w1,
+                w2 = w2
+            )
         }
-        PrettyOutput::StringMessage { severity, text } => match severity {
-            crate::types::Severity::Info => format!("INFO:  {}", text.green()),
-            crate::types::Severity::Warning => format!("WARN:  {}", text.yellow()),
-            crate::types::Severity::Error => format!("ERROR: {}", text.red().bold()),
-        },
+        PrettyOutput::StringMessage { severity, text } => {
+            let sev_part = match severity {
+                crate::types::Severity::Info => "INFO".green().bold().to_string(),
+                crate::types::Severity::Warning => "WARN".yellow().bold().to_string(),
+                crate::types::Severity::Error => "ERROR".red().bold().to_string(),
+            };
+            format!(
+                "{:<w1$} | {:<w2$} | {}",
+                sev_part,
+                "",
+                text,
+                w1 = w1,
+                w2 = w2
+            )
+        }
         PrettyOutput::Flag { title, value } => {
             let flag_text = match value {
                 crate::types::FlagValue::Off => "OFF".red().to_string(),
@@ -242,7 +278,15 @@ fn format_output(output: &PrettyOutput) -> String {
                 crate::types::FlagValue::Error => "ERR".red().bold().to_string(),
                 crate::types::FlagValue::Unavailable => "N/A".dimmed().to_string(),
             };
-            format!("[{}] {}", title.bold(), flag_text)
+            let title_part = format!("[{}]", title.bold().cyan());
+            format!(
+                "{:<w1$} | {:<w2$} | {}",
+                title_part,
+                "",
+                flag_text,
+                w1 = w1,
+                w2 = w2
+            )
         }
     }
 }

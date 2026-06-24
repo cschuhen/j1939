@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use crate::types::PGN;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct Device {
@@ -11,9 +11,21 @@ pub struct Device {
 
 #[derive(Debug, Clone)]
 pub enum DeviceEvent {
-    Claimed { address: u8, name: String, timestamp: u64 },
-    Conflict { address: u8, name1: String, name2: String, timestamp: u64 },
-    Expired { address: u8, timestamp: u64 },
+    Claimed {
+        address: u8,
+        name: String,
+        timestamp: u64,
+    },
+    Conflict {
+        address: u8,
+        name1: String,
+        name2: String,
+        timestamp: u64,
+    },
+    Expired {
+        address: u8,
+        timestamp: u64,
+    },
 }
 
 pub struct DeviceManager {
@@ -31,7 +43,12 @@ impl DeviceManager {
         }
     }
 
-    pub fn update(&mut self, timestamp: u64, address: u8, name: Option<String>) -> Vec<DeviceEvent> {
+    pub fn update(
+        &mut self,
+        timestamp: u64,
+        address: u8,
+        name: Option<String>,
+    ) -> Vec<DeviceEvent> {
         let mut events = Vec::new();
 
         if let Some(device) = self.devices.get_mut(&address) {
@@ -63,16 +80,21 @@ impl DeviceManager {
             }
         } else {
             // New device (not a refresh of expired one)
-            self.devices.insert(address, Device {
+            self.devices.insert(
                 address,
-                name,
-                last_seen_timestamp: timestamp,
-                is_claimed: true,
-            });
+                Device {
+                    address,
+                    name,
+                    last_seen_timestamp: timestamp,
+                    is_claimed: true,
+                },
+            );
         }
 
         // Check for expirations of OTHER devices (not the one we just updated)
-        let expired_addresses: Vec<u8> = self.devices.iter()
+        let expired_addresses: Vec<u8> = self
+            .devices
+            .iter()
             .filter(|(_, d)| timestamp - d.last_seen_timestamp > self.ttl_microseconds)
             .map(|(addr, _)| *addr)
             .collect();
@@ -104,16 +126,19 @@ impl DeviceManager {
             device.is_claimed = true;
             device.last_seen_timestamp = timestamp;
         } else {
-            self.devices.insert(address, Device {
+            self.devices.insert(
                 address,
-                name: Some(name),
-                last_seen_timestamp: timestamp,
-                is_claimed: true,
-            });
+                Device {
+                    address,
+                    name: Some(name),
+                    last_seen_timestamp: timestamp,
+                    is_claimed: true,
+                },
+            );
         }
         events
     }
-    
+
     pub fn get_device(&self, address: u8) -> Option<&Device> {
         self.devices.get(&address)
     }

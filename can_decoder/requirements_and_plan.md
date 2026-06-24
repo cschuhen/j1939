@@ -155,7 +155,7 @@ Global Config:
 ### Phase 4: Filtering & Console UI
 - [x] Full CLI structure with all flags from the spec.
 - [x] Implement post-interpretation pluggable Filtering Engine (address, PGN, name, severity, regex).
-- [ ] Implement Phase 1 Console Renderer (colorized, columnar output using `owo-colors`).
+- [x] Implement Console Renderer (colorized, columnar output using `owo-colors`).
 - [ ] **Testing**: Filter logic tests with complex expressions; end-to-end console rendering tests.
 
 ### Phase 5: Structured Output & Advanced UI

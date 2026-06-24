@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 
-use crate::types::{AssembledMessage, PGN, RawFrame};
+use crate::types::{AssembledMessage, RawFrame, PGN};
 
 /// Type of Transport Protocol frame.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -62,8 +62,16 @@ pub enum TpError {
     InvalidPacketNumber,
     DuplicatePacket,
     OutOfOrderPacket,
-    SizeMismatch { expected: usize, received: usize },
-    Timeout { source: u8, destination: u8, pgn: PGN, elapsed_ms: u64 },
+    SizeMismatch {
+        expected: usize,
+        received: usize,
+    },
+    Timeout {
+        source: u8,
+        destination: u8,
+        pgn: PGN,
+        elapsed_ms: u64,
+    },
     CorruptedData(String),
 }
 
@@ -141,11 +149,7 @@ impl TpReassembler {
         results
     }
 
-    fn process_frame_internal(
-        &mut self,
-        frame: &RawFrame,
-        pgn: &PGN,
-    ) -> Vec<TpReassemblyResult> {
+    fn process_frame_internal(&mut self, frame: &RawFrame, pgn: &PGN) -> Vec<TpReassemblyResult> {
         if pgn.pgn < 0xEF00 {
             return self.handle_broadcast_compressed(frame, pgn);
         }
@@ -155,9 +159,7 @@ impl TpReassembler {
         match msg_type {
             TpMessageType::ConnectionManagement => vec![],
             TpMessageType::DataPacket => self.handle_data_packet(frame, pgn),
-            TpMessageType::BroadcastCompressed => {
-                self.handle_broadcast_compressed(frame, pgn)
-            }
+            TpMessageType::BroadcastCompressed => self.handle_broadcast_compressed(frame, pgn),
         }
     }
 
@@ -182,11 +184,7 @@ impl TpReassembler {
         TpMessageType::ConnectionManagement
     }
 
-    fn handle_broadcast_compressed(
-        &self,
-        frame: &RawFrame,
-        pgn: &PGN,
-    ) -> Vec<TpReassemblyResult> {
+    fn handle_broadcast_compressed(&self, frame: &RawFrame, pgn: &PGN) -> Vec<TpReassemblyResult> {
         let source_address = (frame.can_id & 0xFF) as u8;
 
         let assembled = AssembledMessage {
@@ -200,11 +198,7 @@ impl TpReassembler {
         vec![TpReassemblyResult::Complete(assembled)]
     }
 
-    fn handle_data_packet(
-        &mut self,
-        frame: &RawFrame,
-        pgn: &PGN,
-    ) -> Vec<TpReassemblyResult> {
+    fn handle_data_packet(&mut self, frame: &RawFrame, pgn: &PGN) -> Vec<TpReassemblyResult> {
         let data = &frame.data;
 
         if data.len() < 2 {
@@ -254,7 +248,11 @@ impl TpReassembler {
         let assembly = self.assemblies.get(&key).unwrap().clone();
 
         // Check for duplicate packet number
-        if assembly.packets_received.iter().any(|(pn, _)| *pn == packet_num) {
+        if assembly
+            .packets_received
+            .iter()
+            .any(|(pn, _)| *pn == packet_num)
+        {
             eprintln!(
                 "[TP] Duplicate packet {} for PGN={:#06X}, source={:#04X}",
                 packet_num, pgn.pgn, source_address
@@ -290,8 +288,7 @@ impl TpReassembler {
         // Sort packets by number for proper ordering
         updated.packets_received.sort_by_key(|(pn, _)| *pn);
 
-        let total_data_len: usize =
-            updated.packets_received.iter().map(|(_, d)| d.len()).sum();
+        let total_data_len: usize = updated.packets_received.iter().map(|(_, d)| d.len()).sum();
 
         if packet_num == max_packets as u8 && total_data_len >= assembly.total_size {
             // Last packet received and we have enough data
@@ -351,15 +348,12 @@ impl TpReassembler {
 
                     eprintln!(
                         "[TP] Timeout for PGN={:#06X}: source={:#04X}, dest={:#04X}",
-                        assembly.pgn.pgn,
-                        assembly.source_address,
-                        assembly.destination_address
+                        assembly.pgn.pgn, assembly.source_address, assembly.destination_address
                     );
                 } else {
                     eprintln!(
                         "[TP] Discarding incomplete TP message: PGN={:#06X}, source={:#04X}",
-                        assembly.pgn.pgn,
-                        assembly.source_address
+                        assembly.pgn.pgn, assembly.source_address
                     );
                 }
             }
@@ -476,6 +470,7 @@ mod tests {
         let source: u8 = 0x20;
         let dest: u8 = 0xFF;
         let can_id = (7u32 << 26) | (pgn_val << 8) | source as u32;
+        let _ = dest; // Keep dest in scope to avoid warning
         let frame = make_frame(can_id, &[0x01, 0x41, 0x42]);
 
         let results = reassembler.process_frame(&frame);
@@ -543,16 +538,19 @@ mod tests {
         let pgn_struct = PGN::from_can_id(can_id_base);
         let key = (source, dest, pgn_struct.clone());
 
-        reassembler.assemblies.insert(key.clone(), TpAssemblyState {
-            source_address: source,
-            destination_address: dest,
-            pgn: pgn_struct.clone(),
-            total_size: 5,
-            page_number: 0,
-            packets_received: vec![],
-            start_time: 1000,
-            last_packet_time: 1000,
-        });
+        reassembler.assemblies.insert(
+            key.clone(),
+            TpAssemblyState {
+                source_address: source,
+                destination_address: dest,
+                pgn: pgn_struct.clone(),
+                total_size: 5,
+                page_number: 0,
+                packets_received: vec![],
+                start_time: 1000,
+                last_packet_time: 1000,
+            },
+        );
 
         let frame = make_frame(can_id_base, &[0x01, 0x10, 0x20, 0x30, 0x40, 0x50]);
 
@@ -584,23 +582,32 @@ mod tests {
         let pgn_struct = PGN::from_can_id(can_id_base);
         let key = (source, dest, pgn_struct.clone());
 
-        reassembler.assemblies.insert(key.clone(), TpAssemblyState {
-            source_address: source,
-            destination_address: dest,
-            pgn: pgn_struct.clone(),
-            total_size: 20,
-            page_number: 1,
-            packets_received: vec![],
-            start_time: 5000,
-            last_packet_time: 5000,
-        });
+        reassembler.assemblies.insert(
+            key.clone(),
+            TpAssemblyState {
+                source_address: source,
+                destination_address: dest,
+                pgn: pgn_struct.clone(),
+                total_size: 20,
+                page_number: 1,
+                packets_received: vec![],
+                start_time: 5000,
+                last_packet_time: 5000,
+            },
+        );
 
         let mut results = Vec::new();
 
-        let frame1 = make_frame(can_id_base, &[0x01, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x01]);
+        let frame1 = make_frame(
+            can_id_base,
+            &[0x01, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x01],
+        );
         results.extend(reassembler.process_frame(&frame1));
 
-        let frame2 = make_frame(can_id_base, &[0x02, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77]);
+        let frame2 = make_frame(
+            can_id_base,
+            &[0x02, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77],
+        );
         results.extend(reassembler.process_frame(&frame2));
 
         let frame3 = make_frame(can_id_base, &[0x03, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC]);
@@ -620,7 +627,7 @@ mod tests {
                 let expected = vec![
                     0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x01, // packet 1 (7 bytes)
                     0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, // packet 2 (7 bytes after fix)
-                    0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC,        // packet 3 (6 bytes to reach 20)
+                    0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC, // packet 3 (6 bytes to reach 20)
                 ];
                 assert_eq!(msg.data, expected);
             }
@@ -642,18 +649,24 @@ mod tests {
         let pgn_struct = PGN::from_can_id(can_id_base);
         let key = (source, dest, pgn_struct.clone());
 
-        reassembler.assemblies.insert(key.clone(), TpAssemblyState {
-            source_address: source,
-            destination_address: dest,
-            pgn: pgn_struct.clone(),
-            total_size: 14,
-            page_number: 0,
-            packets_received: vec![],
-            start_time: 5000,
-            last_packet_time: 5000,
-        });
+        reassembler.assemblies.insert(
+            key.clone(),
+            TpAssemblyState {
+                source_address: source,
+                destination_address: dest,
+                pgn: pgn_struct.clone(),
+                total_size: 14,
+                page_number: 0,
+                packets_received: vec![],
+                start_time: 5000,
+                last_packet_time: 5000,
+            },
+        );
 
-        let frame1 = make_frame(can_id_base, &[0x01, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x01]);
+        let frame1 = make_frame(
+            can_id_base,
+            &[0x01, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x01],
+        );
         let results = reassembler.process_frame(&frame1);
 
         assert_eq!(results.len(), 1);
@@ -690,13 +703,16 @@ mod tests {
             },
         );
 
-        let frame = make_frame(can_id_base, &[0x01, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x01]);
+        let frame = make_frame(
+            can_id_base,
+            &[0x01, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x01],
+        );
         let results = reassembler.process_frame(&frame);
 
         assert_eq!(results.len(), 1);
         match &results[0] {
             TpReassemblyResult::Pending => {}
-            other => panic!("Expected Pending for incomplete assembly"),
+            _other => panic!("Expected Pending for incomplete assembly"),
         }
     }
 
@@ -798,7 +814,9 @@ mod tests {
 
         reassembler.cleanup_expired(800);
 
-        assert!(reassembler.assemblies.contains_key(&(source, dest, pgn_struct.clone())));
+        assert!(reassembler
+            .assemblies
+            .contains_key(&(source, dest, pgn_struct.clone())));
     }
 
     #[test]
@@ -889,7 +907,10 @@ mod tests {
 
         assert!(results.is_empty());
 
-        let assembly = reassembler.assemblies.get(&(source, dest, pgn_struct.clone())).unwrap();
+        let assembly = reassembler
+            .assemblies
+            .get(&(source, dest, pgn_struct.clone()))
+            .unwrap();
         assert_eq!(assembly.packets_received.len(), 1);
         assert_eq!(assembly.packets_received[0].1, vec![0xAA; 7]);
     }
@@ -913,10 +934,7 @@ mod tests {
                 pgn: pgn_struct.clone(),
                 total_size: 21,
                 page_number: 0,
-                packets_received: vec![
-                    (1, vec![0xAA; 7]),
-                    (2, vec![0xBB; 7]),
-                ],
+                packets_received: vec![(1, vec![0xAA; 7]), (2, vec![0xBB; 7])],
                 start_time: 5000,
                 last_packet_time: 5000,
             },
@@ -1004,7 +1022,10 @@ mod tests {
             expected: 20,
             received: 15,
         };
-        assert_eq!(format!("{}", err), "Size mismatch: expected 20 bytes, received 15");
+        assert_eq!(
+            format!("{}", err),
+            "Size mismatch: expected 20 bytes, received 15"
+        );
     }
 
     #[test]
@@ -1093,7 +1114,9 @@ mod tests {
 
         reassembler.cleanup_expired(9000);
 
-        assert!(reassembler.assemblies.contains_key(&(source, dest, pgn_struct.clone())));
+        assert!(reassembler
+            .assemblies
+            .contains_key(&(source, dest, pgn_struct.clone())));
 
         reassembler.cleanup_expired(11000);
 
@@ -1152,7 +1175,10 @@ mod tests {
             },
         );
 
-        let frame = make_frame(can_id_base, &[0x01, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x01]);
+        let frame = make_frame(
+            can_id_base,
+            &[0x01, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x01],
+        );
         let results = reassembler.process_frame(&frame);
 
         assert_eq!(results.len(), 1);
@@ -1306,10 +1332,7 @@ mod tests {
         match &results[0] {
             TpReassemblyResult::Complete(msg) => {
                 assert_eq!(msg.data.len(), 7);
-                assert_eq!(
-                    msg.data,
-                    vec![0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x01]
-                );
+                assert_eq!(msg.data, vec![0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x01]);
             }
             _ => panic!("Expected Complete result"),
         }
