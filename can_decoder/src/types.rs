@@ -140,8 +140,61 @@ impl From<u8> for FlagValue {
     }
 }
 
+/// Errors that can occur during the decoding process.
+#[derive(Debug, thiserror::Error)]
+pub enum DecodeError {
+    #[error("Invalid payload length: expected {expected}, found {found}")]
+    InvalidLength { expected: usize, found: usize },
+    #[error("Malformed data: {0}")]
+    MalformedData(String),
+    #[error("Unknown PGN: {0:#x}")]
+    UnknownPgn(u32),
+    #[error("Internal error: {0}")]
+    Internal(String),
+}
+
+/// The context provided to every decoder call.
+#[derive(Debug, Clone)]
+pub struct DecodeContext {
+    pub pgn: PGN,
+    pub priority: u8,
+    pub src_addr: u8,
+    pub dest_addr: u8,
+    pub src_name: Option<u64>,  // Optional: 64-bit J1939 NAME
+    pub dest_name: Option<u64>, // Optional: 64-bit J1939 NAME
+    pub timestamp: u64,
+}
+
+/// A command returned by a decoder to tell the DeviceManager
+/// what to change in the system state.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DeviceUpdate {
+    pub target_name: u64,
+    pub param_id: u16,
+    pub value: Numeric,
+}
+
+/// The final result of a decoding operation.
+#[derive(Debug, Clone)]
+pub struct DecodedMessage {
+    pub title: String,
+    pub outputs: Vec<PrettyOutput>,
+    pub updates: Vec<DeviceUpdate>,
+}
+
+impl DecodedMessage {
+    pub fn new(title: String) -> Self {
+        DecodedMessage {
+            title,
+            outputs: Vec::new(),
+            updates: Vec::new(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+
     use super::*;
 
     #[test]

@@ -4,7 +4,7 @@ use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinHandle;
 
 use crate::traits::{Decoder, Filter, Renderer, Source};
-use crate::types::{PrettyOutput, RawFrame};
+use crate::types::{DecodedMessage, PrettyOutput, RawFrame};
 
 /// Manages the async pipeline: Source → Decoder → Filter → Renderer.
 ///
@@ -14,12 +14,12 @@ use crate::types::{PrettyOutput, RawFrame};
 pub struct Pipeline {
     /// Sender for pushing raw CAN frames into the pipeline.
     source_tx: mpsc::UnboundedSender<RawFrame>,
-    /// Receiver for decoded PrettyOutput items (consumed by filter/renderer).
+    /// Receiver for raw CAN frames (consumed by decoder).
     decoder_rx: Option<mpsc::UnboundedReceiver<RawFrame>>,
     /// Sender from Decoder, input to Filter.
-    output_tx: mpsc::UnboundedSender<PrettyOutput>,
+    output_tx: mpsc::UnboundedSender<DecodedMessage>,
     /// Receiver from Decoder / input to Filter (consumed by spawn_filter).
-    output_rx: Option<mpsc::UnboundedReceiver<PrettyOutput>>,
+    output_rx: Option<mpsc::UnboundedReceiver<DecodedMessage>>,
 }
 
 impl Default for Pipeline {
@@ -57,7 +57,7 @@ impl Pipeline {
         tokio::spawn(async move { source.start(tx).await })
     }
 
-    /// Spawn a Decoder task that reads RawFrames and emits PrettyOutput items.
+    /// Spawn a Decoder task that reads RawFrames and emits DecodedMessage items.
     ///
     /// Consumes the decoder_rx channel, so this method can only be called once.
     pub fn spawn_decoder(
@@ -69,11 +69,9 @@ impl Pipeline {
         tokio::spawn(async move {
             while let Some(frame) = rx.recv().await {
                 match decoder.decode(frame).await {
-                    Ok(outputs) => {
-                        for output in outputs {
-                            if tx.send(output).is_err() {
-                                return Ok(());
-                            }
+                    Ok(message) => {
+                        if tx.send(message).is_err() {
+                            return Ok(());
                         }
                     }
                     Err(e) => eprintln!("Decoder error: {}", e),
@@ -83,19 +81,19 @@ impl Pipeline {
         })
     }
 
-    /// Spawn a Filter task that passes matching PrettyOutput items downstream.
+    /// Spawn a Filter task that passes matching DecodedMessage items downstream.
     ///
     /// Consumes the output_rx channel and returns a new receiver for filtered output.
     pub fn spawn_filter(
         &mut self,
         filter: Arc<Mutex<dyn Filter>>,
-    ) -> (mpsc::UnboundedReceiver<PrettyOutput>, JoinHandle<()>) {
+    ) -> (mpsc::UnboundedReceiver<DecodedMessage>, JoinHandle<()>) {
         let mut rx = self.output_rx.take().expect("output_rx already consumed");
         let (filter_tx, filter_rx) = mpsc::unbounded_channel();
         let handle = tokio::spawn(async move {
-            while let Some(output) = rx.recv().await {
+            while let Some(message) = rx.recv().await {
                 let f = filter.lock().await;
-                if f.matches(&output).await && filter_tx.send(output).is_err() {
+                if f.matches(&message).await && filter_tx.send(message).is_err() {
                     break;
                 }
             }
@@ -103,16 +101,16 @@ impl Pipeline {
         (filter_rx, handle)
     }
 
-    /// Spawn a Renderer task that formats and prints PrettyOutput items.
+    /// Spawn a Renderer task that formats and prints DecodedMessage items.
     ///
     /// Takes ownership of both the receiver and renderer instance.
     pub fn spawn_renderer(
-        mut rx: mpsc::UnboundedReceiver<PrettyOutput>,
+        mut rx: mpsc::UnboundedReceiver<DecodedMessage>,
         mut renderer: Box<dyn Renderer>,
     ) -> JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>> {
         tokio::spawn(async move {
-            while let Some(output) = rx.recv().await {
-                match renderer.render(output).await {
+            while let Some(message) = rx.recv().await {
+                match renderer.render(&message).await {
                     Ok(line) => println!("{}", line),
                     Err(e) => eprintln!("Render error: {}", e),
                 }
@@ -138,7 +136,7 @@ impl Decoder for NullDecoder {
     ) -> std::pin::Pin<
         Box<
             dyn std::future::Future<
-                    Output = Result<Vec<PrettyOutput>, Box<dyn std::error::Error + Send + Sync>>,
+                    Output = Result<DecodedMessage, Box<dyn std::error::Error + Send + Sync>>,
                 > + Send
                 + '_,
         >,
@@ -165,10 +163,14 @@ impl Decoder for NullDecoder {
                     .collect::<Vec<_>>()
                     .join(" ")
             );
-            Ok(vec![PrettyOutput::StringMessage {
-                severity: crate::types::Severity::Info,
-                text,
-            }])
+            Ok(DecodedMessage {
+                title: format!("Raw Frame {:08X}", frame.can_id),
+                outputs: vec![PrettyOutput::StringMessage {
+                    severity: crate::types::Severity::Info,
+                    text,
+                }],
+                updates: vec![],
+            })
         })
     }
 }
@@ -183,7 +185,7 @@ impl Filter for PassThroughFilter {
 
     fn matches(
         &self,
-        _output: &PrettyOutput,
+        _message: &DecodedMessage,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + '_>> {
         Box::pin(async move { true })
     }
@@ -197,9 +199,9 @@ impl Renderer for ConsoleRenderer {
         "console"
     }
 
-    fn render(
-        &mut self,
-        output: PrettyOutput,
+    fn render<'a>(
+        &'a mut self,
+        message: &'a DecodedMessage,
     ) -> std::pin::Pin<
         Box<
             dyn std::future::Future<
@@ -208,7 +210,18 @@ impl Renderer for ConsoleRenderer {
                 + '_,
         >,
     > {
-        Box::pin(async move { Ok(format_output(&output)) })
+        Box::pin(async move {
+            use owo_colors::OwoColorize;
+            let mut lines = Vec::new();
+            lines.push(format!(
+                "MSG: --- {} ---",
+                message.title.clone().bold().cyan()
+            ));
+            for output in &message.outputs {
+                lines.push(format_output(output));
+            }
+            Ok(lines.join("\n"))
+        })
     }
 }
 

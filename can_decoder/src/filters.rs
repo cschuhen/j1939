@@ -1,5 +1,5 @@
 use crate::traits::Filter;
-use crate::types::{FlagValue, Numeric, PrettyOutput, Severity};
+use crate::types::{DecodedMessage, FlagValue, Numeric, PrettyOutput, Severity};
 use regex::Regex;
 use std::future::Future;
 use std::pin::Pin;
@@ -22,8 +22,12 @@ impl Filter for RegexFilter {
         "regex_filter"
     }
 
-    fn matches(&self, output: &PrettyOutput) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
-        let result = if let PrettyOutput::StringMessage { text, .. } = output {
+    fn matches(&self, message: &DecodedMessage) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
+        let result = if let Some(PrettyOutput::StringMessage { text, .. }) = message
+            .outputs
+            .iter()
+            .find(|o| matches!(o, PrettyOutput::StringMessage { .. }))
+        {
             self.regex.is_match(text)
         } else {
             false
@@ -44,25 +48,28 @@ impl Filter for NumericFilter {
         "numeric_filter"
     }
 
-    fn matches(&self, output: &PrettyOutput) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
-        let result = if let PrettyOutput::Value { title, value, .. } = output {
-            if title == &self.title {
-                match value {
-                    Numeric::Int(i) => {
-                        let val: f64 = *i as f64;
-                        (self.min.is_none_or(|m| val >= m)) && (self.max.is_none_or(|m| val <= m))
+    fn matches(&self, message: &DecodedMessage) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
+        let result = message.outputs.iter().any(|output| {
+            if let PrettyOutput::Value { title, value, .. } = output {
+                if title == &self.title {
+                    match value {
+                        Numeric::Int(i) => {
+                            let val: f64 = *i as f64;
+                            (self.min.is_none_or(|m| val >= m))
+                                && (self.max.is_none_or(|m| val <= m))
+                        }
+                        Numeric::Float(f) => {
+                            (self.min.is_none_or(|m| *f >= m)) && (self.max.is_none_or(|m| *f <= m))
+                        }
+                        _ => false,
                     }
-                    Numeric::Float(f) => {
-                        (self.min.is_none_or(|m| *f >= m)) && (self.max.is_none_or(|m| *f <= m))
-                    }
-                    _ => false,
+                } else {
+                    false
                 }
             } else {
                 false
             }
-        } else {
-            false
-        };
+        });
         Box::pin(async move { result })
     }
 }
@@ -78,12 +85,14 @@ impl Filter for FlagFilter {
         "flag_filter"
     }
 
-    fn matches(&self, output: &PrettyOutput) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
-        let result = if let PrettyOutput::Flag { title, value } = output {
-            title == &self.title && *value == self.value
-        } else {
-            false
-        };
+    fn matches(&self, message: &DecodedMessage) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
+        let result = message.outputs.iter().any(|output| {
+            if let PrettyOutput::Flag { title, value } = output {
+                title == &self.title && *value == self.value
+            } else {
+                false
+            }
+        });
         Box::pin(async move { result })
     }
 }
@@ -98,12 +107,14 @@ impl Filter for SeverityFilter {
         "severity_filter"
     }
 
-    fn matches(&self, output: &PrettyOutput) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
-        let result = if let PrettyOutput::StringMessage { severity, .. } = output {
-            *severity == self.severity
-        } else {
-            false
-        };
+    fn matches(&self, message: &DecodedMessage) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
+        let result = message.outputs.iter().any(|output| {
+            if let PrettyOutput::StringMessage { severity, .. } = output {
+                *severity == self.severity
+            } else {
+                false
+            }
+        });
         Box::pin(async move { result })
     }
 }
@@ -124,13 +135,15 @@ impl Filter for PgnFilter {
         "pgn_filter"
     }
 
-    fn matches(&self, output: &PrettyOutput) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
-        let result = if let PrettyOutput::Value { title, .. } = output {
-            // Match on known PGN-containing titles from the decoder
-            title.contains("PGN") || title.contains("pgn")
-        } else {
-            false
-        };
+    fn matches(&self, message: &DecodedMessage) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
+        let result = message.outputs.iter().any(|output| {
+            if let PrettyOutput::Value { title, .. } = output {
+                // Match on known PGN-containing titles from the decoder
+                title.contains("PGN") || title.contains("pgn")
+            } else {
+                false
+            }
+        });
         Box::pin(async move { result })
     }
 }
@@ -153,8 +166,8 @@ impl Filter for TitleFilter {
         "title_filter"
     }
 
-    fn matches(&self, output: &PrettyOutput) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
-        let result = match output {
+    fn matches(&self, message: &DecodedMessage) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
+        let result = message.outputs.iter().any(|output| match output {
             PrettyOutput::Value { title, .. } => {
                 title.to_lowercase().contains(&self.title_contains)
             }
@@ -162,7 +175,7 @@ impl Filter for TitleFilter {
             PrettyOutput::StringMessage { text, .. } => {
                 text.to_lowercase().contains(&self.title_contains)
             }
-        };
+        });
         Box::pin(async move { result })
     }
 }
@@ -185,12 +198,12 @@ impl Filter for CompositeFilter {
 
     fn matches<'a>(
         &'a self,
-        output: &'a PrettyOutput,
+        message: &'a DecodedMessage,
     ) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>> {
         Box::pin(async move {
             let mut result = true;
             for i in 0..self.filters.len() {
-                if !self.filters[i].matches(output).await {
+                if !self.filters[i].matches(message).await {
                     result = false;
                     break;
                 }

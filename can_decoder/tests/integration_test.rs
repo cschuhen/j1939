@@ -1,6 +1,6 @@
 use can_decoder::pipeline::{ConsoleRenderer, Pipeline};
 use can_decoder::traits::{Decoder, Filter, Renderer, Source};
-use can_decoder::types::{FlagValue, Numeric, PrettyOutput, RawFrame, Severity};
+use can_decoder::types::{DecodedMessage, FlagValue, Numeric, PrettyOutput, RawFrame, Severity};
 use std::error::Error;
 use std::future::Future;
 use std::pin::Pin;
@@ -18,7 +18,10 @@ async fn test_console_renderer() {
         unit: Some("unit".to_string()),
         decimal_places: None,
     };
-    let res_val = renderer.render(output_val).await.unwrap();
+    let mut output_message = DecodedMessage::new("Some Title".into());
+    output_message.outputs.push(output_val);
+
+    let res_val = renderer.render(&output_message).await.unwrap();
     assert!(res_val.contains("Test Title"));
     assert!(res_val.contains("42"));
     assert!(res_val.contains("unit"));
@@ -28,7 +31,9 @@ async fn test_console_renderer() {
         severity: Severity::Error,
         text: "Error message".to_string(),
     };
-    let res_str = renderer.render(output_str).await.unwrap();
+    let mut output_message = DecodedMessage::new("Some Title".into());
+    output_message.outputs.push(output_str);
+    let res_str = renderer.render(&output_message).await.unwrap();
     assert!(res_str.contains("ERROR"));
     assert!(res_str.contains("Error message"));
 
@@ -37,7 +42,9 @@ async fn test_console_renderer() {
         title: "Flag Title".to_string(),
         value: FlagValue::On,
     };
-    let res_flag = renderer.render(output_flag).await.unwrap();
+    let mut output_message = DecodedMessage::new("Some Title".into());
+    output_message.outputs.push(output_flag);
+    let res_flag = renderer.render(&output_message).await.unwrap();
     assert!(res_flag.contains("Flag Title"));
     assert!(res_flag.contains("ON"));
 }
@@ -72,7 +79,7 @@ impl Decoder for MockDecoder {
         "mock_decoder"
     }
 
-    fn decode(
+    /*fn decode(
         &mut self,
         frame: RawFrame,
     ) -> Pin<
@@ -81,12 +88,32 @@ impl Decoder for MockDecoder {
                 + Send
                 + 'static,
         >,
+    > {*/
+
+    fn decode(
+        &mut self,
+        frame: RawFrame,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = Result<DecodedMessage, Box<dyn std::error::Error + Send + Sync>>,
+                > + Send
+                + '_,
+        >,
     > {
         Box::pin(async move {
-            Ok(vec![PrettyOutput::StringMessage {
+            let mut output_message =
+                DecodedMessage::new(format!("Frame: {:08X}", frame.can_id).into());
+            output_message.outputs = vec![PrettyOutput::StringMessage {
                 severity: Severity::Info,
                 text: format!("Frame: {:08X}", frame.can_id),
-            }])
+            }];
+
+            Ok(output_message)
+            //Ok(vec![PrettyOutput::StringMessage {
+            //    severity: Severity::Info,
+            //    text: format!("Frame: {:08X}", frame.can_id),
+            //}])
         })
     }
 }
@@ -102,10 +129,10 @@ impl Filter for MockFilter {
 
     fn matches(
         &self,
-        output: &PrettyOutput,
+        output: &DecodedMessage,
     ) -> Pin<Box<dyn std::future::Future<Output = bool> + Send + '_>> {
         let pattern = self.pattern.clone();
-        let is_match = match output {
+        let is_match = match &output.outputs[0] {
             PrettyOutput::StringMessage { text, .. } => text.contains(&pattern),
             _ => false,
         };
@@ -122,14 +149,25 @@ impl Renderer for MockRenderer {
         "mock_renderer"
     }
 
-    fn render(
-        &mut self,
-        output: PrettyOutput,
+    /*fn render<'a>(
+        &'a mut self,
+        output: &'a DecodedMessage,
     ) -> Pin<Box<dyn Future<Output = Result<String, Box<dyn Error + Send + Sync>>> + Send + 'static>>
-    {
+    {*/
+    fn render<'a>(
+        &'a mut self,
+        message: &'a DecodedMessage,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = Result<String, Box<dyn std::error::Error + Send + Sync>>,
+                > + Send
+                + '_,
+        >,
+    > {
         let received = self.received.clone();
         Box::pin(async move {
-            let text = match output {
+            let text = match message.outputs[0].clone() {
                 PrettyOutput::StringMessage { text, .. } => text,
                 _ => "other".to_string(),
             };

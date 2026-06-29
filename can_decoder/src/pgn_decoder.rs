@@ -6,7 +6,9 @@ use serde::Deserialize;
 
 use crate::tp_reassembler::{TpReassembler, TpReassemblyResult};
 use crate::traits::Decoder;
-use crate::types::{AssembledMessage, Numeric, PrettyOutput, RawFrame, Severity, PGN};
+use crate::types::{
+    AssembledMessage, DecodedMessage, Numeric, PrettyOutput, RawFrame, Severity, PGN,
+};
 
 /// YAML configuration for the PGN decoder engine.
 #[derive(Debug, Clone, Deserialize)]
@@ -556,12 +558,24 @@ impl Decoder for J1939Decoder {
         frame: RawFrame,
     ) -> Pin<
         Box<
-            dyn Future<Output = Result<Vec<PrettyOutput>, Box<dyn std::error::Error + Send + Sync>>>
+            dyn Future<Output = Result<DecodedMessage, Box<dyn std::error::Error + Send + Sync>>>
                 + Send
                 + '_,
         >,
     > {
-        Box::pin(async move { Ok(self.decode_raw_frame(frame)) })
+        Box::pin(async move {
+            let can_id = frame.can_id;
+            let outputs = self.decode_raw_frame(frame);
+            Ok(DecodedMessage {
+                title: format!(
+                    "PGN {:X} from {:X}",
+                    crate::types::PGN::from_can_id(can_id).pgn,
+                    can_id
+                ),
+                outputs,
+                updates: vec![],
+            })
+        })
     }
 }
 
