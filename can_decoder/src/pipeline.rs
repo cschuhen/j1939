@@ -4,7 +4,7 @@ use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinHandle;
 
 use crate::traits::{Decoder, Filter, Renderer, Source};
-use crate::types::{DecodedMessage, PrettyOutput, RawFrame};
+use crate::types::{DecodedField, DecodedMessage, RawFrame};
 
 /// Manages the async pipeline: Source → Decoder → Filter → Renderer.
 ///
@@ -120,7 +120,7 @@ impl Pipeline {
     }
 }
 
-/// Stub decoder that echoes PrettyOutput items without modification.
+/// Stub decoder that echoes DecodedField items without modification.
 pub struct NullDecoder {
     pub debug: bool,
 }
@@ -165,7 +165,7 @@ impl Decoder for NullDecoder {
             );
             Ok(DecodedMessage {
                 title: format!("Raw Frame {:08X}", frame.can_id),
-                outputs: vec![PrettyOutput::StringMessage {
+                outputs: vec![DecodedField::StringMessage {
                     severity: crate::types::Severity::Info,
                     text,
                 }],
@@ -191,7 +191,7 @@ impl Filter for PassThroughFilter {
     }
 }
 
-/// Stub renderer that prints PrettyOutput as plain text.
+/// Stub renderer that prints DecodedField as plain text.
 pub struct ConsoleRenderer;
 
 impl Renderer for ConsoleRenderer {
@@ -225,14 +225,14 @@ impl Renderer for ConsoleRenderer {
     }
 }
 
-/// Format a PrettyOutput item into a human-readable string.
-fn format_output(output: &PrettyOutput) -> String {
+/// Format a DecodedField item into a human-readable string.
+fn format_output(output: &DecodedField) -> String {
     use owo_colors::OwoColorize;
     let w1 = 20;
     let w2 = 15;
 
     match output {
-        PrettyOutput::Value {
+        DecodedField::Value {
             title,
             value,
             unit,
@@ -269,7 +269,7 @@ fn format_output(output: &PrettyOutput) -> String {
                 w2 = w2
             )
         }
-        PrettyOutput::StringMessage { severity, text } => {
+        DecodedField::StringMessage { severity, text } => {
             let sev_part = match severity {
                 crate::types::Severity::Info => "INFO".green().bold().to_string(),
                 crate::types::Severity::Warning => "WARN".yellow().bold().to_string(),
@@ -284,7 +284,7 @@ fn format_output(output: &PrettyOutput) -> String {
                 w2 = w2
             )
         }
-        PrettyOutput::Flag { title, value } => {
+        DecodedField::Flag { title, value } => {
             let flag_text = match value {
                 crate::types::FlagValue::Off => "OFF".red().to_string(),
                 crate::types::FlagValue::On => "ON".green().to_string(),

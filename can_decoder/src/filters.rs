@@ -1,5 +1,5 @@
 use crate::traits::Filter;
-use crate::types::{DecodedMessage, FlagValue, Numeric, PrettyOutput, Severity};
+use crate::types::{DecodedField, DecodedMessage, FlagValue, Numeric, Severity};
 use regex::Regex;
 use std::future::Future;
 use std::pin::Pin;
@@ -23,10 +23,10 @@ impl Filter for RegexFilter {
     }
 
     fn matches(&self, message: &DecodedMessage) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
-        let result = if let Some(PrettyOutput::StringMessage { text, .. }) = message
+        let result = if let Some(DecodedField::StringMessage { text, .. }) = message
             .outputs
             .iter()
-            .find(|o| matches!(o, PrettyOutput::StringMessage { .. }))
+            .find(|o| matches!(o, DecodedField::StringMessage { .. }))
         {
             self.regex.is_match(text)
         } else {
@@ -50,7 +50,7 @@ impl Filter for NumericFilter {
 
     fn matches(&self, message: &DecodedMessage) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
         let result = message.outputs.iter().any(|output| {
-            if let PrettyOutput::Value { title, value, .. } = output {
+            if let DecodedField::Value { title, value, .. } = output {
                 if title == &self.title {
                     match value {
                         Numeric::Int(i) => {
@@ -87,7 +87,7 @@ impl Filter for FlagFilter {
 
     fn matches(&self, message: &DecodedMessage) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
         let result = message.outputs.iter().any(|output| {
-            if let PrettyOutput::Flag { title, value } = output {
+            if let DecodedField::Flag { title, value } = output {
                 title == &self.title && *value == self.value
             } else {
                 false
@@ -109,7 +109,7 @@ impl Filter for SeverityFilter {
 
     fn matches(&self, message: &DecodedMessage) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
         let result = message.outputs.iter().any(|output| {
-            if let PrettyOutput::StringMessage { severity, .. } = output {
+            if let DecodedField::StringMessage { severity, .. } = output {
                 *severity == self.severity
             } else {
                 false
@@ -137,7 +137,7 @@ impl Filter for PgnFilter {
 
     fn matches(&self, message: &DecodedMessage) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
         let result = message.outputs.iter().any(|output| {
-            if let PrettyOutput::Value { title, .. } = output {
+            if let DecodedField::Value { title, .. } = output {
                 // Match on known PGN-containing titles from the decoder
                 title.contains("PGN") || title.contains("pgn")
             } else {
@@ -168,11 +168,11 @@ impl Filter for TitleFilter {
 
     fn matches(&self, message: &DecodedMessage) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
         let result = message.outputs.iter().any(|output| match output {
-            PrettyOutput::Value { title, .. } => {
+            DecodedField::Value { title, .. } => {
                 title.to_lowercase().contains(&self.title_contains)
             }
-            PrettyOutput::Flag { title, .. } => title.to_lowercase().contains(&self.title_contains),
-            PrettyOutput::StringMessage { text, .. } => {
+            DecodedField::Flag { title, .. } => title.to_lowercase().contains(&self.title_contains),
+            DecodedField::StringMessage { text, .. } => {
                 text.to_lowercase().contains(&self.title_contains)
             }
         });

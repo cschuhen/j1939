@@ -1,6 +1,6 @@
 use can_decoder::pipeline::{ConsoleRenderer, Pipeline};
 use can_decoder::traits::{Decoder, Filter, Renderer, Source};
-use can_decoder::types::{DecodedMessage, FlagValue, Numeric, PrettyOutput, RawFrame, Severity};
+use can_decoder::types::{DecodedField, DecodedMessage, FlagValue, Numeric, RawFrame, Severity};
 use std::error::Error;
 use std::future::Future;
 use std::pin::Pin;
@@ -12,7 +12,7 @@ async fn test_console_renderer() {
     let mut renderer = ConsoleRenderer;
 
     // Test Value
-    let output_val = PrettyOutput::Value {
+    let output_val = DecodedField::Value {
         title: "Test Title".to_string(),
         value: Numeric::Int(42),
         unit: Some("unit".to_string()),
@@ -27,7 +27,7 @@ async fn test_console_renderer() {
     assert!(res_val.contains("unit"));
 
     // Test StringMessage
-    let output_str = PrettyOutput::StringMessage {
+    let output_str = DecodedField::StringMessage {
         severity: Severity::Error,
         text: "Error message".to_string(),
     };
@@ -38,7 +38,7 @@ async fn test_console_renderer() {
     assert!(res_str.contains("Error message"));
 
     // Test Flag
-    let output_flag = PrettyOutput::Flag {
+    let output_flag = DecodedField::Flag {
         title: "Flag Title".to_string(),
         value: FlagValue::On,
     };
@@ -84,7 +84,7 @@ impl Decoder for MockDecoder {
         frame: RawFrame,
     ) -> Pin<
         Box<
-            dyn Future<Output = Result<Vec<PrettyOutput>, Box<dyn Error + Send + Sync>>>
+            dyn Future<Output = Result<Vec<DecodedField>, Box<dyn Error + Send + Sync>>>
                 + Send
                 + 'static,
         >,
@@ -104,13 +104,13 @@ impl Decoder for MockDecoder {
         Box::pin(async move {
             let mut output_message =
                 DecodedMessage::new(format!("Frame: {:08X}", frame.can_id).into());
-            output_message.outputs = vec![PrettyOutput::StringMessage {
+            output_message.outputs = vec![DecodedField::StringMessage {
                 severity: Severity::Info,
                 text: format!("Frame: {:08X}", frame.can_id),
             }];
 
             Ok(output_message)
-            //Ok(vec![PrettyOutput::StringMessage {
+            //Ok(vec![DecodedField::StringMessage {
             //    severity: Severity::Info,
             //    text: format!("Frame: {:08X}", frame.can_id),
             //}])
@@ -133,7 +133,7 @@ impl Filter for MockFilter {
     ) -> Pin<Box<dyn std::future::Future<Output = bool> + Send + '_>> {
         let pattern = self.pattern.clone();
         let is_match = match &output.outputs[0] {
-            PrettyOutput::StringMessage { text, .. } => text.contains(&pattern),
+            DecodedField::StringMessage { text, .. } => text.contains(&pattern),
             _ => false,
         };
         Box::pin(async move { is_match })
@@ -168,7 +168,7 @@ impl Renderer for MockRenderer {
         let received = self.received.clone();
         Box::pin(async move {
             let text = match message.outputs[0].clone() {
-                PrettyOutput::StringMessage { text, .. } => text,
+                DecodedField::StringMessage { text, .. } => text,
                 _ => "other".to_string(),
             };
             received.lock().await.push(text);

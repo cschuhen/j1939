@@ -7,7 +7,7 @@ use serde::Deserialize;
 use crate::tp_reassembler::{TpReassembler, TpReassemblyResult};
 use crate::traits::Decoder;
 use crate::types::{
-    AssembledMessage, DecodedMessage, Numeric, PrettyOutput, RawFrame, Severity, PGN,
+    AssembledMessage, DecodedField, DecodedMessage, Numeric, RawFrame, Severity, PGN,
 };
 
 /// YAML configuration for the PGN decoder engine.
@@ -267,7 +267,7 @@ pub fn default_pgn_definitions() -> HashMap<u32, PgnDefinition> {
     defs
 }
 
-/// J1939 decoder that uses YAML configuration to decode PGNs into PrettyOutput items.
+/// J1939 decoder that uses YAML configuration to decode PGNs into DecodedField items.
 pub struct J1939Decoder {
     /// Combined config (built-in + user-provided).
     pub config: DecoderConfig,
@@ -310,8 +310,8 @@ impl J1939Decoder {
         DecoderConfigLoader::load_from_file(std::path::Path::new(&path))
     }
 
-    /// Decode an assembled message into PrettyOutput items using config definitions.
-    pub fn decode_assembled(&self, msg: &AssembledMessage) -> Vec<PrettyOutput> {
+    /// Decode an assembled message into DecodedField items using config definitions.
+    pub fn decode_assembled(&self, msg: &AssembledMessage) -> Vec<DecodedField> {
         let pgn_key = msg.pgn.pgn;
 
         if let Some(pgn_def) = self.config.pgns.get(&pgn_key) {
@@ -319,7 +319,7 @@ impl J1939Decoder {
         }
 
         // No definition found - emit raw hex as info message
-        vec![PrettyOutput::StringMessage {
+        vec![DecodedField::StringMessage {
             severity: Severity::Info,
             text: format!(
                 "Unrecognized PGN={:#06X} source={:#04X}: {} bytes",
@@ -335,7 +335,7 @@ impl J1939Decoder {
         &self,
         msg: &AssembledMessage,
         pgn_def: &PgnDefinition,
-    ) -> Vec<PrettyOutput> {
+    ) -> Vec<DecodedField> {
         let mut outputs = Vec::new();
 
         for comp in &pgn_def.components {
@@ -346,7 +346,7 @@ impl J1939Decoder {
 
         // If no components decoded successfully, emit raw data as hex
         if outputs.is_empty() && !msg.data.is_empty() {
-            outputs.push(PrettyOutput::StringMessage {
+            outputs.push(DecodedField::StringMessage {
                 severity: Severity::Warning,
                 text: format!(
                     "{} PGN={:#06X}: insufficient data for {} components",
@@ -361,7 +361,7 @@ impl J1939Decoder {
     }
 
     /// Decode a single component from raw data bytes.
-    pub fn decode_component(data: &[u8], comp: &ComponentDefinition) -> Option<PrettyOutput> {
+    pub fn decode_component(data: &[u8], comp: &ComponentDefinition) -> Option<DecodedField> {
         let end = comp.offset + comp.length as usize;
 
         // Bounds check - return None if data is too short (don't panic)
@@ -373,7 +373,7 @@ impl J1939Decoder {
                 comp.length,
                 data.len()
             );
-            return Some(PrettyOutput::StringMessage {
+            return Some(DecodedField::StringMessage {
                 severity: Severity::Warning,
                 text: format!(
                     "Component '{}': data too short (need {} bytes at offset {}, have {})",
@@ -391,7 +391,7 @@ impl J1939Decoder {
             ValueType::Int8 => {
                 let val = slice[0] as i8 as i64;
                 let scaled = (val as f64) * comp.scale;
-                Some(PrettyOutput::Value {
+                Some(DecodedField::Value {
                     title: comp.name.clone(),
                     value: Numeric::Float(scaled),
                     unit: comp.unit.clone(),
@@ -401,7 +401,7 @@ impl J1939Decoder {
             ValueType::UInt8 => {
                 let val = slice[0] as i64;
                 let scaled = (val as f64) * comp.scale;
-                Some(PrettyOutput::Value {
+                Some(DecodedField::Value {
                     title: comp.name.clone(),
                     value: Numeric::Float(scaled),
                     unit: comp.unit.clone(),
@@ -411,7 +411,7 @@ impl J1939Decoder {
             ValueType::Int16 => {
                 let val = i16::from_le_bytes([slice[0], slice[1]]) as i64;
                 let scaled = (val as f64) * comp.scale;
-                Some(PrettyOutput::Value {
+                Some(DecodedField::Value {
                     title: comp.name.clone(),
                     value: Numeric::Float(scaled),
                     unit: comp.unit.clone(),
@@ -421,7 +421,7 @@ impl J1939Decoder {
             ValueType::UInt16 => {
                 let val = u16::from_le_bytes([slice[0], slice[1]]) as i64;
                 let scaled = (val as f64) * comp.scale;
-                Some(PrettyOutput::Value {
+                Some(DecodedField::Value {
                     title: comp.name.clone(),
                     value: Numeric::Float(scaled),
                     unit: comp.unit.clone(),
@@ -431,7 +431,7 @@ impl J1939Decoder {
             ValueType::Int32 => {
                 let val = i32::from_le_bytes([slice[0], slice[1], slice[2], slice[3]]) as i64;
                 let scaled = (val as f64) * comp.scale;
-                Some(PrettyOutput::Value {
+                Some(DecodedField::Value {
                     title: comp.name.clone(),
                     value: Numeric::Float(scaled),
                     unit: comp.unit.clone(),
@@ -441,7 +441,7 @@ impl J1939Decoder {
             ValueType::UInt32 => {
                 let val = u32::from_le_bytes([slice[0], slice[1], slice[2], slice[3]]) as i64;
                 let scaled = (val as f64) * comp.scale;
-                Some(PrettyOutput::Value {
+                Some(DecodedField::Value {
                     title: comp.name.clone(),
                     value: Numeric::Float(scaled),
                     unit: comp.unit.clone(),
@@ -452,14 +452,14 @@ impl J1939Decoder {
                 let bytes = [slice[0], slice[1], slice[2], slice[3]];
                 let bits = u32::from_le_bytes(bytes);
                 let val = f32::from_bits(bits) * comp.scale as f32;
-                Some(PrettyOutput::Value {
+                Some(DecodedField::Value {
                     title: comp.name.clone(),
                     value: Numeric::Float(val as f64),
                     unit: comp.unit.clone(),
                     decimal_places: comp.decimal_places,
                 })
             }
-            ValueType::Hex => Some(PrettyOutput::Value {
+            ValueType::Hex => Some(DecodedField::Value {
                 title: comp.name.clone(),
                 value: Numeric::Hex(slice.to_vec()),
                 unit: None,
@@ -467,7 +467,7 @@ impl J1939Decoder {
             }),
             ValueType::Bool => {
                 let val = slice[0] != 0;
-                Some(PrettyOutput::Value {
+                Some(DecodedField::Value {
                     title: comp.name.clone(),
                     value: Numeric::Bool(val),
                     unit: None,
@@ -478,7 +478,7 @@ impl J1939Decoder {
     }
 
     /// Decode a raw frame directly (for single-frame/broadcast compressed messages).
-    pub fn decode_raw_frame(&mut self, frame: RawFrame) -> Vec<PrettyOutput> {
+    pub fn decode_raw_frame(&mut self, frame: RawFrame) -> Vec<DecodedField> {
         let pgn = PGN::from_can_id(frame.can_id);
 
         if pgn.pgn < 0xEF00 {
@@ -497,7 +497,7 @@ impl J1939Decoder {
                 }
                 TpReassemblyResult::Pending => {}
                 TpReassemblyResult::Timeout(partial) => {
-                    outputs.push(PrettyOutput::StringMessage {
+                    outputs.push(DecodedField::StringMessage {
                         severity: Severity::Warning,
                         text: format!(
                             "TP timeout for PGN={:#06X} source={:#04X}: received {} of {} bytes",
@@ -515,7 +515,7 @@ impl J1939Decoder {
     }
 
     /// Decode a single frame using config definitions.
-    fn decode_single_frame(&self, frame: &RawFrame, pgn: &PGN) -> Vec<PrettyOutput> {
+    fn decode_single_frame(&self, frame: &RawFrame, pgn: &PGN) -> Vec<DecodedField> {
         let pgn_key = pgn.pgn;
 
         if let Some(_pgn_def) = self.config.pgns.get(&pgn_key) {
@@ -531,7 +531,7 @@ impl J1939Decoder {
         }
 
         // No definition - emit raw info
-        vec![PrettyOutput::StringMessage {
+        vec![DecodedField::StringMessage {
             severity: Severity::Info,
             text: format!(
                 "PGN={:#08X} source={:#04X}: {} bytes",
@@ -720,7 +720,7 @@ pgns:
 
         let result = J1939Decoder::decode_component(&data, &comp).unwrap();
         match result {
-            PrettyOutput::Value { value, .. } => assert_eq!(value, Numeric::Float(42.0)),
+            DecodedField::Value { value, .. } => assert_eq!(value, Numeric::Float(42.0)),
             _ => panic!("Expected Value"),
         }
     }
@@ -741,7 +741,7 @@ pgns:
 
         let result = J1939Decoder::decode_component(&data, &comp).unwrap();
         match result {
-            PrettyOutput::Value { value, .. } => assert_eq!(value, Numeric::Float(256.0)),
+            DecodedField::Value { value, .. } => assert_eq!(value, Numeric::Float(256.0)),
             _ => panic!("Expected Value"),
         }
     }
@@ -762,7 +762,7 @@ pgns:
 
         let result = J1939Decoder::decode_component(&data, &comp).unwrap();
         match result {
-            PrettyOutput::Value { value, .. } => assert_eq!(value, Numeric::Float(-16.0)),
+            DecodedField::Value { value, .. } => assert_eq!(value, Numeric::Float(-16.0)),
             _ => panic!("Expected Value"),
         }
     }
@@ -784,7 +784,7 @@ pgns:
 
         let result = J1939Decoder::decode_component(&data, &comp).unwrap();
         match result {
-            PrettyOutput::Value { value, .. } => {
+            DecodedField::Value { value, .. } => {
                 assert!((value.unwrap_float() - 1.5).abs() < 0.001);
             }
             _ => panic!("Expected Value"),
@@ -807,7 +807,7 @@ pgns:
 
         let result = J1939Decoder::decode_component(&data, &comp).unwrap();
         match result {
-            PrettyOutput::Value { value, .. } => {
+            DecodedField::Value { value, .. } => {
                 assert_eq!(value, Numeric::Hex(vec![0xAA, 0xBB, 0xCC]))
             }
             _ => panic!("Expected Value"),
@@ -830,7 +830,7 @@ pgns:
 
         let result = J1939Decoder::decode_component(&data, &comp).unwrap();
         match result {
-            PrettyOutput::Value { value, .. } => assert_eq!(value, Numeric::Bool(true)),
+            DecodedField::Value { value, .. } => assert_eq!(value, Numeric::Bool(true)),
             _ => panic!("Expected Value"),
         }
     }
@@ -851,7 +851,7 @@ pgns:
 
         let result = J1939Decoder::decode_component(&data, &comp).unwrap();
         match result {
-            PrettyOutput::Value { value, .. } => assert_eq!(value, Numeric::Bool(false)),
+            DecodedField::Value { value, .. } => assert_eq!(value, Numeric::Bool(false)),
             _ => panic!("Expected Value"),
         }
     }
@@ -872,7 +872,7 @@ pgns:
 
         let result = J1939Decoder::decode_component(&data, &comp).unwrap();
         match result {
-            PrettyOutput::Value { value, unit, .. } => {
+            DecodedField::Value { value, unit, .. } => {
                 assert_eq!(value, Numeric::Float(10.0));
                 assert_eq!(unit, Some("kPa".to_string()));
             }
@@ -901,7 +901,7 @@ pgns:
         let result = J1939Decoder::decode_component(&data, &comp);
         assert!(result.is_some());
         match result.unwrap() {
-            PrettyOutput::StringMessage { severity, .. } => assert_eq!(severity, Severity::Warning),
+            DecodedField::StringMessage { severity, .. } => assert_eq!(severity, Severity::Warning),
             _ => panic!("Expected StringMessage warning"),
         }
     }
@@ -940,7 +940,7 @@ pgns:
         assert!(!outputs.is_empty());
 
         match &outputs[0] {
-            PrettyOutput::Value {
+            DecodedField::Value {
                 title, value, unit, ..
             } => {
                 assert_eq!(title, "RPM");
@@ -963,7 +963,7 @@ pgns:
         assert!(!outputs.is_empty());
 
         match &outputs[0] {
-            PrettyOutput::Value {
+            DecodedField::Value {
                 title, value, unit, ..
             } => {
                 assert_eq!(title, "Speed");
@@ -985,7 +985,7 @@ pgns:
         assert!(!outputs.is_empty());
 
         match &outputs[0] {
-            PrettyOutput::StringMessage { text, .. } => assert!(text.contains("Unrecognized PGN")),
+            DecodedField::StringMessage { text, .. } => assert!(text.contains("Unrecognized PGN")),
             _ => panic!("Expected StringMessage for unrecognized PGN"),
         }
     }
@@ -999,7 +999,7 @@ pgns:
 
         assert!(!outputs.is_empty());
         match &outputs[0] {
-            PrettyOutput::StringMessage { severity, .. } => {
+            DecodedField::StringMessage { severity, .. } => {
                 assert_eq!(*severity, Severity::Warning)
             }
             _ => panic!("Expected StringMessage"),
@@ -1022,7 +1022,7 @@ pgns:
         assert!(!outputs.is_empty());
 
         match &outputs[0] {
-            PrettyOutput::Value { title, value, .. } => {
+            DecodedField::Value { title, value, .. } => {
                 assert_eq!(title, "Speed");
                 assert_eq!(*value, Numeric::Float(45.0));
             }
@@ -1042,7 +1042,7 @@ pgns:
         assert!(!outputs.is_empty());
 
         match &outputs[0] {
-            PrettyOutput::StringMessage { text, .. } => assert!(text.contains("PGN=0x001234")),
+            DecodedField::StringMessage { text, .. } => assert!(text.contains("PGN=0x001234")),
             _ => panic!("Expected StringMessage"),
         }
     }
@@ -1080,7 +1080,7 @@ pgns:
         let outputs = decoder.decode_assembled(&assembled);
 
         match &outputs[0] {
-            PrettyOutput::Value { title, value, .. } => {
+            DecodedField::Value { title, value, .. } => {
                 assert_eq!(title, "Custom RPM"); // Custom name overrides built-in
                 assert_eq!(*value, Numeric::Float(100.0)); // Scale 1.0 instead of 0.25
             }

@@ -49,7 +49,7 @@ pub struct Cli {
     #[arg(short, long, default_value_t = false)]
     pub debug: bool,
 
-    /// Add a filter rule (repeatable; applied to decoded PrettyOutput)
+    /// Add a filter rule (repeatable; applied to decoded DecodedField)
     #[arg(long)]
     pub filter: Vec<String>,
 

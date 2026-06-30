@@ -7,7 +7,7 @@ can_decoder/
 ├── src/
 │   ├── main.rs           — CLI entry point, arg parsing, pipeline wiring
 │   ├── traits.rs          — Source, Decoder, Renderer, Filter trait definitions
-│   ├── types.rs           — RawFrame, AssembledMessage, PGN, PrettyOutput, Numeric, Severity, FlagValue
+│   ├── types.rs           — RawFrame, AssembledMessage, PGN, DecodedField, Numeric, Severity, FlagValue
 │   ├── sources.rs         — SocketCanSource, CandumpFileSource implementations
 │   ├── pipeline.rs        — Pipeline struct + NullDecoder, PassThroughFilter, ConsoleRenderer stubs
 │   ├── pgn_decoder.rs     — J1939 PGN decoder engine with 40+ standard PGNs (Phase 3)
@@ -23,9 +23,9 @@ can_decoder/
 | `main.rs` → `sources.rs` | Creates `SocketCanSource` or `CandumpFileSource`, wraps in `Arc`, passes to `pipeline.spawn_source()` |
 | `main.rs` → `pipeline.rs` | Calls `spawn_source()`, `spawn_decoder()`, `spawn_filter()`, `spawn_renderer()` to wire stages |
 | `sources.rs` → `types.rs` | Produces `RawFrame` instances, sends via channel |
-| `pipeline.rs` (decoder stage) → `traits.rs::Decoder` | Receives `RawFrame`, returns `Vec<PrettyOutput>` |
-| `pipeline.rs` (filter stage) → `traits.rs::Filter` | Checks `matches(&PrettyOutput)` to decide pass/drop |
-| `pipeline.rs` (renderer stage) → `traits.rs::Renderer` | Formats `PrettyOutput` into display string |
+| `pipeline.rs` (decoder stage) → `traits.rs::Decoder` | Receives `RawFrame`, returns `Vec<DecodedField>` |
+| `pipeline.rs` (filter stage) → `traits.rs::Filter` | Checks `matches(&DecodedField)` to decide pass/drop |
+| `pipeline.rs` (renderer stage) → `traits.rs::Renderer` | Formats `DecodedField` into display string |
 | `types.rs` → all modules | All data types are shared across the pipeline |
 
 ## Key Types Summary
@@ -33,7 +33,7 @@ can_decoder/
 - **`RawFrame`** (`types.rs:5`) — Single CAN frame with timestamp, can_id, data bytes. Flows from Source → Decoder.
 - **`AssembledMessage`** (`types.rs:29`) — Multi-frame assembled message with PGN, source/dest address, payload. Used by PgnDecoder for J1939 TP reassembly (Phase 3).
 - **`PGN`** (`types.rs:60`) — J1939 Protocol Group Number parsed from CAN ID. Utility for decoding.
-- **`PrettyOutput`** (`types.rs:94`) — Decoded output enum: `Value`, `StringMessage`, or `Flag`. Flows from Decoder → Filter → Renderer.
+- **`DecodedField`** (`types.rs:94`) — Decoded output enum: `Value`, `StringMessage`, or `Flag`. Flows from Decoder → Filter → Renderer.
 - **`Numeric`** (`types.rs:116`) — Value variant type: `Int`, `Float`, `Hex`, `Bool`.
 - **`Severity`** (`types.rs:129`) — `Info`, `Warning`, `Error` for StringMessage.
 - **`FlagValue`** (`types.rs:137`) — `Off=0, On=1, Error=2, Unavailable=3`.
@@ -43,9 +43,9 @@ can_decoder/
 | Trait | Method | Input | Output | File |
 |---|---|---|---|---|
 | `Source` | `start(Arc<Self>, tx)` | channel sender | `Result<(), Box<dyn Error>>` | traits.rs:12 |
-| `Decoder` | `decode(frame)` | `RawFrame` | `Vec<PrettyOutput>` | traits.rs:25 |
-| `Renderer` | `render(output)` | `PrettyOutput` | `String` | traits.rs:38 |
-| `Filter` | `matches(output)` | `&PrettyOutput` | `bool` | traits.rs:51 |
+| `Decoder` | `decode(frame)` | `RawFrame` | `Vec<DecodedField>` | traits.rs:25 |
+| `Renderer` | `render(output)` | `DecodedField` | `String` | traits.rs:38 |
+| `Filter` | `matches(output)` | `&DecodedField` | `bool` | traits.rs:51 |
 
 ## Current Stub Implementations (pipeline.rs)
 
@@ -55,7 +55,7 @@ can_decoder/
 
 ## PGN Decoder Summary (pgn_decoder.rs)
 
-- **`PgnDecoder`** implements the `Decoder` trait, receives `RawFrame`, returns `Vec<PrettyOutput>`.
+- **`PgnDecoder`** implements the `Decoder` trait, receives `RawFrame`, returns `Vec<DecodedField>`.
 - Parses J1939 CAN IDs: extracts PGN from bits 8–20 of extended CAN ID.
 - Handles Transport Protocol (TP) messages (PGN 0xF000–0xFDFF): Connection Management, Data Transfer, Abort, CM Next Ext CSN.
 - Implements reassembler with timeout logic and `--force-output-partial-tp` support.

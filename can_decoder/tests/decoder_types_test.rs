@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use can_decoder::types::{
-        DecodeContext, DecodeError, DecodedMessage, DeviceUpdate, FlagValue, Numeric, PrettyOutput,
+        DecodeContext, DecodeError, DecodedField, DecodedMessage, DeviceUpdate, FlagValue, Numeric,
         Severity, PGN,
     };
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -32,7 +32,7 @@ mod tests {
     #[test]
     fn test_decoded_message_construction() {
         let title = "Engine Speed".to_string();
-        let outputs = vec![PrettyOutput::Value {
+        let outputs = vec![DecodedField::Value {
             title: "RPM".to_string(),
             value: Numeric::Int(1500),
             unit: Some("rpm".to_string()),

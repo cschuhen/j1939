@@ -13,7 +13,7 @@ This document provides a compact reference for each source file, its public API,
 | `RawFrame` | 5 | Single CAN frame: `timestamp`, `can_id`, `data` bytes |
 | `AssembledMessage` | 29 | Multi-frame assembled message with PGN, source/dest address, payload |
 | `PGN` | 60 | J1939 Protocol Group Number extracted from CAN ID fields (priority, data_page, pgn_specific) |
-| `PrettyOutput` | 94 | Decoded output enum: `Value`, `StringMessage`, `Flag` |
+| `DecodedField` | 94 | Decoded output enum: `Value`, `StringMessage`, `Flag` |
 | `Numeric` | 116 | Value variant: `Int(i64)`, `Float(f64)`, `Hex(Vec<u8>)`, `Bool(bool)` |
 | `Severity` | 129 | Message severity: `Info`, `Warning`, `Error` |
 | `FlagValue` | 137 | Flag state: `Off=0, On=1, Error=2, Unavailable=3` (with `From<u8>` impl) |
@@ -40,8 +40,8 @@ This document provides a compact reference for each source file, its public API,
 | Trait | Line | Key Method |
 |---|---|---|
 | `Source` | 12 | `start(Arc<Self>, tx) → Result<(), Box<dyn Error>>` — Produces RawFrames into channel |
-| `Decoder` | 25 | `decode(frame) → Vec<PrettyOutput>` — Transforms RawFrame into decoded output |
-| `Renderer` | 38 | `render(output) → String` — Formats PrettyOutput for display |
+| `Decoder` | 25 | `decode(frame) → Vec<DecodedField>` — Transforms RawFrame into decoded output |
+| `Renderer` | 38 | `render(output) → String` — Formats DecodedField for display |
 | `Filter` | 51 | `matches(output) → bool` — Decides whether to pass/drop an output item |
 
 ### Design Notes
@@ -52,7 +52,7 @@ This document provides a compact reference for each source file, its public API,
 
 ### Dependencies
 
-- Imports `PrettyOutput` and `RawFrame` from `types.rs`.
+- Imports `DecodedField` and `RawFrame` from `types.rs`.
 
 ---
 
@@ -117,7 +117,7 @@ This document provides a compact reference for each source file, its public API,
 
 ### Private Functions
 
-- `format_output(output)` (line 195) — Converts PrettyOutput enum variants into display strings with formatting for Value (with unit/decimal support), StringMessage (severity-prefixed), and Flag (ON/OFF/ERR/N/A labels).
+- `format_output(output)` (line 195) — Converts DecodedField enum variants into display strings with formatting for Value (with unit/decimal support), StringMessage (severity-prefixed), and Flag (ON/OFF/ERR/N/A labels).
 
 ### Design Notes
 

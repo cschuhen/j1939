@@ -83,7 +83,7 @@ impl PGN {
 
 /// The primary output type emitted by the decoder pipeline.
 #[derive(Debug, Clone)]
-pub enum PrettyOutput {
+pub enum DecodedField {
     /// A numeric value with optional unit and precision info.
     Value {
         title: String,
@@ -178,7 +178,7 @@ pub struct DeviceUpdate {
 #[derive(Debug, Clone)]
 pub struct DecodedMessage {
     pub title: String,
-    pub outputs: Vec<PrettyOutput>,
+    pub outputs: Vec<DecodedField>,
     pub updates: Vec<DeviceUpdate>,
 }
 
@@ -377,15 +377,15 @@ mod tests {
     }
 
     #[test]
-    fn pretty_output_value_variant() {
-        let output = PrettyOutput::Value {
+    fn decoded_field_value_variant() {
+        let output = DecodedField::Value {
             title: "Speed".to_string(),
             value: Numeric::Float(55.5),
             unit: Some("km/h".to_string()),
             decimal_places: Some(1),
         };
         match output {
-            PrettyOutput::Value {
+            DecodedField::Value {
                 ref title,
                 ref value,
                 ref unit,
@@ -401,13 +401,13 @@ mod tests {
     }
 
     #[test]
-    fn pretty_output_string_message_variant() {
-        let output = PrettyOutput::StringMessage {
+    fn decoded_field_string_message_variant() {
+        let output = DecodedField::StringMessage {
             severity: Severity::Warning,
             text: "Engine fault".to_string(),
         };
         match output {
-            PrettyOutput::StringMessage { severity, ref text } => {
+            DecodedField::StringMessage { severity, ref text } => {
                 assert_eq!(severity, Severity::Warning);
                 assert_eq!(text, "Engine fault");
             }
@@ -416,13 +416,13 @@ mod tests {
     }
 
     #[test]
-    fn pretty_output_flag_variant() {
-        let output = PrettyOutput::Flag {
+    fn decoded_field_flag_variant() {
+        let output = DecodedField::Flag {
             title: "Status".to_string(),
             value: FlagValue::On,
         };
         match output {
-            PrettyOutput::Flag { ref title, value } => {
+            DecodedField::Flag { ref title, value } => {
                 assert_eq!(title, "Status");
                 assert_eq!(value, FlagValue::On);
             }

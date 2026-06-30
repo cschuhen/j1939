@@ -25,10 +25,10 @@ The application follows a decoupled, multi-threaded pipeline using **Tokio** for
 ### 1. Data Models
 - `RawFrame`: Represents a single CAN frame (ID, Timestamp, Data).
 - `AssembledMessage`: Represents a logical message (e.g., a fully reassembled J1939 Transport Protocol message).
-- `PrettyOutput` Enum: The primary output type for the renderer.
+- `DecodedField` Enum: The primary output type for the renderer.
 
 ```rust
-enum PrettyOutput {
+enum DecodedField {
     Value { title: String, value: Numeric, unit: Option<String>, decimal_places: Option<u8> },
     StringMessage { severity: Severity, text: String },
     Flag { title: String, value: FlagValue },
@@ -47,7 +47,7 @@ enum FlagValue { Off = 0, On = 1, Error = 2, Unavailable = 3 }
 
 The output of the processing layer for each message includes:
 - A title that the processing layer determines for the message, this can be further specailised than the PGN title.
-- A list(vector?) of PrettyOutput. One can Frame/message may have many components.
+- A list(vector?) of DecodedField. One can Frame/message may have many components.
 
 ### 2. Input & Abstraction
 - `Source` Trait: Defines how to pull/receive `RawFrame`s.
@@ -72,7 +72,7 @@ The output of the processing layer for each message includes:
     - Detects and reports address conflicts (duplicate claims from different NAMEs for the same address).
 
 ### 4. Filtering & Output
-- **Filter Engine**: Post-interpretation filtering applied to `PrettyOutput` items, not raw frames. This enables richer filter logic based on decoded meaning rather than raw bytes.
+- **Filter Engine**: Post-interpretation filtering applied to `DecodedField` items, not raw frames. This enables richer filter logic based on decoded meaning rather than raw bytes.
     - Source/Destination Address
     - PGN
     - Data-byte Regex (on raw input)
@@ -136,7 +136,7 @@ Global Config:
 ### Phase 1: Foundation & Core Traits
 - [x] Workspace setup with dependencies listed above.
 - [x] Define `Source`, `Decoder`, `Renderer`, and `Filter` traits.
-- [x] Implement core data types (`RawFrame`, `AssembledMessage`, `PrettyOutput`, `Numeric`).
+- [x] Implement core data types (`RawFrame`, `AssembledMessage`, `DecodedField`, `Numeric`).
 - [x] Implement basic Tokio-based multi-threaded pipeline with channels.
 - [x] **Testing**: Unit tests for core traits, data types, and channel communication.
 
