@@ -82,16 +82,7 @@ impl Stack {
     ) -> Result<(), Error> {
         let address = self.name_manager.resolve_local(&src)?;
 
-        let id = match crate::can::new_id(pgn, address, dest, priority) {
-            Some(id) => id,
-            None => {
-                return Err(mkerr(
-                    FILE_CODE,
-                    crate::error::ErrorCode::InvalidId,
-                    line!(),
-                ))
-            }
-        };
+        let id = crate::can::new_id(pgn, address, dest, priority)?;
 
         match iface.transmit(crate::can::Frame::from_slice(id.as_raw(), data)) {
             Ok(_) => {}

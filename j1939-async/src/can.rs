@@ -1,4 +1,7 @@
+const FILE_CODE: u8 = 0xFA;
 pub type RawCanId = u32;
+use crate::error::{mkerr, Error, ErrorCode};
+
 pub type FrameData = heapless::Vec<u8, 8>;
 pub type Address = u8;
 pub type Priority = u8; // 3 bits
@@ -10,11 +13,11 @@ pub fn new_id(
     source: Address,
     destination: Address,
     priority: Priority,
-) -> Option<embedded_can::ExtendedId> {
+) -> Result<embedded_can::ExtendedId, Error> {
     let mut id = 0u32;
 
     if priority > 0x7 || source == 255 || destination == 254 || pgn > 0x3FFFF {
-        return None;
+        return Err(mkerr(FILE_CODE, ErrorCode::InvalidId, line!()));
     }
 
     id |= source as u32;
@@ -24,12 +27,15 @@ pub fn new_id(
         true => id |= pgn << 8,
         false => {
             if pgn & 0xFF != 0 {
-                return None;
+                return Err(mkerr(FILE_CODE, ErrorCode::InvalidId, line!()));
             }
             id |= ((pgn & 0x3FF00) | (destination as u32)) << 8
         }
     }
-    embedded_can::ExtendedId::new(id)
+    match embedded_can::ExtendedId::new(id) {
+        Some(id) => Ok(id),
+        None => Err(mkerr(FILE_CODE, ErrorCode::InvalidId, line!())),
+    }
 }
 
 pub fn new_id_unchecked(
@@ -98,6 +104,116 @@ pub trait Id {
 impl Id for embedded_can::ExtendedId {
     fn as_raw(&self) -> RawCanId {
         self.as_raw()
+    }
+}
+
+pub trait MutableId: Id {
+    fn set_raw(&mut self, raw: RawCanId);
+
+    fn set(
+        &mut self,
+        pgn: u32,
+        source: Address,
+        destination: Address,
+        priority: Priority,
+    ) -> Result<(), Error> {
+        let mut id = 0u32;
+
+        if priority > 0x7 || source == 255 || destination == 254 || pgn > 0x3FFFF {
+            return Err(mkerr(FILE_CODE, ErrorCode::InvalidId, line!())); // Return error
+        }
+
+        id |= source as u32;
+        id |= ((priority & 0x7) as u32) << 26;
+        let pgn = pgn & 0x3FFFF;
+        match pgn >= 0xF000 {
+            true => id |= pgn << 8,
+            false => {
+                if pgn & 0xFF != 0 {
+                    return Err(mkerr(FILE_CODE, ErrorCode::InvalidId, line!()));
+                    // Return error
+                }
+                id |= ((pgn & 0x3FF00) | (destination as u32)) << 8
+            }
+        }
+        self.set_raw(id);
+        Ok(())
+    }
+
+    fn set_unchecked(&mut self, _pgn: u32, source: Address, destination: Address, priority: u8) {
+        let mut id = 0u32;
+        id |= source as u32;
+        id |= ((priority & 0x7) as u32) << 26;
+        let pgn = _pgn & 0x3FFFF;
+        match pgn >= 0xF000 {
+            true => id |= pgn << 8,
+            false => id |= ((pgn & 0x3FF00) | (destination as u32)) << 8,
+        }
+        self.set_raw(id);
+    }
+}
+
+pub struct IdImpl(u32);
+
+impl IdImpl {
+    pub fn new_unchecked(id: u32) -> IdImpl {
+        IdImpl(id)
+    }
+
+    pub fn new_id(
+        pgn: u32,
+        source: Address,
+        destination: Address,
+        priority: Priority,
+    ) -> Result<IdImpl, Error> {
+        let mut id = 0u32;
+
+        if priority > 0x7 || source == 255 || destination == 254 || pgn > 0x3FFFF {
+            return Err(mkerr(FILE_CODE, ErrorCode::InvalidId, line!()));
+        }
+
+        id |= source as u32;
+        id |= ((priority & 0x7) as u32) << 26;
+        let pgn = pgn & 0x3FFFF;
+        match pgn >= 0xF000 {
+            true => id |= pgn << 8,
+            false => {
+                if pgn & 0xFF != 0 {
+                    return Err(mkerr(FILE_CODE, ErrorCode::InvalidId, line!()));
+                }
+                id |= ((pgn & 0x3FF00) | (destination as u32)) << 8
+            }
+        }
+        Ok(IdImpl(id))
+    }
+
+    pub fn new_id_unchecked(
+        _pgn: u32,
+        source: Address,
+        destination: Address,
+        priority: u8,
+    ) -> IdImpl {
+        let mut id = 0u32;
+        id |= source as u32;
+        id |= ((priority & 0x7) as u32) << 26;
+        let pgn = _pgn & 0x3FFFF;
+        match pgn >= 0xF000 {
+            true => id |= pgn << 8,
+            false => id |= ((pgn & 0x3FF00) | (destination as u32)) << 8,
+        }
+        IdImpl(id)
+    }
+}
+
+impl Id for IdImpl {
+    fn as_raw(&self) -> RawCanId {
+        self.0
+    }
+}
+
+impl MutableId for IdImpl {
+    fn set_raw(&mut self, raw: RawCanId) {
+        self.0 = raw;
     }
 }
 
