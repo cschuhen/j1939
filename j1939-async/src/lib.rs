@@ -1,5 +1,11 @@
 #![cfg_attr(not(test), no_std)]
 
+#[cfg(feature = "defmt")]
+extern crate defmt;
+
+#[cfg(feature = "defmt")]
+use defmt as _;
+
 pub mod can;
 pub mod error;
 pub mod name;
@@ -12,3 +18,5 @@ pub mod string_utils;
 mod os;
 
 pub use crate::can::Id;
+
+

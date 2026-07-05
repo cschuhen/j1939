@@ -8,12 +8,13 @@ pub const NULL_ADDRESS: u8 = 0xFE; // 254
 const NOT_ASSIGNED_INDEX: u8 = 0xFF; // 255
 const TIMEOUT_NONE: u8 = 0;
 
-#[derive(Debug, Copy, Clone, PartialEq, defmt::Format)]
+#[derive(Debug, Copy, Clone, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(u8)]
 pub(crate) enum NameState {
     INIT,
     CLAIMING,
-    ACTTIVE,
+    ACTIVE,
     DEAD,
 }
 impl From<u16> for NameState {
@@ -21,7 +22,7 @@ impl From<u16> for NameState {
         match val {
             0 => NameState::INIT,
             1 => NameState::CLAIMING,
-            2 => NameState::ACTTIVE,
+            2 => NameState::ACTIVE,
             3 => NameState::DEAD,
             _ => NameState::INIT,
         }
@@ -32,7 +33,7 @@ impl From<NameState> for u16 {
         match val {
             NameState::INIT => 0,
             NameState::CLAIMING => 1,
-            NameState::ACTTIVE => 2,
+            NameState::ACTIVE => 2,
             NameState::DEAD => 3,
         }
     }
@@ -62,7 +63,12 @@ pub(crate) struct NameTable {
     num_names: usize,
 }
 
-fn set_info_state(ni: &mut NameEntry, state: NameState, line: u32) {
+fn set_info_state(
+    ni: &mut NameEntry,
+    state: NameState,
+    #[cfg_attr(not(feature = "defmt"), allow(unused_variables))] line: u32,
+) {
+    #[cfg(feature = "defmt")]
     defmt::println!(
         "Name@{} {} state={:?} -> {:?}",
         line,
@@ -246,7 +252,6 @@ fn name_struct() {
 
 #[test]
 fn name_manager_table() {
-    use NameTable;
     let mut table = NameTable::new();
     assert_eq!(table.size(), 0);
     //table.add(&Name(7));

@@ -17,7 +17,8 @@ use crate::name::name_table::NameEntry;
 use crate::name::name_table::NameState;
 use crate::name::name_table::NameTable;
 
-#[derive(Debug, Copy, Clone, PartialEq, defmt::Format)]
+#[derive(Debug, Copy, Clone, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(u8)]
 enum NameManagerState {
     Disabled,
@@ -71,6 +72,7 @@ impl NameManager {
     }
 
     fn to_state(&mut self, state: NameManagerState) {
+        #[cfg(feature = "defmt")]
         defmt::println!("NameManager state={:?} -> {:?}", self.manager_state, state);
         match state {
             NameManagerState::Disabled => {}
@@ -157,7 +159,7 @@ impl NameManager {
                 self.clear_timeout(index)?;
 
             // If in active, just sending due to a request.
-            } else if info.state() != NameState::ACTTIVE {
+            } else if info.state() != NameState::ACTIVE {
                 // Sending our claim, now need to wait 250ms
                 self.table.set_state(index, NameState::CLAIMING, line!())?;
                 self.set_name_timeout(index, NAME_CLAIM_TIMEOUT)?;
@@ -264,6 +266,7 @@ impl NameManager {
                 if !info.local() {
                     continue;
                 }
+                #[cfg(feature = "defmt")]
                 defmt::println!(
                     "Send local claim {} {} {:?}\n",
                     line!(),
@@ -348,7 +351,7 @@ impl NameManager {
 
             if info.state() == NameState::CLAIMING {
                 // Promote to active state
-                self.table.set_state(index, NameState::ACTTIVE, line!())?;
+                self.table.set_state(index, NameState::ACTIVE, line!())?;
                 //print!("CLAIM ACTIVE address={}\n", info.address());
             } else if info.local() {
                 // Fixme; Needed? shouldn't set timeout until running.
@@ -378,6 +381,7 @@ impl NameManager {
 
         // Dead NAME
         if source == NULL_ADDRESS || source == BROADCAST_ADDRESS {
+            #[cfg(feature = "defmt")]
             defmt::println!("Claim dead {} {}\n", line!(), source);
             self.kill_claim(iface, index)?;
             return Ok(true);
@@ -405,6 +409,7 @@ impl NameManager {
                         // Local claim, try another address
                         match self.find_spare_address(128) {
                             Some(new_add) => {
+                                #[cfg(feature = "defmt")]
                                 defmt::println!(
                                     "Claim local move {} {}->{}\n",
                                     line!(),
@@ -415,11 +420,13 @@ impl NameManager {
                             }
                             None => {
                                 //  Couldn't find one
+                                #[cfg(feature = "defmt")]
                                 defmt::println!("Claim dead {} {}\n", line!(), source);
                                 self.kill_claim(iface, current_claim_index)?;
                             }
                         }
                     } else {
+                        #[cfg(feature = "defmt")]
                         defmt::println!("Claim dead {} {}\n", line!(), source);
                         self.kill_claim(iface, current_claim_index)?;
                     }
@@ -431,6 +438,7 @@ impl NameManager {
                         // Local claim, try another address
                         match self.find_spare_address(128) {
                             Some(new_add) => {
+                                #[cfg(feature = "defmt")]
                                 defmt::println!(
                                     "Claim local move {} {}->{}\n",
                                     line!(),
@@ -441,11 +449,13 @@ impl NameManager {
                             }
                             None => {
                                 //  Couldn't find one
+                                #[cfg(feature = "defmt")]
                                 defmt::println!("Claim dead {} {}\n", line!(), source);
                                 self.kill_claim(iface, index)?;
                             }
                         }
                     } else {
+                        #[cfg(feature = "defmt")]
                         defmt::println!("Claim dead {} {}->{}\n", line!(), info.address(), source);
                         self.kill_claim(iface, index)?;
                     }
@@ -464,7 +474,7 @@ impl NameManager {
     pub fn resolve(&self, name: &crate::name::Name) -> Result<crate::can::Address, Error> {
         self.expect_enabled()?;
         let info = self.table.info_from_name(name)?;
-        if info.state() != NameState::ACTTIVE {
+        if info.state() != NameState::ACTIVE {
             return Err(mkerr(
                 FILE_CODE,
                 crate::error::ErrorCode::NotResolved,
@@ -481,7 +491,7 @@ impl NameManager {
         if !info.local() {
             return Err(mkerr(FILE_CODE, crate::error::ErrorCode::NotLocal, line!()));
         }
-        if info.state() != NameState::ACTTIVE {
+        if info.state() != NameState::ACTIVE {
             return Err(crate::error::mkerr_u32(
                 FILE_CODE,
                 crate::error::ErrorCode::NotResolved,
@@ -506,6 +516,7 @@ impl NameManager {
         address: u8,
         name: &crate::name::Name,
     ) -> Result<bool, Error> {
+        #[cfg(feature = "defmt")]
         defmt::println!("Register local name {} {}\n", line!(), address);
         self.process_claim(iface, address, name, true)
     }
@@ -531,6 +542,7 @@ impl NameManager {
         return match id.pgn() {
             pgn::ADDRESS_CLAIMED => match crate::name::Name::from_bytes(&data) {
                 Ok(name) => {
+                    #[cfg(feature = "defmt")]
                     defmt::println!("Remote claim {} {}\n", line!(), id.source());
                     self.process_claim(iface, id.source(), &name, false)
                 }
@@ -603,7 +615,7 @@ pub mod name_manager_tests {
             "Name SC {:x}\n",
             Name::create(true, 0, 0, 0, 0, 0, 0, 0, 0).raw()
         );
-        let local_name = Name(0);
+        let local_name = Name::from_bytes_iter([0u8, 0, 0, 0, 0, 0, 0, 0, 0].into_iter());
 
         print!("Register local name on 130\n");
         assert_eq!(

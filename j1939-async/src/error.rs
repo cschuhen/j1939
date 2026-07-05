@@ -1,12 +1,14 @@
 //#![deny(unsafe_code)]
 #![deny(warnings)]
 
-#[derive(Copy, Clone, Debug, defmt::Format)]
+#[derive(Copy, Clone, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Error {
     pub ebytes: [u8; 8],
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, defmt::Format)]
+#[derive(Copy, Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(u8)]
 pub enum ErrorCode {
     CheckPoint = 0, // Not an error

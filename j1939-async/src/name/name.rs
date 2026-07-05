@@ -5,7 +5,8 @@ type ErrorCode = crate::error::ErrorCode;
 const FILE_CODE: u8 = 0xFE;
 
 bitfield::bitfield! {
-    #[derive(Copy, Clone, Eq, PartialOrd, Ord, PartialEq, defmt::Format)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+    #[derive(Copy, Clone, Eq, PartialOrd, Ord, PartialEq)]
     /// J1938 / ISO11783 / NMEA2000 NAME
     pub struct Name(u64);
     impl Debug;
@@ -90,6 +91,15 @@ impl Name {
             nameref: self,
             index: 0,
         }
+    }
+    pub fn from_bytes_iter<I: Iterator<Item = u8>>(iter: I) -> Name {
+        let mut raw: u64 = 0;
+        for (n, byte) in iter.enumerate() {
+            if n < 8 {
+                raw |= (byte as u64) << (8 * n);
+            }
+        }
+        Name(raw)
     }
 }
 

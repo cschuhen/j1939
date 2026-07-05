@@ -1,14 +1,15 @@
 //const FILE_CODE: u8 = 0xFB;
 
-#[derive(Copy, Clone, PartialEq, Eq, defmt::Format)]
+#[derive(Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Command {
     TechnicalCapabilities = 0,
     DDOPTransfer = 1,
     RequestValue = 2,
     Value = 3,
     MeasurementTimeInterval = 4,
-    MeasuermentDistanceInterval = 5,
-    MeasurementMinumum = 6,
+    MeasurementDistanceInterval = 5,
+    MeasurementMinimum = 6,
     MeasurementMaximum = 7,
     MeasurementChange = 8,
     PeerControlAssignment = 9,
@@ -22,7 +23,8 @@ pub type ElementNumber = u16;
 pub type Ddi = u16;
 type Value = i32;
 
-#[derive(Copy, Clone, PartialEq, Eq, defmt::Format)]
+#[derive(Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ErrorCodes(i32);
 
 impl ErrorCodes {
@@ -64,8 +66,8 @@ impl ErrorCodes {
             2 => Command::RequestValue,
             3 => Command::Value,
             4 => Command::MeasurementTimeInterval,
-            5 => Command::MeasuermentDistanceInterval,
-            6 => Command::MeasurementMinumum,
+            5 => Command::MeasurementDistanceInterval,
+            6 => Command::MeasurementMinimum,
             7 => Command::MeasurementMaximum,
             8 => Command::MeasurementChange,
             9 => Command::PeerControlAssignment,
@@ -111,7 +113,8 @@ impl ErrorCodes {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, defmt::Format)]
+#[derive(Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ProcessData {
     pub command: Command,
     pub element_number: ElementNumber,
@@ -151,8 +154,8 @@ impl From<&[u8]> for ProcessData {
             2 => Command::RequestValue,
             3 => Command::Value,
             4 => Command::MeasurementTimeInterval,
-            5 => Command::MeasuermentDistanceInterval,
-            6 => Command::MeasurementMinumum,
+            5 => Command::MeasurementDistanceInterval,
+            6 => Command::MeasurementMinimum,
             7 => Command::MeasurementMaximum,
             8 => Command::MeasurementChange,
             9 => Command::PeerControlAssignment,
@@ -236,7 +239,8 @@ impl HandlePdValue {
 }
 */
 
-#[derive(Copy, Clone, PartialEq, Eq, defmt::Format)]
+#[derive(Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct PdReturn {
     handled: bool,
     changed: bool,
@@ -313,6 +317,7 @@ pub fn handle_pd_value(pd: &ProcessData, value: &i32) -> HandlePdResult {
 pub fn handle_settable_pd_value(pd: &ProcessData, value: &mut i32) -> HandlePdResult {
     match pd.command {
         Command::Value => {
+            #[cfg(feature = "defmt")]
             defmt::println!("Value");
             if *value == pd.value {
                 Ok(PdReturn::new_unchanged())
@@ -322,6 +327,7 @@ pub fn handle_settable_pd_value(pd: &ProcessData, value: &mut i32) -> HandlePdRe
             }
         }
         Command::SetValueWithAcknowledgment => {
+            #[cfg(feature = "defmt")]
             defmt::println!("SetValue");
             let changed: bool;
             if *value == pd.value {
