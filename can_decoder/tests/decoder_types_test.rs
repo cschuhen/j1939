@@ -1,21 +1,21 @@
 #[cfg(test)]
 mod tests {
     use can_decoder::types::{
-        DecodeContext, DecodeError, DecodedField, DecodedMessage, DeviceUpdate, FlagValue, Numeric,
-        Severity, PGN,
+        DecodeContext, DecodeError, DecodedField, DecodedMessage, DeviceUpdate, Numeric,
     };
     use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn test_decode_context_construction() {
-        let pgn = PGN::from_can_id(0x18EF4000);
+        use j1939_async::can::{Id, MutableId};
+        let id = j1939_async::can::IdImpl::new_unchecked(0x18EF4000);
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_micros() as u64;
 
         let context = DecodeContext {
-            pgn,
+            pgn: id.pgn(),
             priority: 6,
             src_addr: 0x20,
             dest_addr: 0x01,
@@ -24,7 +24,7 @@ mod tests {
             timestamp: now,
         };
 
-        assert_eq!(context.pgn.priority, 6);
+        assert_eq!(context.priority, 6);
         assert_eq!(context.src_addr, 0x20);
         assert_eq!(context.timestamp, now);
     }

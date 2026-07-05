@@ -1,5 +1,6 @@
-use crate::types::PGN;
 use std::collections::HashMap;
+
+type PGN = u32;
 
 #[derive(Debug, Clone)]
 pub struct Device {

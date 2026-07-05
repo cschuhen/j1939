@@ -1,3 +1,4 @@
+use j1939_async::Id;
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
@@ -6,9 +7,7 @@ use serde::Deserialize;
 
 use crate::tp_reassembler::{TpReassembler, TpReassemblyResult};
 use crate::traits::Decoder;
-use crate::types::{
-    AssembledMessage, DecodedField, DecodedMessage, Numeric, RawFrame, Severity, PGN,
-};
+use crate::types::{AssembledMessage, DecodedField, DecodedMessage, Numeric, RawFrame, Severity};
 
 /// YAML configuration for the PGN decoder engine.
 #[derive(Debug, Clone, Deserialize)]
@@ -312,7 +311,7 @@ impl J1939Decoder {
 
     /// Decode an assembled message into DecodedField items using config definitions.
     pub fn decode_assembled(&self, msg: &AssembledMessage) -> Vec<DecodedField> {
-        let pgn_key = msg.pgn.pgn;
+        let pgn_key = msg.pgn();
 
         if let Some(pgn_def) = self.config.pgns.get(&pgn_key) {
             return self.decode_components(msg, pgn_def);
@@ -324,7 +323,7 @@ impl J1939Decoder {
             text: format!(
                 "Unrecognized PGN={:#06X} source={:#04X}: {} bytes",
                 pgn_key,
-                msg.source_address,
+                msg.source(),
                 msg.data.len()
             ),
         }]
@@ -351,7 +350,7 @@ impl J1939Decoder {
                 text: format!(
                     "{} PGN={:#06X}: insufficient data for {} components",
                     pgn_def.title,
-                    msg.pgn.pgn,
+                    msg.pgn(),
                     pgn_def.components.len()
                 ),
             });
@@ -479,11 +478,11 @@ impl J1939Decoder {
 
     /// Decode a raw frame directly (for single-frame/broadcast compressed messages).
     pub fn decode_raw_frame(&mut self, frame: RawFrame) -> Vec<DecodedField> {
-        let pgn = PGN::from_can_id(frame.can_id);
+        let pgn = frame.pgn();
 
-        if pgn.pgn < 0xEF00 {
+        if pgn < 0xEF00 {
             // Broadcast compressed - single frame message
-            return self.decode_single_frame(&frame, &pgn);
+            return self.decode_single_frame(&frame);
         }
 
         // Multi-frame TP - feed to reassembler
@@ -501,7 +500,7 @@ impl J1939Decoder {
                         severity: Severity::Warning,
                         text: format!(
                             "TP timeout for PGN={:#06X} source={:#04X}: received {} of {} bytes",
-                            partial.pgn.pgn,
+                            partial.pgn,
                             partial.source_address,
                             partial.data.len(),
                             partial.total_expected
@@ -515,15 +514,12 @@ impl J1939Decoder {
     }
 
     /// Decode a single frame using config definitions.
-    fn decode_single_frame(&self, frame: &RawFrame, pgn: &PGN) -> Vec<DecodedField> {
-        let pgn_key = pgn.pgn;
+    fn decode_single_frame(&self, frame: &RawFrame) -> Vec<DecodedField> {
+        let pgn_key = frame.pgn();
 
         if let Some(_pgn_def) = self.config.pgns.get(&pgn_key) {
-            let source_addr = (frame.can_id & 0xFF) as u8;
             let assembled = AssembledMessage {
-                pgn: pgn.clone(),
-                source_address: source_addr,
-                destination_address: 0xFF,
+                id: frame.can_id,
                 data: frame.data.clone(),
                 timestamp: frame.timestamp,
             };
@@ -566,12 +562,9 @@ impl Decoder for J1939Decoder {
         Box::pin(async move {
             let can_id = frame.can_id;
             let outputs = self.decode_raw_frame(frame);
+            let id = j1939_async::can::IdImpl::new_unchecked(can_id);
             Ok(DecodedMessage {
-                title: format!(
-                    "PGN {:X} from {:X}",
-                    crate::types::PGN::from_can_id(can_id).pgn,
-                    can_id
-                ),
+                title: format!("PGN {:X} from {:X}", id.pgn(), id.source()),
                 outputs,
                 updates: vec![],
             })
@@ -597,11 +590,9 @@ mod tests {
     }
 
     fn make_assembled(pgn_val: u32, source: u8, data: Vec<u8>) -> AssembledMessage {
-        let pgn = PGN::from_can_id((3u32 << 26) | (pgn_val << 8) | source as u32);
+        let can_id = (3u32 << 26) | (pgn_val << 8) | source as u32;
         AssembledMessage {
-            pgn,
-            source_address: source,
-            destination_address: 0xFF,
+            id: can_id,
             data,
             timestamp: 1_000_000,
         }

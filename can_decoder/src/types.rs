@@ -1,3 +1,4 @@
+use j1939_async::Id;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Represents a single raw CAN frame received from the bus.
@@ -23,17 +24,38 @@ impl RawFrame {
             data,
         }
     }
+
+    /// Extract source address from a 29-bit J1939 CAN ID.
+    pub fn source_address(&self) -> u8 {
+        self.source()
+    }
+
+    /// Extract destination address from a CAN ID.
+    /// For j1939-async format: (priority << 26) | (pgn << 8) | source
+    /// Destination defaults to broadcast (0xFF).
+    pub fn destination_address(&self) -> u8 {
+        self.destination()
+    }
+}
+
+impl j1939_async::Id for RawFrame {
+    fn as_raw(&self) -> u32 {
+        self.can_id
+    }
 }
 
 /// Represents a fully assembled logical CAN message after multi-frame reassembly.
 #[derive(Debug, Clone)]
 pub struct AssembledMessage {
+    /// CAN ID of the message. For TP messages, this may not match actual on-bus ID's
+    pub id: u32,
+
     /// Protocol Group Number extracted from the CAN ID.
-    pub pgn: PGN,
+    //pub pgn: PGN,
     /// Source address of the ECU that sent this message.
-    pub source_address: u8,
+    //pub source_address: u8,
     /// Destination address (0xFF = broadcast).
-    pub destination_address: u8,
+    //pub destination_address: u8,
     /// Assembled payload data (may exceed 8 bytes for TP messages).
     pub data: Vec<u8>,
     /// Microseconds since Unix epoch when this message was assembled.
@@ -42,23 +64,27 @@ pub struct AssembledMessage {
 
 impl AssembledMessage {
     /// Create a new AssembledMessage with the current timestamp and broadcast destination.
-    pub fn new(pgn: PGN, source_address: u8, data: Vec<u8>) -> Self {
+    pub fn new(id: u32, data: Vec<u8>) -> Self {
         let duration = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default();
         AssembledMessage {
-            pgn,
-            source_address,
-            destination_address: 0xFF,
+            id,
             data,
             timestamp: duration.as_micros() as u64,
         }
     }
 }
 
+impl j1939_async::Id for AssembledMessage {
+    fn as_raw(&self) -> u32 {
+        self.id
+    }
+}
+
 /// J1939 Protocol Group Number parsed from a 29-bit CAN ID.
 /// Format matches j1939-async: [priority:3 bits@26][PGN:18 bits@8][source:8 bits@0]
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/*#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PGN {
     /// Message priority (0-7), from bits 26-28 of CAN ID.
     pub priority: u8,
@@ -79,7 +105,7 @@ impl PGN {
     pub fn to_u32(&self) -> u32 {
         (self.priority as u32) << 26 | self.pgn << 8
     }
-}
+}*/
 
 /// The primary output type emitted by the decoder pipeline.
 #[derive(Debug, Clone)]
@@ -156,7 +182,7 @@ pub enum DecodeError {
 /// The context provided to every decoder call.
 #[derive(Debug, Clone)]
 pub struct DecodeContext {
-    pub pgn: PGN,
+    pub pgn: u32,
     pub priority: u8,
     pub src_addr: u8,
     pub dest_addr: u8,
@@ -224,123 +250,6 @@ mod tests {
         let frame = RawFrame::new(0x0, vec![]);
         assert_eq!(frame.can_id, 0x0);
         assert!(frame.data.is_empty());
-    }
-
-    #[test]
-    fn pgn_from_can_id_standard_j1939() {
-        let can_id = 0x18EF4000;
-        let pgn = PGN::from_can_id(can_id);
-        assert_eq!(pgn.priority, ((can_id >> 26) & 7) as u8);
-        assert_eq!(pgn.pgn, (can_id >> 8) & 0x3FFFF);
-    }
-
-    #[test]
-    fn pgn_from_can_id_priority_0_pgn_0() {
-        let can_id = 0x00000000;
-        let pgn = PGN::from_can_id(can_id);
-        assert_eq!(pgn.priority, 0);
-        assert_eq!(pgn.pgn, 0);
-    }
-
-    #[test]
-    fn pgn_from_can_id_priority_7_pgn_max() {
-        let can_id = (7u32 << 26) | (0x3FFFF << 8);
-        let pgn = PGN::from_can_id(can_id);
-        assert_eq!(pgn.priority, 7);
-        assert_eq!(pgn.pgn, 0x3FFFF);
-    }
-
-    #[test]
-    fn pgn_from_can_id_various_priorities() {
-        let test_cases = [
-            ((2u32 << 26) | (0x1000 << 8), 2),
-            ((4u32 << 26) | (0x2000 << 8), 4),
-            ((6u32 << 26) | (0x3000 << 8), 6),
-        ];
-        for (can_id, expected_priority) in test_cases {
-            let pgn = PGN::from_can_id(can_id);
-            assert_eq!(
-                pgn.priority, expected_priority,
-                "priority mismatch for can_id={:#x}",
-                can_id
-            );
-        }
-    }
-
-    #[test]
-    fn pgn_to_u32_roundtrip() {
-        let test_ids = [
-            0x18EF4000u32,
-            0x00000000u32,
-            (6u32 << 26) | (0xCB00 << 8),
-            0x0A000000u32,
-        ];
-        for &can_id in &test_ids {
-            let pgn = PGN::from_can_id(can_id);
-            assert_eq!(
-                pgn.to_u32(),
-                can_id,
-                "roundtrip failed for can_id={:#x}",
-                can_id
-            );
-        }
-    }
-
-    #[test]
-    fn pgn_to_u32_preserves_fields() {
-        let pgn = PGN {
-            priority: 4,
-            pgn: 0xDEADBEEF & 0x3FFFF,
-        };
-        let reconstructed = PGN::from_can_id(pgn.to_u32());
-        assert_eq!(reconstructed.priority, pgn.priority);
-        assert_eq!(reconstructed.pgn, pgn.pgn);
-    }
-
-    #[test]
-    fn pgn_pgn_is_18_bits() {
-        let all_set = PGN::from_can_id(0xFFFFFFFF);
-        assert!(all_set.pgn <= 0x3FFFF, "pgn should fit in 18 bits");
-    }
-
-    #[test]
-    fn pgn_from_can_id_clears_upper_bits() {
-        let can_id = 0x29EF4000;
-        let pgn = PGN::from_can_id(can_id);
-        assert_eq!(pgn.priority, ((can_id >> 26) & 0x7) as u8);
-    }
-
-    #[test]
-    fn pgn_from_can_id_priority_3() {
-        let can_id = (3u32 << 26) | (0x1000 << 8);
-        let pgn = PGN::from_can_id(can_id);
-        assert_eq!(pgn.priority, 3);
-    }
-
-    #[test]
-    fn pgn_from_can_id_all_zero() {
-        let can_id = 0x0;
-        let pgn = PGN::from_can_id(can_id);
-        assert_eq!(pgn.priority, 0);
-        assert_eq!(pgn.pgn, 0);
-    }
-
-    #[test]
-    fn pgn_to_u32_zero() {
-        let pgn = PGN {
-            priority: 0,
-            pgn: 0,
-        };
-        assert_eq!(pgn.to_u32(), 0);
-    }
-
-    #[test]
-    fn pgn_to_u32_max_priority_pgn() {
-        let pgn = PGN {
-            priority: 7,
-            pgn: 0x1FFFFF,
-        };
-        assert_eq!(pgn.to_u32(), (7 << 26) | (0x1FFFFF << 8));
     }
 
     #[test]
@@ -450,33 +359,17 @@ mod tests {
 
     #[test]
     fn assembled_message_new_timestamp() {
-        let pgn = PGN::from_can_id(0x18EF4000);
+        let can_id = 0x18EF4000;
         let before = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default();
-        let msg = AssembledMessage::new(pgn, 0x20, vec![0x01]);
+        let msg = AssembledMessage::new(can_id, vec![0x01]);
         let after = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default();
 
         assert!(msg.timestamp >= before.as_micros() as u64);
         assert!(msg.timestamp <= after.as_micros() as u64 + 100_000);
-    }
-
-    #[test]
-    fn pgn_matches_j1939_async_format() {
-        // Verify format matches j1939-async construction: (priority<<26)|(pgn<<8)|source
-        let priority = 4u32;
-        let pgn_val = 0xEE00u32;
-        let source = 0xF8u32;
-
-        // Build CAN ID the same way j1939-async does
-        let can_id = (priority << 26) | (pgn_val << 8) | source;
-
-        // Extract should give back original values
-        let pgn = PGN::from_can_id(can_id);
-        assert_eq!(pgn.priority, priority as u8);
-        assert_eq!(pgn.pgn, pgn_val);
     }
 
     #[test]

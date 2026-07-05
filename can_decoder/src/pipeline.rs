@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use j1939_async::can::Id;
+
 use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinHandle;
 
@@ -143,8 +145,8 @@ impl Decoder for NullDecoder {
     > {
         Box::pin(async move {
             if self.debug {
-                let pgn_info = crate::types::PGN::from_can_id(frame.can_id);
-                if pgn_info.pgn == 0xEE00 {
+                let id = j1939_async::can::IdImpl::new_unchecked(frame.can_id);
+                if id.pgn() == 0xEE00 {
                     println!("[DEBUG] Processing address claim");
                 }
                 println!(

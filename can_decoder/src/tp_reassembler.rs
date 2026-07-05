@@ -1,7 +1,8 @@
+use j1939_async::Id;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 
-use crate::types::{AssembledMessage, RawFrame, PGN};
+use crate::types::{AssembledMessage, RawFrame};
 
 /// Type of Transport Protocol frame.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -12,6 +13,9 @@ pub enum TpMessageType {
     ConnectionManagement,
     /// Actual data packet in a Total Message Transfer sequence.
     DataPacket,
+
+    /// Frame is not a Transport Protocol frame.
+    NotTp,
 }
 
 /// J1939 Transport Protocol variant.
@@ -26,7 +30,8 @@ pub enum TpProtocol {
 pub struct TpAssemblyState {
     pub source_address: u8,
     pub destination_address: u8,
-    pub pgn: PGN,
+    pub pgn: u32,
+    pub priority: u8,
     pub total_size: usize,
     pub page_number: u8,
     pub packets_received: Vec<(u8, Vec<u8>)>,
@@ -50,7 +55,7 @@ pub enum TpReassemblyResult {
 pub struct PartialAssembly {
     pub source_address: u8,
     pub destination_address: u8,
-    pub pgn: PGN,
+    pub pgn: u32,
     pub data: Vec<u8>,
     pub total_expected: usize,
     pub timestamp: u64,
@@ -69,7 +74,6 @@ pub enum TpError {
     Timeout {
         source: u8,
         destination: u8,
-        pgn: PGN,
         elapsed_ms: u64,
     },
     CorruptedData(String),
@@ -91,12 +95,11 @@ impl fmt::Display for TpError {
             TpError::Timeout {
                 source,
                 destination,
-                pgn,
                 elapsed_ms,
             } => write!(
                 f,
-                "TP timeout after {}ms: source={:#04X}, dest={:#04X}, PGN={:#06X}",
-                elapsed_ms, source, destination, pgn.pgn
+                "TP timeout after {}ms: source={:#04X}, dest={:#04X}",
+                elapsed_ms, source, destination
             ),
             TpError::CorruptedData(msg) => write!(f, "Corrupted data: {}", msg),
         }
@@ -115,7 +118,7 @@ pub struct TpReassembler {
     /// Timeout in milliseconds before giving up on an assembly.
     timeout_ms: u64,
     /// Active multi-frame assemblies keyed by (source, dest, pgn).
-    assemblies: HashMap<(u8, u8, PGN), TpAssemblyState>,
+    assemblies: HashMap<(u8, u8), TpAssemblyState>,
     /// Track which source addresses have initiated RTS to avoid re-RTS confusion.
     rts_pending_sources: HashSet<u8>,
 }
@@ -137,60 +140,63 @@ impl TpReassembler {
             return vec![];
         }
 
-        let pgn = PGN::from_can_id(frame.can_id);
         self.cleanup_expired(frame.timestamp / 1000);
-        let results = self.process_frame_internal(frame, &pgn);
+        let results = self.process_frame_internal(frame);
 
         eprintln!(
             "[DEBUG] process_frame: can_id={:#010X}, pgn.pgn={:#06X}, data[0]={}, len={}, results.len()={}",
-            frame.can_id, pgn.pgn, frame.data.first().unwrap_or(&0), frame.data.len(), results.len()
+            frame.can_id, frame.pgn(), frame.data.first().unwrap_or(&0), frame.data.len(), results.len()
         );
 
         results
     }
 
-    fn process_frame_internal(&mut self, frame: &RawFrame, pgn: &PGN) -> Vec<TpReassemblyResult> {
-        if pgn.pgn < 0xEF00 {
-            return self.handle_broadcast_compressed(frame, pgn);
-        }
+    fn process_frame_internal(&mut self, frame: &RawFrame) -> Vec<TpReassemblyResult> {
+        //if frame.pgn() < 0xEF00 {
+        //    return self.handle_broadcast_compressed(frame);
+        //}
 
-        let msg_type = self.detect_message_type(frame, pgn);
+        let msg_type = self.detect_message_type(frame);
 
         match msg_type {
             TpMessageType::ConnectionManagement => vec![],
-            TpMessageType::DataPacket => self.handle_data_packet(frame, pgn),
-            TpMessageType::BroadcastCompressed => self.handle_broadcast_compressed(frame, pgn),
+            TpMessageType::DataPacket => self.handle_data_packet(frame),
+            TpMessageType::BroadcastCompressed => self.handle_broadcast_compressed(frame),
+            TpMessageType::NotTp => vec![],
         }
     }
 
-    fn detect_message_type(&self, frame: &RawFrame, pgn: &PGN) -> TpMessageType {
-        if pgn.pgn < 0xEF00 {
+    fn detect_message_type(&self, frame: &RawFrame) -> TpMessageType {
+        if frame.pgn() < 0xEF00 {
+            // FIXME: WHat's this?
             return TpMessageType::BroadcastCompressed;
         }
 
         // Connection Management uses PGN 0xEC (which is < 0xEF00, handled as broadcast).
         // For PGN >= 0xEF00, check if this looks like a data packet vs CM frame.
-        if pgn.pgn == 0xEC {
+        if frame.pgn() == 0xEC00 {
             return TpMessageType::ConnectionManagement;
         }
 
-        let data = &frame.data;
-
         // Data packets: byte 0 is packet sequence number (1-based), bytes 1-7 are payload
-        if data.len() >= 2 && data[0] > 0 {
+        //if data.len() >= 2 && data[0] > 0 {
+        if frame.pgn() == 0xEB00 {
             return TpMessageType::DataPacket;
         }
 
-        TpMessageType::ConnectionManagement
+        TpMessageType::NotTp
     }
 
-    fn handle_broadcast_compressed(&self, frame: &RawFrame, pgn: &PGN) -> Vec<TpReassemblyResult> {
-        let source_address = (frame.can_id & 0xFF) as u8;
+    fn handle_broadcast_compressed(&self, frame: &RawFrame) -> Vec<TpReassemblyResult> {
+        let id = j1939_async::can::IdImpl::new_id_unchecked(
+            frame.pgn(),
+            frame.source_address(),
+            0xFF,
+            frame.priority(),
+        );
 
         let assembled = AssembledMessage {
-            pgn: pgn.clone(),
-            source_address,
-            destination_address: 0xFF,
+            id: id.as_raw(),
             data: frame.data.clone(),
             timestamp: frame.timestamp,
         };
@@ -198,15 +204,15 @@ impl TpReassembler {
         vec![TpReassemblyResult::Complete(assembled)]
     }
 
-    fn handle_data_packet(&mut self, frame: &RawFrame, pgn: &PGN) -> Vec<TpReassemblyResult> {
+    fn handle_data_packet(&mut self, frame: &RawFrame) -> Vec<TpReassemblyResult> {
         let data = &frame.data;
 
         if data.len() < 2 {
             eprintln!(
-                "[TP] Data packet too short ({} bytes) for PGN={:#06X}, source={:#04X}",
+                "[TP] Data packet too short ({} bytes) for source={:#04X} destination={:#04X}",
                 data.len(),
-                pgn.pgn,
-                frame.source_address()
+                frame.source_address(),
+                frame.destination_address()
             );
             return vec![];
         }
@@ -214,9 +220,9 @@ impl TpReassembler {
         let packet_num = data[0];
         if packet_num == 0 {
             eprintln!(
-                "[TP] Invalid zero packet number for PGN={:#06X}, source={:#04X}",
-                pgn.pgn,
-                frame.source_address()
+                "[TP] Invalid zero packet number for source={:#04X} destination={:#04X}",
+                frame.source_address(),
+                frame.destination_address()
             );
             return vec![];
         }
@@ -224,9 +230,10 @@ impl TpReassembler {
         let payload = data[1..].to_vec();
         if payload.len() > 7 {
             eprintln!(
-                "[TP] Data packet payload too large ({} bytes) for PGN={:#06X}",
+                "[TP] Data packet payload too large ({} bytes) for source={:#04X} destination={:#04X}",
                 payload.len(),
-                pgn.pgn
+                frame.source_address(),
+                frame.destination_address()
             );
             return vec![];
         }
@@ -234,13 +241,13 @@ impl TpReassembler {
         let source_address = frame.source_address();
         let destination_address = frame.destination_address();
 
-        let key = (source_address, destination_address, pgn.clone());
+        let key = (source_address, destination_address);
 
         // Check if we have an active assembly for this stream
         if !self.assemblies.contains_key(&key) {
             eprintln!(
-                "[TP] Data packet received without prior RTS/CTS for PGN={:#06X}, source={:#04X}",
-                pgn.pgn, source_address
+                "[TP] Data packet received without prior RTS/CTS for source={:#04X} destination={:#04X}",
+                source_address, destination_address
             );
             return vec![];
         }
@@ -254,8 +261,8 @@ impl TpReassembler {
             .any(|(pn, _)| *pn == packet_num)
         {
             eprintln!(
-                "[TP] Duplicate packet {} for PGN={:#06X}, source={:#04X}",
-                packet_num, pgn.pgn, source_address
+                "[TP] Duplicate packet {} for PGN={:#06X}, source={:#04X} destination={:#04X}",
+                packet_num, assembly.pgn, source_address, destination_address
             );
             return vec![];
         }
@@ -264,8 +271,8 @@ impl TpReassembler {
         let next_expected = assembly.packets_received.len() + 1;
         if packet_num < next_expected as u8 {
             eprintln!(
-                "[TP] Out-of-order packet {} (expected >= {}) for PGN={:#06X}",
-                packet_num, next_expected, pgn.pgn
+                "[TP] Out-of-order packet {} (expected >= {}) for PGN={:#06X} source={:#04X} destination={:#04X}",
+                packet_num, next_expected, assembly.pgn, source_address, destination_address
             );
             return vec![];
         }
@@ -274,8 +281,8 @@ impl TpReassembler {
         let max_packets = (assembly.total_size + 6) / 7;
         if packet_num > max_packets as u8 {
             eprintln!(
-                "[TP] Packet {} exceeds maximum ({}) for PGN={:#06X}",
-                packet_num, max_packets, pgn.pgn
+                "[TP] Packet {} exceeds maximum ({}) for PGN={:#06X} source={:#04X} destination={:#04X}",
+                packet_num, max_packets, assembly.pgn, source_address, destination_address
             );
             return vec![];
         }
@@ -305,10 +312,15 @@ impl TpReassembler {
 
             self.assemblies.insert(key.clone(), updated);
 
+            let id = j1939_async::can::IdImpl::new_id_unchecked(
+                assembly.pgn,
+                assembly.source_address,
+                assembly.destination_address,
+                assembly.priority,
+            );
+
             let assembled = AssembledMessage {
-                pgn: pgn.clone(),
-                source_address,
-                destination_address,
+                id: id.as_raw(),
                 data: assembled_data,
                 timestamp: frame.timestamp,
             };
@@ -336,7 +348,7 @@ impl TpReassembler {
                     elapsed,
                     assembly.source_address,
                     assembly.destination_address,
-                    assembly.pgn.pgn,
+                    assembly.pgn,
                     assembly.packets_received.len()
                 );
 
@@ -348,12 +360,12 @@ impl TpReassembler {
 
                     eprintln!(
                         "[TP] Timeout for PGN={:#06X}: source={:#04X}, dest={:#04X}",
-                        assembly.pgn.pgn, assembly.source_address, assembly.destination_address
+                        assembly.pgn, assembly.source_address, assembly.destination_address
                     );
                 } else {
                     eprintln!(
                         "[TP] Discarding incomplete TP message: PGN={:#06X}, source={:#04X}",
-                        assembly.pgn.pgn, assembly.source_address
+                        assembly.pgn, assembly.source_address
                     );
                 }
             }
@@ -373,20 +385,6 @@ impl TpReassembler {
     pub fn clear_all(&mut self) {
         self.assemblies.clear();
         self.rts_pending_sources.clear();
-    }
-}
-
-impl RawFrame {
-    /// Extract source address from a 29-bit J1939 CAN ID.
-    pub fn source_address(&self) -> u8 {
-        (self.can_id & 0xFF) as u8
-    }
-
-    /// Extract destination address from a CAN ID.
-    /// For j1939-async format: (priority << 26) | (pgn << 8) | source
-    /// Destination defaults to broadcast (0xFF).
-    pub fn destination_address(&self) -> u8 {
-        0xFF
     }
 }
 
@@ -418,9 +416,9 @@ mod tests {
         assert_eq!(results.len(), 1);
         match &results[0] {
             TpReassemblyResult::Complete(msg) => {
-                assert_eq!(msg.pgn.pgn, 0x1000);
-                assert_eq!(msg.source_address, 0xF8);
-                assert_eq!(msg.destination_address, 0xFF);
+                assert_eq!(msg.pgn(), 0x1000);
+                assert_eq!(msg.source(), 0xF8);
+                assert_eq!(msg.destination(), 0xFF);
                 assert_eq!(msg.data, vec![0x01, 0x02, 0x03, 0x04]);
             }
             _ => panic!("Expected Complete result"),
@@ -483,7 +481,6 @@ mod tests {
 
         let pgn_val: u32 = 0xF000;
         let source: u8 = 0x20;
-        let dest: u8 = 0xFF;
         let can_id = (7u32 << 26) | (pgn_val << 8) | source as u32;
         let frame = make_frame(can_id, &[0x00, 0x41]);
 
@@ -497,7 +494,6 @@ mod tests {
 
         let pgn_val: u32 = 0xF000;
         let source: u8 = 0x20;
-        let dest: u8 = 0xFF;
         let can_id = (7u32 << 26) | (pgn_val << 8) | source as u32;
         let frame = make_frame(can_id, &[0x01]);
 
@@ -511,7 +507,6 @@ mod tests {
 
         let pgn_val: u32 = 0xF000;
         let source: u8 = 0x20;
-        let dest: u8 = 0xFF;
         let can_id = (7u32 << 26) | (pgn_val << 8) | source as u32;
         let frame = make_frame(
             can_id,
@@ -535,15 +530,15 @@ mod tests {
         let dest: u8 = 0xFF;
         let can_id_base = (7u32 << 26) | (pgn_val << 8) | source as u32;
 
-        let pgn_struct = PGN::from_can_id(can_id_base);
-        let key = (source, dest, pgn_struct.clone());
+        let key = (source, dest);
 
         reassembler.assemblies.insert(
             key.clone(),
             TpAssemblyState {
                 source_address: source,
                 destination_address: dest,
-                pgn: pgn_struct.clone(),
+                pgn: pgn_val,
+                priority: 0,
                 total_size: 5,
                 page_number: 0,
                 packets_received: vec![],
@@ -559,9 +554,9 @@ mod tests {
         assert_eq!(results.len(), 1);
         match &results[0] {
             TpReassemblyResult::Complete(msg) => {
-                assert_eq!(msg.pgn.pgn, pgn_val);
-                assert_eq!(msg.source_address, source);
-                assert_eq!(msg.destination_address, dest);
+                assert_eq!(msg.pgn(), pgn_val);
+                assert_eq!(msg.source(), source);
+                assert_eq!(msg.destination(), dest);
                 assert_eq!(msg.data, vec![0x10, 0x20, 0x30, 0x40, 0x50]);
             }
             _ => panic!("Expected Complete result"),
@@ -579,15 +574,15 @@ mod tests {
         let dest: u8 = 0xFF;
         let can_id_base = (7u32 << 26) | (pgn_val << 8) | source as u32;
 
-        let pgn_struct = PGN::from_can_id(can_id_base);
-        let key = (source, dest, pgn_struct.clone());
+        let key = (source, dest);
 
         reassembler.assemblies.insert(
             key.clone(),
             TpAssemblyState {
                 source_address: source,
                 destination_address: dest,
-                pgn: pgn_struct.clone(),
+                pgn: pgn_val,
+                priority: 0,
                 total_size: 20,
                 page_number: 1,
                 packets_received: vec![],
@@ -621,8 +616,8 @@ mod tests {
         assert_eq!(complete_results.len(), 1);
         match &complete_results[0] {
             TpReassemblyResult::Complete(msg) => {
-                assert_eq!(msg.pgn.pgn, pgn_val);
-                assert_eq!(msg.source_address, source);
+                assert_eq!(msg.pgn(), pgn_val);
+                assert_eq!(msg.source(), source);
                 assert_eq!(msg.data.len(), 20);
                 let expected = vec![
                     0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x01, // packet 1 (7 bytes)
@@ -646,15 +641,15 @@ mod tests {
         let dest: u8 = 0xFF;
         let can_id_base = (7u32 << 26) | (pgn_val << 8) | source as u32;
 
-        let pgn_struct = PGN::from_can_id(can_id_base);
-        let key = (source, dest, pgn_struct.clone());
+        let key = (source, dest);
 
         reassembler.assemblies.insert(
             key.clone(),
             TpAssemblyState {
                 source_address: source,
                 destination_address: dest,
-                pgn: pgn_struct.clone(),
+                pgn: pgn_val,
+                priority: 0,
                 total_size: 14,
                 page_number: 0,
                 packets_received: vec![],
@@ -687,14 +682,13 @@ mod tests {
         let dest: u8 = 0xFF;
         let can_id_base = (7u32 << 26) | (pgn_val << 8) | source as u32;
 
-        let pgn_struct = PGN::from_can_id(can_id_base);
-
         reassembler.assemblies.insert(
-            (source, dest, pgn_struct.clone()),
+            (source, dest),
             TpAssemblyState {
                 source_address: source,
                 destination_address: dest,
-                pgn: pgn_struct.clone(),
+                pgn: pgn_val,
+                priority: 0,
                 total_size: 21,
                 page_number: 0,
                 packets_received: vec![],
@@ -728,14 +722,13 @@ mod tests {
         let source: u8 = 0x30;
         let dest: u8 = 0xFF;
 
-        let pgn_struct = PGN::from_can_id(pgn_val);
-
         reassembler.assemblies.insert(
-            (source, dest, pgn_struct.clone()),
+            (source, dest),
             TpAssemblyState {
                 source_address: source,
                 destination_address: dest,
-                pgn: pgn_struct.clone(),
+                pgn: pgn_val,
+                priority: 0,
                 total_size: 21,
                 page_number: 0,
                 packets_received: vec![(1, vec![0xAA; 7])],
@@ -747,9 +740,7 @@ mod tests {
         reassembler.cleanup_expired(700);
 
         assert!(
-            !reassembler
-                .assemblies
-                .contains_key(&(source, dest, pgn_struct.clone())),
+            !reassembler.assemblies.contains_key(&(source, dest)),
             "Assembly should be removed after timeout"
         );
     }
@@ -762,14 +753,13 @@ mod tests {
         let source: u8 = 0x30;
         let dest: u8 = 0xFF;
 
-        let pgn_struct = PGN::from_can_id(pgn_val);
-
         reassembler.assemblies.insert(
-            (source, dest, pgn_struct.clone()),
+            (source, dest),
             TpAssemblyState {
                 source_address: source,
                 destination_address: dest,
-                pgn: pgn_struct.clone(),
+                pgn: pgn_val,
+                priority: 0,
                 total_size: 21,
                 page_number: 0,
                 packets_received: vec![(1, vec![0xAA; 7])],
@@ -781,9 +771,7 @@ mod tests {
         reassembler.cleanup_expired(700);
 
         assert!(
-            !reassembler
-                .assemblies
-                .contains_key(&(source, dest, pgn_struct.clone())),
+            !reassembler.assemblies.contains_key(&(source, dest)),
             "Partial assembly should be removed after emission"
         );
     }
@@ -796,14 +784,13 @@ mod tests {
         let source: u8 = 0x30;
         let dest: u8 = 0xFF;
 
-        let pgn_struct = PGN::from_can_id(pgn_val);
-
         reassembler.assemblies.insert(
-            (source, dest, pgn_struct.clone()),
+            (source, dest),
             TpAssemblyState {
                 source_address: source,
                 destination_address: dest,
-                pgn: pgn_struct.clone(),
+                pgn: pgn_val,
+                priority: 0,
                 total_size: 21,
                 page_number: 0,
                 packets_received: vec![(1, vec![0xAA; 7])],
@@ -814,24 +801,20 @@ mod tests {
 
         reassembler.cleanup_expired(800);
 
-        assert!(reassembler
-            .assemblies
-            .contains_key(&(source, dest, pgn_struct.clone())));
+        assert!(reassembler.assemblies.contains_key(&(source, dest)));
     }
 
     #[test]
     fn test_multiple_assembly_timeouts() {
         let mut reassembler = TpReassembler::new(false, 100);
 
-        let pgn_a = PGN::from_can_id(0);
-        let pgn_b = PGN::from_can_id(1);
-
         reassembler.assemblies.insert(
-            (0x20, 0xFF, pgn_a.clone()),
+            (0x20, 0xFF),
             TpAssemblyState {
                 source_address: 0x20,
                 destination_address: 0xFF,
-                pgn: pgn_a.clone(),
+                pgn: 0xFEF4,
+                priority: 0,
                 total_size: 10,
                 page_number: 0,
                 packets_received: vec![],
@@ -841,11 +824,12 @@ mod tests {
         );
 
         reassembler.assemblies.insert(
-            (0x30, 0xFF, pgn_b.clone()),
+            (0x30, 0xFF),
             TpAssemblyState {
                 source_address: 0x30,
                 destination_address: 0xFF,
-                pgn: pgn_b.clone(),
+                pgn: 0xFEF4,
+                priority: 0,
                 total_size: 20,
                 page_number: 0,
                 packets_received: vec![],
@@ -857,15 +841,11 @@ mod tests {
         reassembler.cleanup_expired(300);
 
         assert!(
-            !reassembler
-                .assemblies
-                .contains_key(&(0x20, 0xFF, pgn_a.clone())),
+            !reassembler.assemblies.contains_key(&(0x20, 0xFF)),
             "Old assembly should be removed"
         );
         assert!(
-            reassembler
-                .assemblies
-                .contains_key(&(0x30, 0xFF, pgn_b.clone())),
+            reassembler.assemblies.contains_key(&(0x30, 0xFF)),
             "Newer assembly should remain"
         );
     }
@@ -883,14 +863,13 @@ mod tests {
         let dest: u8 = 0xFF;
         let can_id_base = (7u32 << 26) | (pgn_val << 8) | source as u32;
 
-        let pgn_struct = PGN::from_can_id(can_id_base);
-
         reassembler.assemblies.insert(
-            (source, dest, pgn_struct.clone()),
+            (source, dest),
             TpAssemblyState {
                 source_address: source,
                 destination_address: dest,
-                pgn: pgn_struct.clone(),
+                pgn: pgn_val,
+                priority: 0,
                 total_size: 14,
                 page_number: 0,
                 packets_received: vec![(1, vec![0xAA; 7])],
@@ -907,10 +886,7 @@ mod tests {
 
         assert!(results.is_empty());
 
-        let assembly = reassembler
-            .assemblies
-            .get(&(source, dest, pgn_struct.clone()))
-            .unwrap();
+        let assembly = reassembler.assemblies.get(&(source, dest)).unwrap();
         assert_eq!(assembly.packets_received.len(), 1);
         assert_eq!(assembly.packets_received[0].1, vec![0xAA; 7]);
     }
@@ -924,14 +900,13 @@ mod tests {
         let dest: u8 = 0xFF;
         let can_id_base = (7u32 << 26) | (pgn_val << 8) | source as u32;
 
-        let pgn_struct = PGN::from_can_id(can_id_base);
-
         reassembler.assemblies.insert(
-            (source, dest, pgn_struct.clone()),
+            (source, dest),
             TpAssemblyState {
                 source_address: source,
                 destination_address: dest,
-                pgn: pgn_struct.clone(),
+                pgn: pgn_val,
+                priority: 0,
                 total_size: 21,
                 page_number: 0,
                 packets_received: vec![(1, vec![0xAA; 7]), (2, vec![0xBB; 7])],
@@ -962,14 +937,13 @@ mod tests {
         let dest: u8 = 0xFF;
         let can_id_base = (7u32 << 26) | (pgn_val << 8) | source as u32;
 
-        let pgn_struct = PGN::from_can_id(can_id_base);
-
         reassembler.assemblies.insert(
-            (source, dest, pgn_struct.clone()),
+            (source, dest),
             TpAssemblyState {
                 source_address: source,
                 destination_address: dest,
-                pgn: pgn_struct.clone(),
+                pgn: pgn_val,
+                priority: 0,
                 total_size: 5,
                 page_number: 0,
                 packets_received: vec![],
@@ -1030,12 +1004,10 @@ mod tests {
 
     #[test]
     fn test_tp_error_display_timeout() {
-        let can_id = (3u32 << 26) | (0xF000u32 << 8);
-        let pgn = PGN::from_can_id(can_id);
+        //let can_id = (3u32 << 26) | (0xF000u32 << 8);
         let err = TpError::Timeout {
             source: 0x20,
             destination: 0xFF,
-            pgn,
             elapsed_ms: 1500,
         };
         let display = format!("{}", err);
@@ -1065,14 +1037,13 @@ mod tests {
     fn test_clear_all_removes_everything() {
         let mut reassembler = TpReassembler::new(false, 1000);
 
-        let pgn_a = PGN::from_can_id(0);
-
         reassembler.assemblies.insert(
-            (0x20, 0xFF, pgn_a.clone()),
+            (0x20, 0xFF),
             TpAssemblyState {
                 source_address: 0x20,
                 destination_address: 0xFF,
-                pgn: pgn_a.clone(),
+                pgn: 0,
+                priority: 0,
                 total_size: 10,
                 page_number: 0,
                 packets_received: vec![(1, vec![0xAA; 7])],
@@ -1096,14 +1067,13 @@ mod tests {
         let source: u8 = 0x30;
         let dest: u8 = 0xFF;
 
-        let pgn_struct = PGN::from_can_id(pgn_val);
-
         reassembler.assemblies.insert(
-            (source, dest, pgn_struct.clone()),
+            (source, dest),
             TpAssemblyState {
                 source_address: source,
                 destination_address: dest,
-                pgn: pgn_struct.clone(),
+                pgn: pgn_val,
+                priority: 0,
                 total_size: 10,
                 page_number: 0,
                 packets_received: vec![],
@@ -1114,16 +1084,12 @@ mod tests {
 
         reassembler.cleanup_expired(9000);
 
-        assert!(reassembler
-            .assemblies
-            .contains_key(&(source, dest, pgn_struct.clone())));
+        assert!(reassembler.assemblies.contains_key(&(source, dest)));
 
         reassembler.cleanup_expired(11000);
 
         assert!(
-            !reassembler
-                .assemblies
-                .contains_key(&(source, dest, pgn_struct.clone())),
+            !reassembler.assemblies.contains_key(&(source, dest)),
             "Should expire after 5s timeout"
         );
     }
@@ -1142,7 +1108,7 @@ mod tests {
             assert_eq!(results.len(), 1);
             match &results[0] {
                 TpReassemblyResult::Complete(msg) => {
-                    assert_eq!(msg.pgn.pgn, pgn_val);
+                    assert_eq!(msg.pgn(), pgn_val);
                     assert_eq!(msg.data, data);
                 }
                 _ => panic!("Expected Complete for PGN={:#06X}", pgn_val),
@@ -1159,14 +1125,13 @@ mod tests {
         let dest: u8 = 0xFF;
         let can_id_base = (7u32 << 26) | (pgn_val << 8) | source as u32;
 
-        let pgn_struct = PGN::from_can_id(can_id_base);
-
         reassembler.assemblies.insert(
-            (source, dest, pgn_struct.clone()),
+            (source, dest),
             TpAssemblyState {
                 source_address: source,
                 destination_address: dest,
-                pgn: pgn_struct.clone(),
+                pgn: pgn_val,
+                priority: 0,
                 total_size: 7,
                 page_number: 0,
                 packets_received: vec![],
@@ -1199,14 +1164,13 @@ mod tests {
         let dest: u8 = 0xFF;
         let can_id_base = (7u32 << 26) | (pgn_val << 8) | source as u32;
 
-        let pgn_struct = PGN::from_can_id(can_id_base);
-
         reassembler.assemblies.insert(
-            (source, dest, pgn_struct.clone()),
+            (source, dest),
             TpAssemblyState {
                 source_address: source,
                 destination_address: dest,
-                pgn: pgn_struct.clone(),
+                pgn: pgn_val,
+                priority: 0,
                 total_size: 28,
                 page_number: 0,
                 packets_received: vec![],
@@ -1241,12 +1205,10 @@ mod tests {
 
     #[test]
     fn test_partial_assembly_fields() {
-        let pgn = PGN::from_can_id(0xF500);
-
         let partial = PartialAssembly {
             source_address: 0x20,
             destination_address: 0xFF,
-            pgn: pgn.clone(),
+            pgn: 0xF500,
             data: vec![0xAA; 10],
             total_expected: 20,
             timestamp: 5_000_000,
@@ -1261,12 +1223,11 @@ mod tests {
 
     #[test]
     fn test_assembly_state_clone() {
-        let pgn = PGN::from_can_id(0xF500);
-
         let state = TpAssemblyState {
             source_address: 0x20,
             destination_address: 0xFF,
-            pgn,
+            pgn: 0xF500,
+            priority: 0,
             total_size: 14,
             page_number: 1,
             packets_received: vec![(1, vec![0xAA; 7]), (2, vec![0xBB; 7])],
@@ -1293,8 +1254,14 @@ mod tests {
 
     #[test]
     fn test_rawframe_destination_address_broadcast() {
-        let frame = make_frame(0x18EF4000, &[0x01]);
+        let frame = make_frame(0x18F04000, &[0x01]);
         assert_eq!(frame.destination_address(), 0xFF);
+    }
+
+    #[test]
+    fn test_rawframe_destination_address_unicast() {
+        let frame = make_frame(0x18EF4000, &[0x01]);
+        assert_eq!(frame.destination_address(), 0x40);
     }
 
     #[test]
@@ -1306,14 +1273,13 @@ mod tests {
         let dest: u8 = 0xFF;
         let can_id_base = (7u32 << 26) | (pgn_val << 8) | source as u32;
 
-        let pgn_struct = PGN::from_can_id(can_id_base);
-
         reassembler.assemblies.insert(
-            (source, dest, pgn_struct.clone()),
+            (source, dest),
             TpAssemblyState {
                 source_address: source,
                 destination_address: dest,
-                pgn: pgn_struct.clone(),
+                pgn: pgn_val,
+                priority: 0,
                 total_size: 7,
                 page_number: 0,
                 packets_received: vec![],
@@ -1347,14 +1313,13 @@ mod tests {
         let dest: u8 = 0xFF;
         let can_id_base = (7u32 << 26) | (pgn_val << 8) | source as u32;
 
-        let pgn_struct = PGN::from_can_id(can_id_base);
-
         reassembler.assemblies.insert(
-            (source, dest, pgn_struct.clone()),
+            (source, dest),
             TpAssemblyState {
                 source_address: source,
                 destination_address: dest,
-                pgn: pgn_struct.clone(),
+                priority: 0,
+                pgn: pgn_val,
                 total_size: 50,
                 page_number: 0,
                 packets_received: vec![],

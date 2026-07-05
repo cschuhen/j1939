@@ -1,5 +1,4 @@
 use can_decoder::device_manager::{DeviceEvent, DeviceManager};
-use can_decoder::types::PGN;
 
 #[tokio::test]
 async fn test_device_manager_new() {
@@ -89,23 +88,11 @@ async fn test_device_manager_handle_claim_conflict() {
 #[tokio::test]
 async fn test_device_manager_parameter_cache() {
     let mut dm = DeviceManager::new(10);
-    let pgn = PGN {
-        priority: 0,
-        pgn: 0x123,
-    };
+    let pgn = 0x123;
     let data = vec![0x01, 0x02, 0x03];
 
     dm.update_parameter(0x20, pgn.clone(), data.clone());
 
     assert_eq!(dm.get_parameter(0x20, pgn), Some(&data));
-    assert_eq!(
-        dm.get_parameter(
-            0x20,
-            PGN {
-                priority: 0,
-                pgn: 0x456
-            }
-        ),
-        None
-    );
+    assert_eq!(dm.get_parameter(0x20, 0x456), None);
 }
