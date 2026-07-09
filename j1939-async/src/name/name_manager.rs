@@ -341,8 +341,9 @@ impl NameManager {
                 continue;
             } // No timeout
             if info.timeout() > time_delta {
-                // Decrement timeout
-                self.set_name_timeout(index, info.timeout() - time_delta)?;
+                // Decrement timeout by the full amount, but ensure it doesn't wrap below 0
+                let new_timeout = info.timeout().saturating_sub(time_delta);
+                self.set_name_timeout(index, new_timeout)?;
                 continue;
             }
 
