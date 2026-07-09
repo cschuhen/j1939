@@ -719,7 +719,7 @@ pub mod name_manager_tests {
         assert_eq!(0xFE, man.resolve_local_else_null(&our_name)); // Not resolved yet
         print!("Advance time by 1\n");
         assert_eq!(Some(true), man.advance_time(&mut can, 1).ok());
-        assert_eq!(0x82, man.resolve_local_else_null(&our_name)); // Not resolved yet
+        assert_eq!(0x82, man.resolve_local_else_null(&our_name)); // Resolved
 
         assert_eq!(
             Some(true),
@@ -734,8 +734,24 @@ pub mod name_manager_tests {
         assert_eq!(Some(true), man.advance_time(&mut can, 249).ok());
         print!("Advance time by 1\n");
         assert_eq!(Some(true), man.advance_time(&mut can, 1).ok());
-        assert_eq!(0x82, man.resolve_local_else_null(&our_name)); // Not resolved yet
+        //assert_eq!(0x82, man.resolve_local_else_null(&our_name)); // Not resolved yet
+        let new_address = man.resolve_local_else_null(&our_name); // Stolen
+        assert_ne!(0x82, new_address); // Stolen
+        assert_ne!(0xFE, new_address); // Stolen
+        assert_eq!(1, can.tx_queue.len());
+        let frame = can.tx_queue.dequeue().unwrap();
+        print!(
+            "FRAME: {:x} {:?}\n",
+            frame.id().as_raw(),
+            frame.data().as_slice()
+        );
+        assert_eq!(frame.id().as_raw(), 0x14EEFF00 + new_address as u32);
+        assert_eq!(
+            frame.data().as_slice(),
+            &our_name.bytes_iter().collect::<Vec<u8>>()
+        );
         assert_eq!(0, can.tx_queue.len());
+
     }
 
     #[test]
