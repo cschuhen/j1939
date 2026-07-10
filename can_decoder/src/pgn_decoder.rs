@@ -523,6 +523,7 @@ impl J1939Decoder {
         if let Some(_pgn_def) = self.config.pgns.get(&pgn_key) {
             let assembled = AssembledMessage {
                 id: frame.can_id,
+                pgn: pgn_key,
                 data: frame.data.clone(),
                 timestamp: frame.timestamp,
             };
@@ -596,6 +597,7 @@ mod tests {
         let can_id = (3u32 << 26) | (pgn_val << 8) | source as u32;
         AssembledMessage {
             id: can_id,
+            pgn: pgn_val,
             data,
             timestamp: 1_000_000,
         }

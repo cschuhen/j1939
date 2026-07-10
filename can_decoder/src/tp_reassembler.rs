@@ -189,6 +189,7 @@ impl TpReassembler {
         self.cleanup_expired(frame.timestamp / 1000);
         let results = self.process_frame_internal(frame);
 
+        #[cfg(not(test))]
         eprintln!(
             "[DEBUG] process_frame: can_id={:#010X}, pgn.pgn={:#06X}, data[0]={}, len={}, results.len()={}",
             frame.can_id, frame.pgn(), frame.data.first().unwrap_or(&0), frame.data.len(), results.len()
@@ -204,11 +205,7 @@ impl TpReassembler {
             TpMessageType::ConnectionManagement => self.handle_connection_management(frame),
             TpMessageType::DataPacket => self.handle_data_packet(frame),
             TpMessageType::NotTp => {
-                let assembled = AssembledMessage {
-                    id: frame.can_id,
-                    data: frame.data.clone(),
-                    timestamp: frame.timestamp,
-                };
+                let assembled = AssembledMessage::with_pgn(frame.can_id, frame.pgn(), frame.data.clone());
                 vec![TpReassemblyResult::SingleFrame(assembled)]},
         }
     }
@@ -242,6 +239,7 @@ impl TpReassembler {
             0x1C => self.handle_abort(frame, data),
             0x20 => self.handle_bam_cm(frame, data),
             _ => {
+                #[cfg(not(test))]
                 eprintln!("[TP] Unknown CM control byte={:#04X} from source={:#04X}", control_byte, frame.source_address());
                 vec![]
             }
@@ -289,6 +287,7 @@ impl TpReassembler {
         self.assemblies.insert(key.clone(), assembly);
         self.rts_pending_sources.insert(transmitter);
 
+        #[cfg(not(test))]
         eprintln!(
             "[TP] RTS received: PGN={:#06X}, size={}, packets={}, transmitter={:#04X}",
             pgn_from_rts, total_size, num_packets, transmitter
@@ -316,6 +315,7 @@ impl TpReassembler {
         let source = frame.source_address();
         let dest = frame.destination_address();
 
+        #[cfg(not(test))]
         eprintln!(
             "[TP] BAM received: PGN={:#06X}, size={}, packets={}, source={:#04X} dest={:#04X}",
             pgn_from_bam, total_size, num_packets, source, dest
@@ -338,13 +338,54 @@ impl TpReassembler {
         vec![]
     }
 
-    fn handle_cts(&self, _frame: &RawFrame, _data: &[u8]) -> Vec<TpReassemblyResult> {
-        eprintln!("[TP] CTS received - not yet implemented");
+    fn handle_cts(&mut self, frame: &RawFrame, data: &[u8]) -> Vec<TpReassemblyResult> {
+        if data.len() < 4 {
+            return vec![];
+        }
+
+        let transmitter = frame.source_address();
+        let receiver = frame.destination_address();
+
+        // CTS is sent by the transmitter in response to RTS.
+        // The assembly was created by handle_rts with key (transmitter, receiver).
+        // Find and update it.
+        if let Some(assembly) = self.assemblies.get(&(transmitter, receiver)) {
+            let num_packets = data[2];
+            #[cfg(not(test))]
+            eprintln!(
+                "[TP] CTS received: packets={}, transmitter={:#04X}, receiver={:#04X}",
+                num_packets, transmitter, receiver
+            );
+
+            // Update assembly with packet count info from CTS if needed
+            let _ = assembly;
+            // The assembly state already has total_size and other fields set by RTS.
+            // CTS confirms the transfer can proceed.
+        } else {
+            #[cfg(not(test))]
+            eprintln!(
+                "[TP] CTS received without prior RTS for transmitter={:#04X} receiver={:#04X}",
+                transmitter, receiver
+            );
+        }
+
         vec![]
     }
 
-    fn handle_eom(&self, _frame: &RawFrame, _data: &[u8]) -> Vec<TpReassemblyResult> {
-        eprintln!("[TP] EOM received - not yet implemented");
+    fn handle_eom(&mut self, frame: &RawFrame, _data: &[u8]) -> Vec<TpReassemblyResult> {
+        let transmitter = frame.source_address();
+        let receiver = frame.destination_address();
+
+        // EOM is sent by the transmitter after all DT packets.
+        // Clean up any remaining assembly state for this transfer.
+        if self.assemblies.remove(&(transmitter, receiver)).is_some() {
+            #[cfg(not(test))]
+            eprintln!(
+                "[TP] EOM received: cleared assembly for transmitter={:#04X} receiver={:#04X}",
+                transmitter, receiver
+            );
+        }
+
         vec![]
     }
 
@@ -357,6 +398,7 @@ impl TpReassembler {
         let data = &frame.data;
 
         if data.len() < 2 {
+            #[cfg(not(test))]
             eprintln!(
                 "[TP] Data packet too short ({} bytes) for source={:#04X} destination={:#04X}",
                 data.len(),
@@ -368,6 +410,7 @@ impl TpReassembler {
 
         let packet_num = data[0];
         if packet_num == 0 {
+            #[cfg(not(test))]
             eprintln!(
                 "[TP] Invalid zero packet number for source={:#04X} destination={:#04X}",
                 frame.source_address(),
@@ -378,6 +421,7 @@ impl TpReassembler {
 
         let payload = data[1..].to_vec();
         if payload.len() > 7 {
+            #[cfg(not(test))]
             eprintln!(
                 "[TP] Data packet payload too large ({} bytes) for source={:#04X} destination={:#04X}",
                 payload.len(),
@@ -392,6 +436,7 @@ impl TpReassembler {
 
         // Try lookup with (source, dest) first. If not found, try (source, 0xFF) as fallback
         // to handle cases where j1939_async forces TP.DT into PDU1 format for broadcast transfers.
+        #[cfg(not(test))]
         eprintln!(
             "[TP] DT lookup: key=({:#04X}, {:#04X}), assemblies.len()={}, keys={:?}",
             source_address, dest_from_frame, self.assemblies.len(),
@@ -404,6 +449,7 @@ impl TpReassembler {
         } else if let Some(assembly) = self.assemblies.get(&(source_address, 0xFF)) {
             assembly.clone()
         } else {
+            #[cfg(not(test))]
             eprintln!(
                 "[TP] Data packet received without prior RTS/CTS for source={:#04X} destination={:#04X}",
                 source_address, dest_from_frame
@@ -417,6 +463,7 @@ impl TpReassembler {
             .iter()
             .any(|(pn, _)| *pn == packet_num)
         {
+            #[cfg(not(test))]
             eprintln!(
                 "[TP] Duplicate packet {} for PGN={:#06X}, source={:#04X} dest={:#04X}",
                 packet_num, assembly.pgn, source_address, assembly.destination_address
@@ -427,6 +474,7 @@ impl TpReassembler {
         // Check if out of order (packet number less than next expected)
         let next_expected = assembly.packets_received.len() + 1;
         if packet_num < next_expected as u8 {
+            #[cfg(not(test))]
             eprintln!(
                 "[TP] Out-of-order packet {} (expected >= {}) for PGN={:#06X} source={:#04X}",
                 packet_num, next_expected, assembly.pgn, source_address
@@ -437,6 +485,7 @@ impl TpReassembler {
         // Check if packet number exceeds total expected packets
         let max_packets = (assembly.total_size + 6) / 7;
         if packet_num > max_packets as u8 {
+            #[cfg(not(test))]
             eprintln!(
                 "[TP] Packet {} exceeds maximum ({}) for PGN={:#06X} source={:#04X}",
                 packet_num, max_packets, assembly.pgn, source_address
@@ -479,6 +528,7 @@ impl TpReassembler {
 
             let assembled = AssembledMessage {
                 id,
+                pgn: assembly.pgn,
                 data: assembled_data,
                 timestamp: frame.timestamp,
             };
@@ -501,6 +551,7 @@ impl TpReassembler {
             if elapsed > self.timeout_ms {
                 expired_keys.push(key.clone());
 
+                #[cfg(not(test))]
                 eprintln!(
                     "[TP] Timeout after {}ms: source={:#04X}, dest={:#04X}, PGN={}, {} packets received",
                     elapsed,
@@ -516,11 +567,13 @@ impl TpReassembler {
                         assembled_data.extend_from_slice(payload);
                     }
 
+                    #[cfg(not(test))]
                     eprintln!(
                         "[TP] Timeout for PGN={:#06X}: source={:#04X}, dest={:#04X}",
                         assembly.pgn, assembly.source_address, assembly.destination_address
                     );
                 } else {
+                    #[cfg(not(test))]
                     eprintln!(
                         "[TP] Discarding incomplete TP message: PGN={:#06X}, source={:#04X}",
                         assembly.pgn, assembly.source_address
@@ -1562,5 +1615,472 @@ mod tests {
             .collect();
 
         assert_eq!(complete.len(), 1);
+    }
+
+    // ========================================================================
+    // BAM Broadcast Tests from Real Trace (bam.log)
+    // ========================================================================
+
+    #[test]
+    fn test_bam_from_real_trace() {
+        let mut reassembler = TpReassembler::new(false, 5000);
+
+        // Frame 1: BAM CM with can_id=0x18ECFF22, data=[20 0F 00 03 FF 80 FF 00]
+        let bam_cm = make_frame(0x18ECFF22, &[0x20, 0x0F, 0x00, 0x03, 0xFF, 0x80, 0xFF, 0x00]);
+        let results = reassembler.process_frame(&bam_cm);
+        assert!(results.is_empty());
+
+        // Frame 2: DT pkt 1 with can_id=0x18EBFF22, data=[01 41 42 43 44 45 46 47]
+        let dt1 = make_frame(0x18EBFF22, &[0x01, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47]);
+        let results = reassembler.process_frame(&dt1);
+        assert_eq!(results.len(), 1);
+        match &results[0] {
+            TpReassemblyResult::Pending => {}
+            other => panic!("Expected Pending for DT pkt 1, got {:?}", other),
+        }
+
+        // Frame 3: DT pkt 2 with can_id=0x18EBFF22, data=[02 47 49 4A 4B 4C 4D 4E]
+        let dt2 = make_frame(0x18EBFF22, &[0x02, 0x47, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E]);
+        let results = reassembler.process_frame(&dt2);
+        assert_eq!(results.len(), 1);
+        match &results[0] {
+            TpReassemblyResult::Pending => {}
+            other => panic!("Expected Pending for DT pkt 2, got {:?}", other),
+        }
+
+        // Frame 4: DT pkt 3 with can_id=0x18EBFF22, data=[03 4F FF FF FF FF FF FF]
+        let dt3 = make_frame(0x18EBFF22, &[0x03, 0x4F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]);
+        let results = reassembler.process_frame(&dt3);
+        assert_eq!(results.len(), 1);
+
+        // Verify: TpReassemblyResult::Complete is returned on frame 4
+        match &results[0] {
+            TpReassemblyResult::Complete(msg) => {
+                // Verify assembled data = [41 42 43 44 45 46 47 47 49 4A 4B 4C 4D 4E 4F] (15 bytes)
+                assert_eq!(msg.data.len(), 15);
+                assert_eq!(msg.data, vec![0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x47, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E, 0x4F]);
+                // Verify PGN = 0xFF80
+                assert_eq!(msg.pgn(), 0xFF80);
+            }
+            other => panic!("Expected Complete for DT pkt 3, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_bam_payload_matches_reference() {
+        let mut reassembler = TpReassembler::new(false, 5000);
+
+        // Feed all 4 frames from bam.log in order
+        reassembler.process_frame(&make_frame(0x18ECFF22, &[0x20, 0x0F, 0x00, 0x03, 0xFF, 0x80, 0xFF, 0x00]));
+        reassembler.process_frame(&make_frame(0x18EBFF22, &[0x01, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47]));
+        reassembler.process_frame(&make_frame(0x18EBFF22, &[0x02, 0x47, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E]));
+        let results = reassembler.process_frame(&make_frame(0x18EBFF22, &[0x03, 0x4F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]));
+
+        // Reference shows: 41 42 43 44 45 46 47 47 49 4A 4B 4C 4D 4E 4F
+        match &results[0] {
+            TpReassemblyResult::Complete(msg) => {
+                let expected = vec![0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x47, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E, 0x4F];
+                assert_eq!(msg.data, expected);
+            }
+            other => panic!("Expected Complete, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_bam_assembled_can_id() {
+        let mut reassembler = TpReassembler::new(false, 5000);
+
+        // Feed bam.log frames
+        reassembler.process_frame(&make_frame(0x18ECFF22, &[0x20, 0x0F, 0x00, 0x03, 0xFF, 0x80, 0xFF, 0x00]));
+        reassembler.process_frame(&make_frame(0x18EBFF22, &[0x01, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47]));
+        reassembler.process_frame(&make_frame(0x18EBFF22, &[0x02, 0x47, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E]));
+        let results = reassembler.process_frame(&make_frame(0x18EBFF22, &[0x03, 0x4F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]));
+
+        // Verify the assembled message's CAN ID is correctly constructed as PDU2 format
+        // Expected can_id = (6<<26) | (0xFF80<<8) | 0x22 = 0x18FF8022
+        match &results[0] {
+            TpReassemblyResult::Complete(msg) => {
+                let expected_can_id = (6u32 << 26) | (0xFF80u32 << 8) | 0x22;
+                assert_eq!(msg.id, expected_can_id);
+                // Verify source and destination from assembled message
+                assert_eq!(msg.source(), 0x22);
+                assert_eq!(msg.destination(), 0xFF);
+            }
+            other => panic!("Expected Complete, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_bam_with_different_sizes() {
+        // BAM with total_size=7 (single DT packet)
+        let mut reassembler = TpReassembler::new(false, 5000);
+        reassembler.process_frame(&make_frame(0x18ECFF22, &[0x20, 0x07, 0x00, 0x01, 0xFF, 0x10, 0x00, 0x00]));
+        let results = reassembler.process_frame(&make_frame(0x18EBFF22, &[0x01, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47]));
+        match &results[0] {
+            TpReassemblyResult::Complete(msg) => assert_eq!(msg.data.len(), 7),
+            other => panic!("Expected Complete for single-packet BAM, got {:?}", other),
+        }
+
+        // BAM with total_size=14 (two DT packets)
+        let mut reassembler = TpReassembler::new(false, 5000);
+        reassembler.process_frame(&make_frame(0x18ECFF22, &[0x20, 0x0E, 0x00, 0x02, 0xFF, 0x20, 0x00, 0x00]));
+        reassembler.process_frame(&make_frame(0x18EBFF22, &[0x01, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47]));
+        let results = reassembler.process_frame(&make_frame(0x18EBFF22, &[0x02, 0x48, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E]));
+        match &results[0] {
+            TpReassemblyResult::Complete(msg) => assert_eq!(msg.data.len(), 14),
+            other => panic!("Expected Complete for two-packet BAM, got {:?}", other),
+        }
+
+        // BAM with total_size=21 (three DT packets)
+        let mut reassembler = TpReassembler::new(false, 5000);
+        reassembler.process_frame(&make_frame(0x18ECFF22, &[0x20, 0x15, 0x00, 0x03, 0xFF, 0x30, 0x00, 0x00]));
+        reassembler.process_frame(&make_frame(0x18EBFF22, &[0x01, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47]));
+        reassembler.process_frame(&make_frame(0x18EBFF22, &[0x02, 0x48, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E]));
+        let results = reassembler.process_frame(&make_frame(0x18EBFF22, &[0x03, 0x4F, 0x50, 0x51, 0x52, 0x53, 0x54, 0x55]));
+        match &results[0] {
+            TpReassemblyResult::Complete(msg) => assert_eq!(msg.data.len(), 21),
+            other => panic!("Expected Complete for three-packet BAM, got {:?}", other),
+        }
+    }
+
+    // ========================================================================
+    // RTS/CTS Unicast Tests from Real Trace (rts.log)
+    // ========================================================================
+
+    #[test]
+    fn test_rts_cts_from_real_trace() {
+        let mut reassembler = TpReassembler::new(false, 5000);
+
+        // Frame 1: RTS CM with can_id=0x18ECEB26, data=[10 24 00 06 FF 00 E6 00]
+        let rts = make_frame(0x18ECEB26, &[0x10, 0x24, 0x00, 0x06, 0xFF, 0x00, 0xE6, 0x00]);
+        let results = reassembler.process_frame(&rts);
+        assert!(results.is_empty());
+
+        // Frame 2: CTS CM with can_id=0x18EC26EB, data=[11 06 01 FF FF 00 E6 00]
+        let cts = make_frame(0x18EC26EB, &[0x11, 0x06, 0x01, 0xFF, 0xFF, 0x00, 0xE6, 0x00]);
+        let results = reassembler.process_frame(&cts);
+        assert!(results.is_empty());
+
+        // Frames 3-8: DT packets (can_id=0x18EBEB26) with sequence numbers 1-6
+        let dt1 = make_frame(0x18EBEB26, &[0x01, 0x08, 0x8A, 0x07, 0x20, 0x41, 0x42, 0x43]);
+        let results = reassembler.process_frame(&dt1);
+        assert_eq!(results.len(), 1);
+        match &results[0] { TpReassemblyResult::Pending => {} _ => panic!("Expected Pending"), }
+
+        let dt2 = make_frame(0x18EBEB26, &[0x02, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4A]);
+        let results = reassembler.process_frame(&dt2);
+        assert_eq!(results.len(), 1);
+        match &results[0] { TpReassemblyResult::Pending => {} _ => panic!("Expected Pending"), }
+
+        let dt3 = make_frame(0x18EBEB26, &[0x03, 0x4B, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20]);
+        let results = reassembler.process_frame(&dt3);
+        assert_eq!(results.len(), 1);
+        match &results[0] { TpReassemblyResult::Pending => {} _ => panic!("Expected Pending"), }
+
+        let dt4 = make_frame(0x18EBEB26, &[0x04, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20]);
+        let results = reassembler.process_frame(&dt4);
+        assert_eq!(results.len(), 1);
+        match &results[0] { TpReassemblyResult::Pending => {} _ => panic!("Expected Pending"), }
+
+        let dt5 = make_frame(0x18EBEB26, &[0x05, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20]);
+        let results = reassembler.process_frame(&dt5);
+        assert_eq!(results.len(), 1);
+        match &results[0] { TpReassemblyResult::Pending => {} _ => panic!("Expected Pending"), }
+
+        // Frame 8: DT pkt 6 (last packet) with can_id=0x18EBEB26, data=[06 20 FF FF FF FF FF FF]
+        let dt6 = make_frame(0x18EBEB26, &[0x06, 0x20, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]);
+        let results = reassembler.process_frame(&dt6);
+        assert_eq!(results.len(), 1);
+
+        // Verify: TpReassemblyResult::Complete is returned on frame 8 (last DT)
+        match &results[0] {
+            TpReassemblyResult::Complete(msg) => {
+                // Verify assembled data = [08 8A 07 20 41 42 43 44 45 46 47 48 49 4A 4B 20 ...] truncated to 36 bytes
+                assert_eq!(msg.data.len(), 36);
+                // Verify PGN = 0xE600, source = 0x26, dest = 0xEB
+                assert_eq!(msg.pgn(), 0xE600);
+            }
+            other => panic!("Expected Complete for DT pkt 6, got {:?}", other),
+        }
+
+        // Frame 9: EOM CM with can_id=0x18EC26EB, data=[13 24 00 06 FF 00 E6 00]
+        let eom = make_frame(0x18EC26EB, &[0x13, 0x24, 0x00, 0x06, 0xFF, 0x00, 0xE6, 0x00]);
+        let results = reassembler.process_frame(&eom);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_rts_cts_payload_matches_reference() {
+        let mut reassembler = TpReassembler::new(false, 5000);
+
+        // Feed all frames from rts.log in order
+        reassembler.process_frame(&make_frame(0x18ECEB26, &[0x10, 0x24, 0x00, 0x06, 0xFF, 0x00, 0xE6, 0x00]));
+        reassembler.process_frame(&make_frame(0x18EC26EB, &[0x11, 0x06, 0x01, 0xFF, 0xFF, 0x00, 0xE6, 0x00]));
+        reassembler.process_frame(&make_frame(0x18EBEB26, &[0x01, 0x08, 0x8A, 0x07, 0x20, 0x41, 0x42, 0x43]));
+        reassembler.process_frame(&make_frame(0x18EBEB26, &[0x02, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4A]));
+        reassembler.process_frame(&make_frame(0x18EBEB26, &[0x03, 0x4B, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20]));
+        reassembler.process_frame(&make_frame(0x18EBEB26, &[0x04, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20]));
+        reassembler.process_frame(&make_frame(0x18EBEB26, &[0x05, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20]));
+        let results = reassembler.process_frame(&make_frame(0x18EBEB26, &[0x06, 0x20, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]));
+
+        // Reference shows final frame data starting with: 08 8a 07 20 41 42 43 44 45 46 47 48 49 4A 4B 20
+        match &results[0] {
+            TpReassemblyResult::Complete(msg) => {
+                let expected_start = vec![0x08, 0x8A, 0x07, 0x20, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4A, 0x4B, 0x20];
+                assert_eq!(msg.data.len(), 36);
+                assert_eq!(&msg.data[..16], &expected_start[..]);
+            }
+            other => panic!("Expected Complete, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_rts_cts_assembled_can_id() {
+        let mut reassembler = TpReassembler::new(false, 5000);
+
+        // Feed rts.log frames
+        reassembler.process_frame(&make_frame(0x18ECEB26, &[0x10, 0x24, 0x00, 0x06, 0xFF, 0x00, 0xE6, 0x00]));
+        reassembler.process_frame(&make_frame(0x18EC26EB, &[0x11, 0x06, 0x01, 0xFF, 0xFF, 0x00, 0xE6, 0x00]));
+        reassembler.process_frame(&make_frame(0x18EBEB26, &[0x01, 0x08, 0x8A, 0x07, 0x20, 0x41, 0x42, 0x43]));
+        reassembler.process_frame(&make_frame(0x18EBEB26, &[0x02, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4A]));
+        reassembler.process_frame(&make_frame(0x18EBEB26, &[0x03, 0x4B, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20]));
+        reassembler.process_frame(&make_frame(0x18EBEB26, &[0x04, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20]));
+        reassembler.process_frame(&make_frame(0x18EBEB26, &[0x05, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20]));
+        let results = reassembler.process_frame(&make_frame(0x18EBEB26, &[0x06, 0x20, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]));
+
+        // Verify the assembled message's CAN ID is correctly constructed as PDU1 format
+        // Expected can_id = (6<<26) | ((0xE600 & 0x3FF00) | 0xEB)<<8 | 0x26
+        // = (6<<26) | (0xE600>>8 & 0x3FF)<<16 | 0xEB<<8 | 0x26
+        // PGN=0xE600: pgn_high = (0xE600 >> 8) & 0x3FF = 0xE6
+        // can_id = (6<<26) | (0xE6<<16) | (0xEB<<8) | 0x26 = 0x18E6EB26
+        match &results[0] {
+            TpReassemblyResult::Complete(msg) => {
+                let expected_can_id = (6u32 << 26) | ((0xE600 >> 8) as u32 & 0x3FF) << 16 | (0xEB as u32) << 8 | 0x26;
+                assert_eq!(msg.id, expected_can_id);
+            }
+            other => panic!("Expected Complete, got {:?}", other),
+        }
+    }
+
+    // ========================================================================
+    // Edge Case Tests
+    // ========================================================================
+
+    #[test]
+    fn test_tp_frame_address_extraction() {
+        // TP.CM unicast (PF=0xEC, PS=0xEB): returns (source, 0xEB) - PDU1 to node 235
+        let (src, dst) = extract_tp_addresses(0x18ECEB26);
+        assert_eq!(src, 0x26);
+        assert_eq!(dst, 0xEB);
+
+        // TP.CM broadcast (PF=0xEC, PS=0xFF): returns (source, 0xFF) - PDU1 to all nodes
+        let (src, dst) = extract_tp_addresses(0x18ECFF22);
+        assert_eq!(src, 0x22);
+        assert_eq!(dst, 0xFF);
+
+        // TP.DT unicast (PF=0xEB, PS=0xEB): returns (source, 0xEB) - PDU1 to node 235
+        let (src, dst) = extract_tp_addresses(0x18EBEB26);
+        assert_eq!(src, 0x26);
+        assert_eq!(dst, 0xEB);
+
+        // TP.DT broadcast (PF=0xEB, PS=0xFF): returns (source, 0xFF) - PDU1 to all nodes
+        let (src, dst) = extract_tp_addresses(0x18EBFF22);
+        assert_eq!(src, 0x22);
+        assert_eq!(dst, 0xFF);
+
+        // Standard PDU1 (PF=0xEE, PS=0x55): returns (source, 0x55)
+        let (src, dst) = extract_tp_addresses(0x18EE55AA);
+        assert_eq!(src, 0xAA);
+        assert_eq!(dst, 0x55);
+
+        // Standard PDU2 (PF=0xF0, PS=0x01): returns (source, 0xFF) - true PDU2 broadcast
+        let (src, dst) = extract_tp_addresses(0x18F001AA);
+        assert_eq!(src, 0xAA);
+        assert_eq!(dst, 0xFF);
+    }
+
+    #[test]
+    fn test_rts_cts_with_eom() {
+        let mut reassembler = TpReassembler::new(false, 5000);
+
+        // Set up an assembly via RTS
+        let rts_can_id = (7u32 << 26) | ((0xEC as u32) << 16) | ((0x21 as u32) << 8) | 0x20;
+        reassembler.process_frame(&make_frame(rts_can_id, &[0x10, 0x0A, 0x00, 0x02, 0xFF, 0x00, 0x10, 0x00]));
+
+        // Send CTS
+        let cts_can_id = (7u32 << 26) | ((0xEC as u32) << 16) | ((0x20 as u32) << 8) | 0x21;
+        reassembler.process_frame(&make_frame(cts_can_id, &[0x11, 0x02, 0x01, 0xFF, 0x00, 0x10, 0x00]));
+
+        // Send DT packets to complete assembly
+        let dt_can_id = (7u32 << 26) | ((0xEB as u32) << 16) | ((0x21 as u32) << 8) | 0x20;
+        reassembler.process_frame(&make_frame(dt_can_id, &[0x01, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x01]));
+        let results = reassembler.process_frame(&make_frame(dt_can_id, &[0x02, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77]));
+
+        match &results[0] {
+            TpReassemblyResult::Complete(_) => {}
+            other => panic!("Expected Complete"),
+        }
+
+        // EOM should be processed after assembly completes without interfering
+        let eom_can_id = (7u32 << 26) | ((0xEC as u32) << 16) | ((0x20 as u32) << 8) | 0x21;
+        let results = reassembler.process_frame(&make_frame(eom_can_id, &[0x13, 0x0A, 0x00, 0x02, 0xFF, 0x00, 0x10, 0x00]));
+        assert!(results.is_empty());
+
+        // Assembly should be cleaned up by EOM
+        assert!(!reassembler.assemblies.contains_key(&(0x20, 0x21)));
+    }
+
+    #[test]
+    fn test_dt_without_prior_cm() {
+        let mut reassembler = TpReassembler::new(false, 5000);
+
+        // DT packet arrives without any prior BAM or RTS/CTS
+        let dt_can_id = (7u32 << 26) | ((0xEB as u32) << 16) | ((0xFF as u32) << 8) | 0x20;
+        let frame = make_frame(dt_can_id, &[0x01, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47]);
+
+        let results = reassembler.process_frame(&frame);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_build_assembled_can_id_pdu2() {
+        // PGN >= 0xF000 should use PDU2 format (dest=0xFF)
+        let can_id = build_assembled_can_id(0xFF80, 0x22, 0xFF, 6);
+        assert_eq!(can_id, (6u32 << 26) | (0xFF80u32 << 8) | 0x22);
+
+        let can_id = build_assembled_can_id(0xF500, 0x30, 0xFF, 7);
+        assert_eq!(can_id, (7u32 << 26) | (0xF500u32 << 8) | 0x30);
+    }
+
+    #[test]
+    fn test_build_assembled_can_id_pdu1() {
+        // PGN < 0xF000 should use PDU1 format with dest in PS field
+        let can_id = build_assembled_can_id(0xE600, 0x26, 0xEB, 6);
+        assert_eq!(can_id, 0x18E6EB26);
+
+        // PGN >= 0xF000 uses PDU2 format (full PGN in bits 8-25)
+        let can_id = build_assembled_can_id(0xFF80, 0x22, 0xFF, 6);
+        assert_eq!(can_id, 0x18FF8022);
+
+        // Small PGN < 0xF000 uses PDU1 format (priority=7 -> 0x1C prefix)
+        let can_id = build_assembled_can_id(0x0A00, 0xF8, 0x50, 7);
+        assert_eq!(can_id, 0x1C0A50F8);
+
+        // Very small PGN where pgn_high=0 (priority=7 -> 0x1C prefix)
+        let can_id = build_assembled_can_id(0x40, 0xF8, 0xFF, 7);
+        assert_eq!(can_id, 0x1C00FFF8);
+
+        // priority=7 -> 0x1C prefix
+        let can_id = build_assembled_can_id(0x50, 0x20, 0x21, 7);
+        assert_eq!(can_id, 0x1C002120);
+    }
+
+    #[test]
+    fn test_bam_assembled_source_dest() {
+        let mut reassembler = TpReassembler::new(false, 5000);
+
+        // Feed bam.log frames
+        reassembler.process_frame(&make_frame(0x18ECFF22, &[0x20, 0x0F, 0x00, 0x03, 0xFF, 0x80, 0xFF, 0x00]));
+        reassembler.process_frame(&make_frame(0x18EBFF22, &[0x01, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47]));
+        reassembler.process_frame(&make_frame(0x18EBFF22, &[0x02, 0x47, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E]));
+        let results = reassembler.process_frame(&make_frame(0x18EBFF22, &[0x03, 0x4F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]));
+
+        match &results[0] {
+            TpReassemblyResult::Complete(msg) => {
+                assert_eq!(msg.source(), 0x22);
+                assert_eq!(msg.destination(), 0xFF);
+                assert_eq!(msg.pgn(), 0xFF80);
+            }
+            other => panic!("Expected Complete, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_rts_cts_assembled_source_dest() {
+        let mut reassembler = TpReassembler::new(false, 5000);
+
+        // Feed rts.log frames
+        reassembler.process_frame(&make_frame(0x18ECEB26, &[0x10, 0x24, 0x00, 0x06, 0xFF, 0x00, 0xE6, 0x00]));
+        reassembler.process_frame(&make_frame(0x18EC26EB, &[0x11, 0x06, 0x01, 0xFF, 0xFF, 0x00, 0xE6, 0x00]));
+        reassembler.process_frame(&make_frame(0x18EBEB26, &[0x01, 0x08, 0x8A, 0x07, 0x20, 0x41, 0x42, 0x43]));
+        reassembler.process_frame(&make_frame(0x18EBEB26, &[0x02, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4A]));
+        reassembler.process_frame(&make_frame(0x18EBEB26, &[0x03, 0x4B, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20]));
+        reassembler.process_frame(&make_frame(0x18EBEB26, &[0x04, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20]));
+        reassembler.process_frame(&make_frame(0x18EBEB26, &[0x05, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20]));
+        let results = reassembler.process_frame(&make_frame(0x18EBEB26, &[0x06, 0x20, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]));
+
+        match &results[0] {
+            TpReassemblyResult::Complete(msg) => {
+                assert_eq!(msg.source(), 0x26);
+                assert_eq!(msg.destination(), 0xEB);
+                assert_eq!(msg.pgn(), 0xE600);
+            }
+            other => panic!("Expected Complete, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_rts_cts_single_packet_transfer() {
+        let mut reassembler = TpReassembler::new(false, 5000);
+
+        // RTS for single packet transfer
+        // PGN in payload bytes: [50 00 00] -> 0x000050
+        let rts_can_id = (7u32 << 26) | ((0xEC as u32) << 16) | ((0x21 as u32) << 8) | 0x20;
+        reassembler.process_frame(&make_frame(rts_can_id, &[0x10, 0x07, 0x00, 0x01, 0xFF, 0x50, 0x00, 0x00]));
+
+        // CTS
+        let cts_can_id = (7u32 << 26) | ((0xEC as u32) << 16) | ((0x20 as u32) << 8) | 0x21;
+        reassembler.process_frame(&make_frame(cts_can_id, &[0x11, 0x01, 0x01, 0xFF, 0x50, 0x00, 0x00]));
+
+        // Single DT packet (7 bytes)
+        let dt_can_id = (7u32 << 26) | ((0xEB as u32) << 16) | ((0x21 as u32) << 8) | 0x20;
+        let results = reassembler.process_frame(&make_frame(dt_can_id, &[0x01, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x01]));
+
+        match &results[0] {
+            TpReassemblyResult::Complete(msg) => {
+                assert_eq!(msg.data.len(), 7);
+                assert_eq!(msg.data, vec![0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x01]);
+                // PGN extracted from RTS payload bytes [50 00 00] = 0x50 = 80
+                assert_eq!(msg.pgn(), 0x50);
+            }
+            other => panic!("Expected Complete for single-packet RTS/CTS, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_bam_with_max_packet_size() {
+        let mut reassembler = TpReassembler::new(false, 5000);
+
+        // BAM with total_size=7 (exactly one packet of max payload)
+        // PGN in payload bytes: [40 00 00] -> 0x000040
+        let bam_can_id = (7u32 << 26) | ((0xEC as u32) << 16) | ((0xFF as u32) << 8) | 0xF8;
+        reassembler.process_frame(&make_frame(bam_can_id, &[0x20, 0x07, 0x00, 0x01, 0xFF, 0x40, 0x00, 0x00]));
+
+        let dt_can_id = (7u32 << 26) | ((0xEB as u32) << 16) | ((0xFF as u32) << 8) | 0xF8;
+        let results = reassembler.process_frame(&make_frame(dt_can_id, &[0x01, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x01]));
+
+        match &results[0] {
+            TpReassemblyResult::Complete(msg) => {
+                assert_eq!(msg.data.len(), 7);
+                // PGN extracted from BAM payload bytes [40 00 00] = 0x40 = 64
+                assert_eq!(msg.pgn(), 0x40);
+            }
+            other => panic!("Expected Complete, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_rts_cts_with_abort() {
+        let mut reassembler = TpReassembler::new(false, 5000);
+
+        // RTS
+        let rts_can_id = (7u32 << 26) | ((0xEC as u32) << 16) | ((0x21 as u32) << 8) | 0x20;
+        reassembler.process_frame(&make_frame(rts_can_id, &[0x10, 0x0A, 0x00, 0x02, 0xFF, 0x60, 0x00, 0x00]));
+
+        // Abort instead of CTS
+        let abort_can_id = (7u32 << 26) | ((0xEC as u32) << 16) | ((0x20 as u32) << 8) | 0x21;
+        let results = reassembler.process_frame(&make_frame(abort_can_id, &[0x1C, 0x00]));
+
+        assert!(results.is_empty());
     }
 }

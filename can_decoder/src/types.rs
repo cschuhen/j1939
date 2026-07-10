@@ -50,12 +50,9 @@ pub struct AssembledMessage {
     /// CAN ID of the message. For TP messages, this may not match actual on-bus ID's
     pub id: u32,
 
-    /// Protocol Group Number extracted from the CAN ID.
-    //pub pgn: PGN,
-    /// Source address of the ECU that sent this message.
-    //pub source_address: u8,
-    /// Destination address (0xFF = broadcast).
-    //pub destination_address: u8,
+    /// Protocol Group Number extracted from the payload PGN bytes (not from CAN ID).
+    pub pgn: u32,
+
     /// Assembled payload data (may exceed 8 bytes for TP messages).
     pub data: Vec<u8>,
     /// Microseconds since Unix epoch when this message was assembled.
@@ -70,9 +67,28 @@ impl AssembledMessage {
             .unwrap_or_default();
         AssembledMessage {
             id,
+            pgn: 0,
             data,
             timestamp: duration.as_micros() as u64,
         }
+    }
+
+    /// Create a new AssembledMessage with an explicit PGN value.
+    pub fn with_pgn(id: u32, pgn: u32, data: Vec<u8>) -> Self {
+        let duration = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default();
+        AssembledMessage {
+            id,
+            pgn,
+            data,
+            timestamp: duration.as_micros() as u64,
+        }
+    }
+
+    /// Returns the Protocol Group Number.
+    pub fn pgn(&self) -> u32 {
+        self.pgn
     }
 }
 
