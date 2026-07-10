@@ -480,10 +480,10 @@ impl J1939Decoder {
     pub fn decode_raw_frame(&mut self, frame: RawFrame) -> Vec<DecodedField> {
         let pgn = frame.pgn();
 
-        if pgn < 0xEF00 {
-            // Broadcast compressed - single frame message
-            return self.decode_single_frame(&frame);
-        }
+        //if pgn < 0xFE00 {
+            // Single frame message (all standard J1939 PGNs below 0xFE00)
+        //    return self.decode_single_frame(&frame);
+        //}
 
         // Multi-frame TP - feed to reassembler
         let results = self.reassembler.process_frame(&frame);
@@ -492,6 +492,9 @@ impl J1939Decoder {
         for result in results {
             match result {
                 TpReassemblyResult::Complete(assembled) => {
+                    outputs.extend(self.decode_assembled(&assembled));
+                }
+                TpReassemblyResult::SingleFrame(assembled) => {
                     outputs.extend(self.decode_assembled(&assembled));
                 }
                 TpReassemblyResult::Pending => {}
@@ -1022,18 +1025,42 @@ pgns:
     }
 
     #[test]
-    fn test_decode_single_frame_without_config() {
+    fn test_decode_pdu1_single_frame_without_config() {
         let mut decoder = J1939Decoder::new(false, 1000);
 
         // Custom PGN not in built-in definitions
-        let can_id = (3u32 << 26) | (0x1234 << 8) | 0xF8;
+        let can_id = (3u32 << 26) | (0x1200 << 8) | 0xF8;
         let frame = make_frame(can_id, &[0xAA, 0xBB]);
 
         let outputs = decoder.decode_raw_frame(frame);
         assert!(!outputs.is_empty());
 
         match &outputs[0] {
-            DecodedField::StringMessage { text, .. } => assert!(text.contains("PGN=0x001234")),
+            DecodedField::StringMessage { text, .. } => {
+                println!("text: {}", text);
+                assert!(text.contains("PGN=0x1200"));
+            }
+            _ => panic!("Expected StringMessage"),
+        }
+    }
+
+
+    #[test]
+    fn test_decode_pdu2_single_frame_without_config() {
+        let mut decoder = J1939Decoder::new(false, 1000);
+
+        // Custom PGN not in built-in definitions
+        let can_id = (3u32 << 26) | (0xF034 << 8) | 0xF8;
+        let frame = make_frame(can_id, &[0xAA, 0xBB]);
+
+        let outputs = decoder.decode_raw_frame(frame);
+        assert!(!outputs.is_empty());
+
+        match &outputs[0] {
+            DecodedField::StringMessage { text, .. } => {
+                println!("text: {}", text);
+                assert!(text.contains("PGN=0xF034"));
+            }
             _ => panic!("Expected StringMessage"),
         }
     }

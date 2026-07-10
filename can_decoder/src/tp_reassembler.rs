@@ -46,6 +46,8 @@ pub enum TpReassemblyResult {
     Complete(AssembledMessage),
     /// Timeout exceeded while waiting; contains partial data.
     Timeout(PartialAssembly),
+    /// Successfully assembled single-frame message.
+    SingleFrame(AssembledMessage),
 }
 
 /// Partial assembly emitted when --force-output-partial-tp is set.
@@ -179,9 +181,10 @@ impl TpReassembler {
 
     /// Process a single RawFrame and return reassembly results.
     pub fn process_frame(&mut self, frame: &RawFrame) -> Vec<TpReassemblyResult> {
-        if frame.data.is_empty() {
-            return vec![];
-        }
+        // Zero len data is OK
+        // if frame.data.is_empty() {
+        //     return vec![];
+        // }
 
         self.cleanup_expired(frame.timestamp / 1000);
         let results = self.process_frame_internal(frame);
@@ -200,7 +203,13 @@ impl TpReassembler {
         match msg_type {
             TpMessageType::ConnectionManagement => self.handle_connection_management(frame),
             TpMessageType::DataPacket => self.handle_data_packet(frame),
-            TpMessageType::NotTp => vec![],
+            TpMessageType::NotTp => {
+                let assembled = AssembledMessage {
+                    id: frame.can_id,
+                    data: frame.data.clone(),
+                    timestamp: frame.timestamp,
+                };
+                vec![TpReassemblyResult::SingleFrame(assembled)]},
         }
     }
 
