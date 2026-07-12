@@ -276,7 +276,7 @@ pub struct J1939Decoder {
 
 impl J1939Decoder {
     /// Create a new J1939Decoder with default PGN definitions and TP reassembly.
-    pub fn new(force_partial_tp: bool, timeout_ms: u64) -> Self {
+    pub fn new(force_partial_tp: bool, timeout_ms: u64, debug: bool) -> Self {
         let mut defs = default_pgn_definitions();
 
         // Load user config if available (check common paths)
@@ -290,15 +290,15 @@ impl J1939Decoder {
         let config = DecoderConfig { pgns: defs };
         J1939Decoder {
             config,
-            reassembler: TpReassembler::new(force_partial_tp, timeout_ms),
+            reassembler: TpReassembler::new(force_partial_tp, timeout_ms, debug),
         }
     }
 
     /// Create a J1939Decoder with explicit config.
-    pub fn with_config(config: DecoderConfig, force_partial_tp: bool, timeout_ms: u64) -> Self {
+    pub fn with_config(config: DecoderConfig, force_partial_tp: bool, timeout_ms: u64, debug: bool) -> Self {
         J1939Decoder {
             config,
-            reassembler: TpReassembler::new(force_partial_tp, timeout_ms),
+            reassembler: TpReassembler::new(force_partial_tp, timeout_ms, debug),
         }
     }
 
@@ -926,7 +926,7 @@ pgns:
 
     #[test]
     fn test_decode_engine_speed() {
-        let decoder = J1939Decoder::new(false, 1000);
+        let decoder = J1939Decoder::new(false, 1000, false);
 
         // RPM = 2500 -> raw value = 2500 / 0.25 = 10000 = 0x2710
         let data = vec![0x10u8, 0x27]; // Little-endian: 10000
@@ -949,7 +949,7 @@ pgns:
 
     #[test]
     fn test_decode_vehicle_speed() {
-        let decoder = J1939Decoder::new(false, 1000);
+        let decoder = J1939Decoder::new(false, 1000, false);
 
         // Speed = 60 km/h -> raw value = 60
         let data = vec![0x3Cu8]; // 60 in decimal
@@ -972,7 +972,7 @@ pgns:
 
     #[test]
     fn test_decode_unrecognized_pgn() {
-        let decoder = J1939Decoder::new(false, 1000);
+        let decoder = J1939Decoder::new(false, 1000, false);
 
         let data = vec![0x01u8, 0x02, 0x03];
         let assembled = make_assembled(0xDEADBEEF & 0x3FFFF, 0x40, data);
@@ -988,7 +988,7 @@ pgns:
 
     #[test]
     fn test_decode_empty_data() {
-        let decoder = J1939Decoder::new(false, 1000);
+        let decoder = J1939Decoder::new(false, 1000, false);
 
         let assembled = make_assembled(0x0FEF4, 0x20, vec![]);
         let outputs = decoder.decode_assembled(&assembled);
@@ -1008,7 +1008,7 @@ pgns:
 
     #[test]
     fn test_decode_single_frame_with_config() {
-        let mut decoder = J1939Decoder::new(false, 1000);
+        let mut decoder = J1939Decoder::new(false, 1000, false);
 
         // Vehicle speed: 45 km/h
         let can_id = (3u32 << 26) | (0x0CF00 << 8) | 0xF8;
@@ -1028,7 +1028,7 @@ pgns:
 
     #[test]
     fn test_decode_pdu1_single_frame_without_config() {
-        let mut decoder = J1939Decoder::new(false, 1000);
+        let mut decoder = J1939Decoder::new(false, 1000, false);
 
         // Custom PGN not in built-in definitions
         let can_id = (3u32 << 26) | (0x1200 << 8) | 0xF8;
@@ -1049,7 +1049,7 @@ pgns:
 
     #[test]
     fn test_decode_pdu2_single_frame_without_config() {
-        let mut decoder = J1939Decoder::new(false, 1000);
+        let mut decoder = J1939Decoder::new(false, 1000, false);
 
         // Custom PGN not in built-in definitions
         let can_id = (3u32 << 26) | (0xF034 << 8) | 0xF8;
@@ -1092,7 +1092,7 @@ pgns:
         }
 
         let config = DecoderConfig { pgns: defs };
-        let decoder = J1939Decoder::with_config(config, false, 1000);
+        let decoder = J1939Decoder::with_config(config, false, 1000, false);
 
         // The custom definition should override the built-in one
         let data = vec![0x64u8, 0x00]; // 100 in little-endian (0x0064)
@@ -1114,20 +1114,20 @@ pgns:
 
     #[test]
     fn test_decoder_name() {
-        let decoder = J1939Decoder::new(false, 1000);
+        let decoder = J1939Decoder::new(false, 1000, false);
         assert_eq!(decoder.name(), "j1939");
     }
 
     #[test]
     fn test_new_decoder_with_defaults() {
-        let decoder = J1939Decoder::new(false, 1000);
+        let decoder = J1939Decoder::new(false, 1000, false);
         assert!(decoder.config.pgns.len() >= 8);
         assert_eq!(decoder.active_assemblies(), 0);
     }
 
     #[test]
     fn test_new_decoder_with_force_partial() {
-        let decoder = J1939Decoder::new(true, 5000);
+        let decoder = J1939Decoder::new(true, 5000, true);
         assert!(decoder.config.pgns.len() >= 8);
     }
 }

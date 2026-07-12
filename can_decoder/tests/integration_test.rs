@@ -229,7 +229,7 @@ async fn test_pipeline_flow() {
 
 #[test]
 fn test_full_bam_decode_pipeline() {
-    let mut decoder = J1939Decoder::new(false, 5000);
+    let mut decoder = J1939Decoder::new(false, 5000, false);
 
     // Feed all 4 frames from bam.log in order
     let all_results: Vec<Vec<DecodedField>> = vec![
@@ -291,7 +291,7 @@ fn test_full_bam_decode_pipeline() {
 
 #[test]
 fn test_full_rts_cts_decode_pipeline() {
-    let mut decoder = J1939Decoder::new(false, 5000);
+    let mut decoder = J1939Decoder::new(false, 5000, false);
 
     // Feed all 9 frames from rts.log in order
     let all_results: Vec<Vec<DecodedField>> = vec![
@@ -363,7 +363,7 @@ fn test_full_rts_cts_decode_pipeline() {
 
 #[test]
 fn test_bam_assembled_data_content() {
-    let mut decoder = J1939Decoder::new(false, 5000);
+    let mut decoder = J1939Decoder::new(false, 5000, false);
 
     // Feed bam.log frames and capture all outputs
     let results: Vec<Vec<DecodedField>> = vec![
@@ -393,7 +393,7 @@ fn test_bam_assembled_data_content() {
 
 #[test]
 fn test_rts_cts_assembled_data_content() {
-    let mut decoder = J1939Decoder::new(false, 5000);
+    let mut decoder = J1939Decoder::new(false, 5000, false);
 
     // Feed rts.log frames and capture all outputs
     let results: Vec<Vec<DecodedField>> = vec![
@@ -432,7 +432,7 @@ fn test_rts_cts_assembled_data_content() {
 
 #[test]
 fn test_tp_timeout_in_decoder() {
-    let mut decoder = J1939Decoder::new(false, 100); // Very short timeout (100ms)
+    let mut decoder = J1939Decoder::new(false, 100, false); // Very short timeout (100ms)
 
     // Start a BAM assembly but don't complete it
     decoder.decode_raw_frame(RawFrame::new(
@@ -451,7 +451,7 @@ fn test_tp_timeout_in_decoder() {
     assert_eq!(decoder.active_assemblies(), 1, "Should have one pending assembly");
 
     // Clear all and verify timeout warning is generated with force_partial enabled
-    let mut decoder_partial = J1939Decoder::new(true, 100); // force partial output
+    let mut decoder_partial = J1939Decoder::new(true, 100, true); // force partial output
     
     decoder_partial.decode_raw_frame(RawFrame::new(
         0x18ECFF22, 

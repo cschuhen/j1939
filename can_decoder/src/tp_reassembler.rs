@@ -166,16 +166,19 @@ pub struct TpReassembler {
     assemblies: HashMap<(u8, u8), TpAssemblyState>,
     /// Track which source addresses have initiated RTS to avoid re-RTS confusion.
     rts_pending_sources: HashSet<u8>,
+    /// Enable extra debugging information via eprintln! output.
+    debug: bool,
 }
 
 impl TpReassembler {
-    /// Create a new TpReassembler with the given timeout and force-partial setting.
-    pub fn new(force_partial: bool, timeout_ms: u64) -> Self {
+    /// Create a new TpReassembler with the given timeout, force-partial setting, and debug flag.
+    pub fn new(force_partial: bool, timeout_ms: u64, debug: bool) -> Self {
         TpReassembler {
             force_partial,
             timeout_ms,
             assemblies: HashMap::new(),
             rts_pending_sources: HashSet::new(),
+            debug,
         }
     }
 
@@ -189,11 +192,12 @@ impl TpReassembler {
         self.cleanup_expired(frame.timestamp / 1000);
         let results = self.process_frame_internal(frame);
 
-        #[cfg(not(test))]
-        eprintln!(
-            "[DEBUG] process_frame: can_id={:#010X}, pgn.pgn={:#06X}, data[0]={}, len={}, results.len()={}",
-            frame.can_id, frame.pgn(), frame.data.first().unwrap_or(&0), frame.data.len(), results.len()
-        );
+        if self.debug {
+            eprintln!(
+                "[DEBUG] process_frame: can_id={:#010X}, pgn.pgn={:#06X}, data[0]={}, len={}, results.len()={}",
+                frame.can_id, frame.pgn(), frame.data.first().unwrap_or(&0), frame.data.len(), results.len()
+            );
+        }
 
         results
     }
@@ -239,8 +243,9 @@ impl TpReassembler {
             0x1C => self.handle_abort(frame, data),
             0x20 => self.handle_bam_cm(frame, data),
             _ => {
-                #[cfg(not(test))]
-                eprintln!("[TP] Unknown CM control byte={:#04X} from source={:#04X}", control_byte, frame.source_address());
+                if self.debug {
+                    eprintln!("[TP] Unknown CM control byte={:#04X} from source={:#04X}", control_byte, frame.source_address());
+                }
                 vec![]
             }
         }
@@ -287,11 +292,12 @@ impl TpReassembler {
         self.assemblies.insert(key.clone(), assembly);
         self.rts_pending_sources.insert(transmitter);
 
-        #[cfg(not(test))]
-        eprintln!(
-            "[TP] RTS received: PGN={:#06X}, size={}, packets={}, transmitter={:#04X}",
-            pgn_from_rts, total_size, num_packets, transmitter
-        );
+        if self.debug {
+            eprintln!(
+                "[TP] RTS received: PGN={:#06X}, size={}, packets={}, transmitter={:#04X}",
+                pgn_from_rts, total_size, num_packets, transmitter
+            );
+        }
 
         vec![]
     }
@@ -315,11 +321,12 @@ impl TpReassembler {
         let source = frame.source_address();
         let dest = frame.destination_address();
 
-        #[cfg(not(test))]
-        eprintln!(
-            "[TP] BAM received: PGN={:#06X}, size={}, packets={}, source={:#04X} dest={:#04X}",
-            pgn_from_bam, total_size, num_packets, source, dest
-        );
+        if self.debug {
+            eprintln!(
+                "[TP] BAM received: PGN={:#06X}, size={}, packets={}, source={:#04X} dest={:#04X}",
+                pgn_from_bam, total_size, num_packets, source, dest
+            );
+        }
 
         // Create assembly state for broadcast transfer (dest=0xFF)
         let key = (source, dest);
@@ -351,22 +358,24 @@ impl TpReassembler {
         // Find and update it.
         if let Some(assembly) = self.assemblies.get(&(transmitter, receiver)) {
             let num_packets = data[2];
-            #[cfg(not(test))]
-            eprintln!(
-                "[TP] CTS received: packets={}, transmitter={:#04X}, receiver={:#04X}",
-                num_packets, transmitter, receiver
-            );
+            if self.debug {
+                eprintln!(
+                    "[TP] CTS received: packets={}, transmitter={:#04X}, receiver={:#04X}",
+                    num_packets, transmitter, receiver
+                );
+            }
 
             // Update assembly with packet count info from CTS if needed
             let _ = assembly;
             // The assembly state already has total_size and other fields set by RTS.
             // CTS confirms the transfer can proceed.
         } else {
-            #[cfg(not(test))]
-            eprintln!(
-                "[TP] CTS received without prior RTS for transmitter={:#04X} receiver={:#04X}",
-                transmitter, receiver
-            );
+            if self.debug {
+                eprintln!(
+                    "[TP] CTS received without prior RTS for transmitter={:#04X} receiver={:#04X}",
+                    transmitter, receiver
+                );
+            }
         }
 
         vec![]
@@ -379,18 +388,21 @@ impl TpReassembler {
         // EOM is sent by the transmitter after all DT packets.
         // Clean up any remaining assembly state for this transfer.
         if self.assemblies.remove(&(transmitter, receiver)).is_some() {
-            #[cfg(not(test))]
-            eprintln!(
-                "[TP] EOM received: cleared assembly for transmitter={:#04X} receiver={:#04X}",
-                transmitter, receiver
-            );
+            if self.debug {
+                eprintln!(
+                    "[TP] EOM received: cleared assembly for transmitter={:#04X} receiver={:#04X}",
+                    transmitter, receiver
+                );
+            }
         }
 
         vec![]
     }
 
     fn handle_abort(&self, _frame: &RawFrame, _data: &[u8]) -> Vec<TpReassemblyResult> {
-        eprintln!("[TP] Abort received - not yet implemented");
+        if self.debug {
+            eprintln!("[TP] Abort received - not yet implemented");
+        }
         vec![]
     }
 
@@ -398,36 +410,39 @@ impl TpReassembler {
         let data = &frame.data;
 
         if data.len() < 2 {
-            #[cfg(not(test))]
-            eprintln!(
-                "[TP] Data packet too short ({} bytes) for source={:#04X} destination={:#04X}",
-                data.len(),
-                frame.source_address(),
-                frame.destination_address()
-            );
+            if self.debug {
+                eprintln!(
+                    "[TP] Data packet too short ({} bytes) for source={:#04X} destination={:#04X}",
+                    data.len(),
+                    frame.source_address(),
+                    frame.destination_address()
+                );
+            }
             return vec![];
         }
 
         let packet_num = data[0];
         if packet_num == 0 {
-            #[cfg(not(test))]
-            eprintln!(
-                "[TP] Invalid zero packet number for source={:#04X} destination={:#04X}",
-                frame.source_address(),
-                frame.destination_address()
-            );
+            if self.debug {
+                eprintln!(
+                    "[TP] Invalid zero packet number for source={:#04X} destination={:#04X}",
+                    frame.source_address(),
+                    frame.destination_address()
+                );
+            }
             return vec![];
         }
 
         let payload = data[1..].to_vec();
         if payload.len() > 7 {
-            #[cfg(not(test))]
-            eprintln!(
-                "[TP] Data packet payload too large ({} bytes) for source={:#04X} destination={:#04X}",
-                payload.len(),
-                frame.source_address(),
-                frame.destination_address()
-            );
+            if self.debug {
+                eprintln!(
+                    "[TP] Data packet payload too large ({} bytes) for source={:#04X} destination={:#04X}",
+                    payload.len(),
+                    frame.source_address(),
+                    frame.destination_address()
+                );
+            }
             return vec![];
         }
 
@@ -436,12 +451,13 @@ impl TpReassembler {
 
         // Try lookup with (source, dest) first. If not found, try (source, 0xFF) as fallback
         // to handle cases where j1939_async forces TP.DT into PDU1 format for broadcast transfers.
-        #[cfg(not(test))]
-        eprintln!(
-            "[TP] DT lookup: key=({:#04X}, {:#04X}), assemblies.len()={}, keys={:?}",
-            source_address, dest_from_frame, self.assemblies.len(),
-            self.assemblies.keys().collect::<Vec<_>>()
-        );
+        if self.debug {
+            eprintln!(
+                "[TP] DT lookup: key=({:#04X}, {:#04X}), assemblies.len()={}, keys={:?}",
+                source_address, dest_from_frame, self.assemblies.len(),
+                self.assemblies.keys().collect::<Vec<_>>()
+            );
+        }
 
         // Check if we have an active assembly for this stream
         let assembly = if let Some(assembly) = self.assemblies.get(&(source_address, dest_from_frame)) {
@@ -449,11 +465,12 @@ impl TpReassembler {
         } else if let Some(assembly) = self.assemblies.get(&(source_address, 0xFF)) {
             assembly.clone()
         } else {
-            #[cfg(not(test))]
-            eprintln!(
-                "[TP] Data packet received without prior RTS/CTS for source={:#04X} destination={:#04X}",
-                source_address, dest_from_frame
-            );
+            if self.debug {
+                eprintln!(
+                    "[TP] Data packet received without prior RTS/CTS for source={:#04X} destination={:#04X}",
+                    source_address, dest_from_frame
+                );
+            }
             return vec![];
         };
 
@@ -463,33 +480,36 @@ impl TpReassembler {
             .iter()
             .any(|(pn, _)| *pn == packet_num)
         {
-            #[cfg(not(test))]
-            eprintln!(
-                "[TP] Duplicate packet {} for PGN={:#06X}, source={:#04X} dest={:#04X}",
-                packet_num, assembly.pgn, source_address, assembly.destination_address
-            );
+            if self.debug {
+                eprintln!(
+                    "[TP] Duplicate packet {} for PGN={:#06X}, source={:#04X} dest={:#04X}",
+                    packet_num, assembly.pgn, source_address, assembly.destination_address
+                );
+            }
             return vec![];
         }
 
         // Check if out of order (packet number less than next expected)
         let next_expected = assembly.packets_received.len() + 1;
         if packet_num < next_expected as u8 {
-            #[cfg(not(test))]
-            eprintln!(
-                "[TP] Out-of-order packet {} (expected >= {}) for PGN={:#06X} source={:#04X}",
-                packet_num, next_expected, assembly.pgn, source_address
-            );
+            if self.debug {
+                eprintln!(
+                    "[TP] Out-of-order packet {} (expected >= {}) for PGN={:#06X} source={:#04X}",
+                    packet_num, next_expected, assembly.pgn, source_address
+                );
+            }
             return vec![];
         }
 
         // Check if packet number exceeds total expected packets
         let max_packets = (assembly.total_size + 6) / 7;
         if packet_num > max_packets as u8 {
-            #[cfg(not(test))]
-            eprintln!(
-                "[TP] Packet {} exceeds maximum ({}) for PGN={:#06X} source={:#04X}",
-                packet_num, max_packets, assembly.pgn, source_address
-            );
+            if self.debug {
+                eprintln!(
+                    "[TP] Packet {} exceeds maximum ({}) for PGN={:#06X} source={:#04X}",
+                    packet_num, max_packets, assembly.pgn, source_address
+                );
+            }
             return vec![];
         }
 
@@ -551,33 +571,32 @@ impl TpReassembler {
             if elapsed > self.timeout_ms {
                 expired_keys.push(key.clone());
 
-                #[cfg(not(test))]
-                eprintln!(
-                    "[TP] Timeout after {}ms: source={:#04X}, dest={:#04X}, PGN={}, {} packets received",
-                    elapsed,
-                    assembly.source_address,
-                    assembly.destination_address,
-                    assembly.pgn,
-                    assembly.packets_received.len()
-                );
+                if self.debug {
+                    eprintln!(
+                        "[TP] Timeout after {}ms: source={:#04X}, dest={:#04X}, PGN={}, {} packets received",
+                        elapsed,
+                        assembly.source_address,
+                        assembly.destination_address,
+                        assembly.pgn,
+                        assembly.packets_received.len()
+                    );
 
-                if self.force_partial {
-                    let mut assembled_data = Vec::new();
-                    for (_, payload) in &assembly.packets_received {
-                        assembled_data.extend_from_slice(payload);
+                    if self.force_partial {
+                        let mut assembled_data = Vec::new();
+                        for (_, payload) in &assembly.packets_received {
+                            assembled_data.extend_from_slice(payload);
+                        }
+
+                        eprintln!(
+                            "[TP] Timeout for PGN={:#06X}: source={:#04X}, dest={:#04X}",
+                            assembly.pgn, assembly.source_address, assembly.destination_address
+                        );
+                    } else {
+                        eprintln!(
+                            "[TP] Discarding incomplete TP message: PGN={:#06X}, source={:#04X}",
+                            assembly.pgn, assembly.source_address
+                        );
                     }
-
-                    #[cfg(not(test))]
-                    eprintln!(
-                        "[TP] Timeout for PGN={:#06X}: source={:#04X}, dest={:#04X}",
-                        assembly.pgn, assembly.source_address, assembly.destination_address
-                    );
-                } else {
-                    #[cfg(not(test))]
-                    eprintln!(
-                        "[TP] Discarding incomplete TP message: PGN={:#06X}, source={:#04X}",
-                        assembly.pgn, assembly.source_address
-                    );
                 }
             }
         }
@@ -617,7 +636,7 @@ mod tests {
 
     #[test]
     fn test_bam_sets_up_assembly_state() {
-        let mut reassembler = TpReassembler::new(false, 1000);
+        let mut reassembler = TpReassembler::new(false, 1000, false);
 
         // BAM is a TP.CM frame (PGN 0xEC00) with control byte 0x20.
         // Per J1939 spec: [control=0x20, total_size_L, total_size_H, num_packets, reserved(0xFF), PGN_L, PGN_H, PGN_ext]
@@ -651,7 +670,7 @@ mod tests {
 
     #[test]
     fn test_bam_too_short_data() {
-        let mut reassembler = TpReassembler::new(false, 1000);
+        let mut reassembler = TpReassembler::new(false, 1000, false);
 
         // BAM frame with insufficient data length (broadcast)
         let can_id = (7u32 << 26) | ((0xEC as u32) << 16) | ((0xFF as u32) << 8) | 0xF8;
@@ -663,7 +682,7 @@ mod tests {
 
     #[test]
     fn test_bam_followed_by_dt_packets() {
-        let mut reassembler = TpReassembler::new(false, 1000);
+        let mut reassembler = TpReassembler::new(false, 1000, false);
 
         // Step 1: Send BAM to set up broadcast transfer
         let source = 0xF8u8;
@@ -714,7 +733,7 @@ mod tests {
 
     #[test]
     fn test_data_packet_without_rts() {
-        let mut reassembler = TpReassembler::new(false, 1000);
+        let mut reassembler = TpReassembler::new(false, 1000, false);
 
         // TP.DT broadcast frame: PF=0xEB, PS=dest(0xFF), SA=source
         let source: u8 = 0x20;
@@ -729,7 +748,7 @@ mod tests {
 
     #[test]
     fn test_data_packet_invalid_zero_number() {
-        let mut reassembler = TpReassembler::new(false, 1000);
+        let mut reassembler = TpReassembler::new(false, 1000, false);
 
         // TP.DT broadcast frame: PF=0xEB, PS=dest(0xFF), SA=source
         let source: u8 = 0x20;
@@ -743,7 +762,7 @@ mod tests {
 
     #[test]
     fn test_data_packet_too_short() {
-        let mut reassembler = TpReassembler::new(false, 1000);
+        let mut reassembler = TpReassembler::new(false, 1000, false);
 
         // TP.DT broadcast frame: PF=0xEB, PS=dest(0xFF), SA=source
         let source: u8 = 0x20;
@@ -757,7 +776,7 @@ mod tests {
 
     #[test]
     fn test_data_packet_payload_too_large() {
-        let mut reassembler = TpReassembler::new(false, 1000);
+        let mut reassembler = TpReassembler::new(false, 1000, false);
 
         // TP.DT broadcast frame: PF=0xEB, PS=dest(0xFF), SA=source
         let source: u8 = 0x20;
@@ -778,7 +797,7 @@ mod tests {
 
     #[test]
     fn test_complete_single_packet_transfer() {
-        let mut reassembler = TpReassembler::new(false, 1000);
+        let mut reassembler = TpReassembler::new(false, 1000, false);
 
         let pgn_val: u32 = 0x0600;
         let transmitter: u8 = 0x20;
@@ -813,7 +832,7 @@ mod tests {
 
     #[test]
     fn test_complete_multi_packet_transfer() {
-        let mut reassembler = TpReassembler::new(false, 1000);
+        let mut reassembler = TpReassembler::new(false, 1000, false);
 
         let pgn_val: u32 = 0xF500;
         let source: u8 = 0x30;
@@ -881,7 +900,7 @@ mod tests {
 
     #[test]
     fn test_pending_during_multi_packet() {
-        let mut reassembler = TpReassembler::new(false, 1000);
+        let mut reassembler = TpReassembler::new(false, 1000, false);
 
         let pgn_val: u32 = 0xF500;
         let source: u8 = 0x30;
@@ -923,7 +942,7 @@ mod tests {
 
     #[test]
     fn test_pending_result_has_correct_count() {
-        let mut reassembler = TpReassembler::new(false, 1000);
+        let mut reassembler = TpReassembler::new(false, 1000, false);
 
         let pgn_val: u32 = 0xF500;
         let source: u8 = 0x30;
@@ -965,7 +984,7 @@ mod tests {
 
     #[test]
     fn test_timeout_discards_assembly() {
-        let mut reassembler = TpReassembler::new(false, 100);
+        let mut reassembler = TpReassembler::new(false, 100, false);
 
         let pgn_val: u32 = 0xF500;
         let source: u8 = 0x30;
@@ -996,7 +1015,7 @@ mod tests {
 
     #[test]
     fn test_timeout_emits_partial_assembly() {
-        let mut reassembler = TpReassembler::new(true, 100);
+        let mut reassembler = TpReassembler::new(true, 100, true);
 
         let pgn_val: u32 = 0xF500;
         let source: u8 = 0x30;
@@ -1027,7 +1046,7 @@ mod tests {
 
     #[test]
     fn test_timeout_does_not_expire_recent() {
-        let mut reassembler = TpReassembler::new(false, 1000);
+        let mut reassembler = TpReassembler::new(false, 1000, false);
 
         let pgn_val: u32 = 0xF500;
         let source: u8 = 0x30;
@@ -1055,7 +1074,7 @@ mod tests {
 
     #[test]
     fn test_multiple_assembly_timeouts() {
-        let mut reassembler = TpReassembler::new(false, 100);
+        let mut reassembler = TpReassembler::new(false, 100, false);
 
         reassembler.assemblies.insert(
             (0x20, 0xFF),
@@ -1105,7 +1124,7 @@ mod tests {
 
     #[test]
     fn test_duplicate_packet_rejected() {
-        let mut reassembler = TpReassembler::new(false, 1000);
+        let mut reassembler = TpReassembler::new(false, 1000, false);
 
         let pgn_val: u32 = 0xF500;
         let source: u8 = 0x30;
@@ -1143,7 +1162,7 @@ mod tests {
 
     #[test]
     fn test_out_of_order_packet_rejected() {
-        let mut reassembler = TpReassembler::new(false, 1000);
+        let mut reassembler = TpReassembler::new(false, 1000, false);
 
         let pgn_val: u32 = 0xF500;
         let source: u8 = 0x30;
@@ -1181,7 +1200,7 @@ mod tests {
 
     #[test]
     fn test_data_truncated_to_expected_size() {
-        let mut reassembler = TpReassembler::new(false, 1000);
+        let mut reassembler = TpReassembler::new(false, 1000, false);
 
         let pgn_val: u32 = 0xF500;
         let source: u8 = 0x30;
@@ -1279,7 +1298,7 @@ mod tests {
 
     #[test]
     fn test_new_reassembler_defaults() {
-        let reassembler = TpReassembler::new(false, 1000);
+        let reassembler = TpReassembler::new(false, 1000, false);
 
         assert_eq!(reassembler.active_assemblies_count(), 0);
         assert!(reassembler.assemblies.is_empty());
@@ -1287,7 +1306,7 @@ mod tests {
 
     #[test]
     fn test_clear_all_removes_everything() {
-        let mut reassembler = TpReassembler::new(false, 1000);
+        let mut reassembler = TpReassembler::new(false, 1000, false);
 
         reassembler.assemblies.insert(
             (0x20, 0xFF),
@@ -1313,7 +1332,7 @@ mod tests {
 
     #[test]
     fn test_reassembler_with_different_timeout() {
-        let mut reassembler = TpReassembler::new(true, 5000);
+        let mut reassembler = TpReassembler::new(true, 5000, true);
 
         let pgn_val: u32 = 0xF500;
         let source: u8 = 0x30;
@@ -1348,7 +1367,7 @@ mod tests {
 
     #[test]
     fn test_bam_preserves_pgn_and_size() {
-        let mut reassembler = TpReassembler::new(false, 1000);
+        let mut reassembler = TpReassembler::new(false, 1000, false);
 
         // BAM is a TP.CM frame (PGN 0xEC00) with control byte 0x20.
         // Per J1939 spec: [control=0x20, total_size_L, total_size_H, num_packets, reserved(0xFF), PGN_L, PGN_H, PGN_ext]
@@ -1379,7 +1398,7 @@ mod tests {
 
     #[test]
     fn test_complete_flow_with_timestamps() {
-        let mut reassembler = TpReassembler::new(false, 1000);
+        let mut reassembler = TpReassembler::new(false, 1000, false);
 
         let pgn_val: u32 = 0xF500;
         let source: u8 = 0x20;
@@ -1419,7 +1438,7 @@ mod tests {
 
     #[test]
     fn test_packet_sequence_ordering() {
-        let mut reassembler = TpReassembler::new(false, 1000);
+        let mut reassembler = TpReassembler::new(false, 1000, false);
 
         let pgn_val: u32 = 0xF500;
         let source: u8 = 0x30;
@@ -1529,7 +1548,7 @@ mod tests {
 
     #[test]
     fn test_complete_flow_with_max_packet_size() {
-        let mut reassembler = TpReassembler::new(false, 1000);
+        let mut reassembler = TpReassembler::new(false, 1000, false);
 
         let pgn_val: u32 = 0xF500;
         let source: u8 = 0x20;
@@ -1570,7 +1589,7 @@ mod tests {
 
     #[test]
     fn test_assembly_with_many_packets() {
-        let mut reassembler = TpReassembler::new(false, 1000);
+        let mut reassembler = TpReassembler::new(false, 1000, false);
 
         let pgn_val: u32 = 0xF500;
         let source: u8 = 0x20;
@@ -1623,7 +1642,7 @@ mod tests {
 
     #[test]
     fn test_bam_from_real_trace() {
-        let mut reassembler = TpReassembler::new(false, 5000);
+        let mut reassembler = TpReassembler::new(false, 5000, false);
 
         // Frame 1: BAM CM with can_id=0x18ECFF22, data=[20 0F 00 03 FF 80 FF 00]
         let bam_cm = make_frame(0x18ECFF22, &[0x20, 0x0F, 0x00, 0x03, 0xFF, 0x80, 0xFF, 0x00]);
@@ -1668,7 +1687,7 @@ mod tests {
 
     #[test]
     fn test_bam_payload_matches_reference() {
-        let mut reassembler = TpReassembler::new(false, 5000);
+        let mut reassembler = TpReassembler::new(false, 5000, false);
 
         // Feed all 4 frames from bam.log in order
         reassembler.process_frame(&make_frame(0x18ECFF22, &[0x20, 0x0F, 0x00, 0x03, 0xFF, 0x80, 0xFF, 0x00]));
@@ -1688,7 +1707,7 @@ mod tests {
 
     #[test]
     fn test_bam_assembled_can_id() {
-        let mut reassembler = TpReassembler::new(false, 5000);
+        let mut reassembler = TpReassembler::new(false, 5000, false);
 
         // Feed bam.log frames
         reassembler.process_frame(&make_frame(0x18ECFF22, &[0x20, 0x0F, 0x00, 0x03, 0xFF, 0x80, 0xFF, 0x00]));
@@ -1713,7 +1732,7 @@ mod tests {
     #[test]
     fn test_bam_with_different_sizes() {
         // BAM with total_size=7 (single DT packet)
-        let mut reassembler = TpReassembler::new(false, 5000);
+        let mut reassembler = TpReassembler::new(false, 5000, false);
         reassembler.process_frame(&make_frame(0x18ECFF22, &[0x20, 0x07, 0x00, 0x01, 0xFF, 0x10, 0x00, 0x00]));
         let results = reassembler.process_frame(&make_frame(0x18EBFF22, &[0x01, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47]));
         match &results[0] {
@@ -1722,7 +1741,7 @@ mod tests {
         }
 
         // BAM with total_size=14 (two DT packets)
-        let mut reassembler = TpReassembler::new(false, 5000);
+        let mut reassembler = TpReassembler::new(false, 5000, false);
         reassembler.process_frame(&make_frame(0x18ECFF22, &[0x20, 0x0E, 0x00, 0x02, 0xFF, 0x20, 0x00, 0x00]));
         reassembler.process_frame(&make_frame(0x18EBFF22, &[0x01, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47]));
         let results = reassembler.process_frame(&make_frame(0x18EBFF22, &[0x02, 0x48, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E]));
@@ -1732,7 +1751,7 @@ mod tests {
         }
 
         // BAM with total_size=21 (three DT packets)
-        let mut reassembler = TpReassembler::new(false, 5000);
+        let mut reassembler = TpReassembler::new(false, 5000, false);
         reassembler.process_frame(&make_frame(0x18ECFF22, &[0x20, 0x15, 0x00, 0x03, 0xFF, 0x30, 0x00, 0x00]));
         reassembler.process_frame(&make_frame(0x18EBFF22, &[0x01, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47]));
         reassembler.process_frame(&make_frame(0x18EBFF22, &[0x02, 0x48, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E]));
@@ -1749,7 +1768,7 @@ mod tests {
 
     #[test]
     fn test_rts_cts_from_real_trace() {
-        let mut reassembler = TpReassembler::new(false, 5000);
+        let mut reassembler = TpReassembler::new(false, 5000, false);
 
         // Frame 1: RTS CM with can_id=0x18ECEB26, data=[10 24 00 06 FF 00 E6 00]
         let rts = make_frame(0x18ECEB26, &[0x10, 0x24, 0x00, 0x06, 0xFF, 0x00, 0xE6, 0x00]);
@@ -1811,7 +1830,7 @@ mod tests {
 
     #[test]
     fn test_rts_cts_payload_matches_reference() {
-        let mut reassembler = TpReassembler::new(false, 5000);
+        let mut reassembler = TpReassembler::new(false, 5000, false);
 
         // Feed all frames from rts.log in order
         reassembler.process_frame(&make_frame(0x18ECEB26, &[0x10, 0x24, 0x00, 0x06, 0xFF, 0x00, 0xE6, 0x00]));
@@ -1836,7 +1855,7 @@ mod tests {
 
     #[test]
     fn test_rts_cts_assembled_can_id() {
-        let mut reassembler = TpReassembler::new(false, 5000);
+        let mut reassembler = TpReassembler::new(false, 5000, false);
 
         // Feed rts.log frames
         reassembler.process_frame(&make_frame(0x18ECEB26, &[0x10, 0x24, 0x00, 0x06, 0xFF, 0x00, 0xE6, 0x00]));
@@ -1901,7 +1920,7 @@ mod tests {
 
     #[test]
     fn test_rts_cts_with_eom() {
-        let mut reassembler = TpReassembler::new(false, 5000);
+        let mut reassembler = TpReassembler::new(false, 5000, false);
 
         // Set up an assembly via RTS
         let rts_can_id = (7u32 << 26) | ((0xEC as u32) << 16) | ((0x21 as u32) << 8) | 0x20;
@@ -1932,7 +1951,7 @@ mod tests {
 
     #[test]
     fn test_dt_without_prior_cm() {
-        let mut reassembler = TpReassembler::new(false, 5000);
+        let mut reassembler = TpReassembler::new(false, 5000, false);
 
         // DT packet arrives without any prior BAM or RTS/CTS
         let dt_can_id = (7u32 << 26) | ((0xEB as u32) << 16) | ((0xFF as u32) << 8) | 0x20;
@@ -1977,7 +1996,7 @@ mod tests {
 
     #[test]
     fn test_bam_assembled_source_dest() {
-        let mut reassembler = TpReassembler::new(false, 5000);
+        let mut reassembler = TpReassembler::new(false, 5000, false);
 
         // Feed bam.log frames
         reassembler.process_frame(&make_frame(0x18ECFF22, &[0x20, 0x0F, 0x00, 0x03, 0xFF, 0x80, 0xFF, 0x00]));
@@ -1997,7 +2016,7 @@ mod tests {
 
     #[test]
     fn test_rts_cts_assembled_source_dest() {
-        let mut reassembler = TpReassembler::new(false, 5000);
+        let mut reassembler = TpReassembler::new(false, 5000, false);
 
         // Feed rts.log frames
         reassembler.process_frame(&make_frame(0x18ECEB26, &[0x10, 0x24, 0x00, 0x06, 0xFF, 0x00, 0xE6, 0x00]));
@@ -2021,7 +2040,7 @@ mod tests {
 
     #[test]
     fn test_rts_cts_single_packet_transfer() {
-        let mut reassembler = TpReassembler::new(false, 5000);
+        let mut reassembler = TpReassembler::new(false, 5000, false);
 
         // RTS for single packet transfer
         // PGN in payload bytes: [50 00 00] -> 0x000050
@@ -2049,7 +2068,7 @@ mod tests {
 
     #[test]
     fn test_bam_with_max_packet_size() {
-        let mut reassembler = TpReassembler::new(false, 5000);
+        let mut reassembler = TpReassembler::new(false, 5000, false);
 
         // BAM with total_size=7 (exactly one packet of max payload)
         // PGN in payload bytes: [40 00 00] -> 0x000040
@@ -2071,7 +2090,7 @@ mod tests {
 
     #[test]
     fn test_rts_cts_with_abort() {
-        let mut reassembler = TpReassembler::new(false, 5000);
+        let mut reassembler = TpReassembler::new(false, 5000, false);
 
         // RTS
         let rts_can_id = (7u32 << 26) | ((0xEC as u32) << 16) | ((0x21 as u32) << 8) | 0x20;

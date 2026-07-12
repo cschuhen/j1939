@@ -86,6 +86,7 @@ async fn main() -> Result<()> {
     let decoder = Box::new(can_decoder::pgn_decoder::J1939Decoder::new(
         cli.force_output_partial_tp,
         5000,
+        cli.debug,
     ));
     pipeline.spawn_decoder(decoder);
 
