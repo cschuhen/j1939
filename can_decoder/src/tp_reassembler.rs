@@ -2102,4 +2102,265 @@ mod tests {
 
         assert!(results.is_empty());
     }
+
+    #[test]
+    fn test_large_pgn_bam_0xf000() {
+        // PGN 0xF000 (lowest large PGN)
+        let mut reassembler = TpReassembler::new(false, 5000, false);
+
+        // BAM with PGN=0xF000 in payload bytes [00 F0 00] -> little-endian = 0x00F000
+        let bam_can_id = (7u32 << 26) | ((0xEC as u32) << 16) | ((0xFF as u32) << 8) | 0x10;
+        reassembler.process_frame(&make_frame(bam_can_id, &[0x20, 0x07, 0x00, 0x01, 0xFF, 0x00, 0xF0, 0x00]));
+
+        let dt_can_id = (7u32 << 26) | ((0xEB as u32) << 16) | ((0xFF as u32) << 8) | 0x10;
+        let results = reassembler.process_frame(&make_frame(dt_can_id, &[0x01, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x01]));
+
+        match &results[0] {
+            TpReassemblyResult::Complete(msg) => {
+                assert_eq!(msg.data.len(), 7);
+                assert_eq!(msg.pgn(), 0xF000);
+            }
+            other => panic!("Expected Complete, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_large_pgn_bam_0xf5ff() {
+        // PGN 0xF5FF (mid-range large PGN)
+        let mut reassembler = TpReassembler::new(false, 5000, false);
+
+        // BAM with PGN=0xF5FF in payload bytes [FF F5 00] -> little-endian = 0x00F5FF
+        let bam_can_id = (7u32 << 26) | ((0xEC as u32) << 16) | ((0xFF as u32) << 8) | 0x20;
+        reassembler.process_frame(&make_frame(bam_can_id, &[0x20, 0x07, 0x00, 0x01, 0xFF, 0xFF, 0xF5, 0x00]));
+
+        let dt_can_id = (7u32 << 26) | ((0xEB as u32) << 16) | ((0xFF as u32) << 8) | 0x20;
+        let results = reassembler.process_frame(&make_frame(dt_can_id, &[0x01, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x01]));
+
+        match &results[0] {
+            TpReassemblyResult::Complete(msg) => {
+                assert_eq!(msg.data.len(), 7);
+                assert_eq!(msg.pgn(), 0xF5FF);
+            }
+            other => panic!("Expected Complete, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_large_pgn_bam_0xfdff() {
+        // PGN 0xFDFF (highest large PGN)
+        let mut reassembler = TpReassembler::new(false, 5000, false);
+
+        // BAM with PGN=0xFDFF in payload bytes [FF FD 00] -> little-endian = 0x00FDFF
+        let bam_can_id = (7u32 << 26) | ((0xEC as u32) << 16) | ((0xFF as u32) << 8) | 0x30;
+        reassembler.process_frame(&make_frame(bam_can_id, &[0x20, 0x07, 0x00, 0x01, 0xFF, 0xFF, 0xFD, 0x00]));
+
+        let dt_can_id = (7u32 << 26) | ((0xEB as u32) << 16) | ((0xFF as u32) << 8) | 0x30;
+        let results = reassembler.process_frame(&make_frame(dt_can_id, &[0x01, 0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0x01]));
+
+        match &results[0] {
+            TpReassemblyResult::Complete(msg) => {
+                assert_eq!(msg.data.len(), 7);
+                assert_eq!(msg.pgn(), 0xFDFF);
+            }
+            other => panic!("Expected Complete, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_large_pgn_rts_cts_0xf800() {
+        // RTS/CTS with large PGN 0xF800
+        // All frames use CAN ID source=0x21, dest=0x20 (matching the working test pattern)
+        let mut reassembler = TpReassembler::new(false, 5000, false);
+
+        // RTS with PGN=0xF800 in payload [00 F8 00] -> little-endian = 0x00F800
+        let rts_can_id = (7u32 << 26) | ((0xEC as u32) << 16) | ((0x20 as u32) << 8) | 0x21;
+        reassembler.process_frame(&make_frame(rts_can_id, &[0x10, 0x07, 0x00, 0x01, 0xFF, 0x00, 0xF8, 0x00]));
+
+        // CTS (same CAN ID direction)
+        let cts_can_id = (7u32 << 26) | ((0xEC as u32) << 16) | ((0x20 as u32) << 8) | 0x21;
+        reassembler.process_frame(&make_frame(cts_can_id, &[0x11, 0x01, 0x01, 0xFF, 0x00, 0x00, 0x00]));
+
+        // DT packet (same CAN ID direction)
+        let dt_can_id = (7u32 << 26) | ((0xEB as u32) << 16) | ((0x20 as u32) << 8) | 0x21;
+        let results = reassembler.process_frame(&make_frame(dt_can_id, &[0x01, 0xAB, 0xCD, 0xEF, 0x12, 0x34, 0x56, 0x01]));
+
+        match &results[0] {
+            TpReassemblyResult::Complete(msg) => {
+                assert_eq!(msg.data.len(), 7);
+                assert_eq!(msg.pgn(), 0xF800);
+            }
+            other => panic!("Expected Complete, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_large_pgn_multi_packet_0xf900() {
+        // RTS/CTS with large PGN 0xF900 and multiple packets
+        // All frames use CAN ID source=0x30, dest=0x40
+        let mut reassembler = TpReassembler::new(false, 5000, false);
+
+        // RTS with PGN=0xF900, total_size=14, 2 packets
+        let rts_can_id = (7u32 << 26) | ((0xEC as u32) << 16) | ((0x40 as u32) << 8) | 0x30;
+        reassembler.process_frame(&make_frame(rts_can_id, &[0x10, 0x0E, 0x00, 0x02, 0xFF, 0x00, 0xF9, 0x00]));
+
+        // CTS (same CAN ID direction)
+        let cts_can_id = (7u32 << 26) | ((0xEC as u32) << 16) | ((0x40 as u32) << 8) | 0x30;
+        reassembler.process_frame(&make_frame(cts_can_id, &[0x11, 0x02, 0x02, 0xFF, 0x00, 0x00, 0x00]));
+
+        // DT packet 1 (same CAN ID direction)
+        let dt_can_id = (7u32 << 26) | ((0xEB as u32) << 16) | ((0x40 as u32) << 8) | 0x30;
+        reassembler.process_frame(&make_frame(dt_can_id, &[0x01, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x01]));
+
+        // DT packet 2 (same CAN ID direction)
+        let dt_can_id = (7u32 << 26) | ((0xEB as u32) << 16) | ((0x40 as u32) << 8) | 0x30;
+        let results = reassembler.process_frame(&make_frame(dt_can_id, &[0x02, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x01]));
+
+        match &results[0] {
+            TpReassemblyResult::Complete(msg) => {
+                assert_eq!(msg.data.len(), 14);
+                assert_eq!(msg.pgn(), 0xF900);
+                assert_eq!(msg.data, vec![0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x01, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x01]);
+            }
+            other => panic!("Expected Complete, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_build_assembled_can_id_large_pgn_range() {
+        // Verify CAN ID construction for various large PGNs (>= 0xF000)
+        
+        // PGN 0xF000 with priority 6, source 0x10, dest 0xFF
+        let can_id = build_assembled_can_id(0xF000, 0x10, 0xFF, 6);
+        assert_eq!(can_id, (6u32 << 26) | (0xF000u32 << 8) | 0x10);
+
+        // PGN 0xF500 with priority 7, source 0x20, dest 0xFF
+        let can_id = build_assembled_can_id(0xF500, 0x20, 0xFF, 7);
+        assert_eq!(can_id, (7u32 << 26) | (0xF500u32 << 8) | 0x20);
+
+        // PGN 0xFDFF with priority 6, source 0x30, dest 0xFF
+        let can_id = build_assembled_can_id(0xFDFF, 0x30, 0xFF, 6);
+        assert_eq!(can_id, (6u32 << 26) | (0xFDFFu32 << 8) | 0x30);
+
+        // PGN 0xFE00 with priority 7, source 0x40, dest 0xFF
+        let can_id = build_assembled_can_id(0xFE00, 0x40, 0xFF, 7);
+        assert_eq!(can_id, (7u32 << 26) | (0xFE00u32 << 8) | 0x40);
+
+        // PGN 0xFFFF with priority 6, source 0x50, dest 0xFF
+        let can_id = build_assembled_can_id(0xFFFF, 0x50, 0xFF, 6);
+        assert_eq!(can_id, (6u32 << 26) | (0xFFFFu32 << 8) | 0x50);
+    }
+
+    #[test]
+    fn test_very_large_message_1785_bytes() {
+        // Max J1939 TP payload: 1785 bytes = 255 DT packets (ceil(1785/7))
+        let mut reassembler = TpReassembler::new(false, 5000, false);
+
+        // RTS with PGN=0xF000, total_size=1785 (0x06F9 LE), num_packets=255
+        let rts_can_id = (7u32 << 26) | ((0xEC as u32) << 16) | ((0x40 as u32) << 8) | 0x30;
+        reassembler.process_frame(&make_frame(rts_can_id, &[0x10, 0xF9, 0x06, 0xFF, 0xFF, 0x00, 0xF0, 0x00]));
+
+        // CTS (same CAN ID direction)
+        let cts_can_id = (7u32 << 26) | ((0xEC as u32) << 16) | ((0x40 as u32) << 8) | 0x30;
+        reassembler.process_frame(&make_frame(cts_can_id, &[0x11, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00]));
+
+        // Send all 255 DT packets
+        let dt_base_can_id = (7u32 << 26) | ((0xEB as u32) << 16) | ((0x40 as u32) << 8) | 0x30;
+        for packet_num in 1u8..=255 {
+            let payload_byte = (packet_num.wrapping_sub(1)) & 0xFF;
+            // Each DT carries 7 bytes of payload + 1 byte packet number = 8 bytes total
+            let data = [packet_num, payload_byte, payload_byte.wrapping_add(1), payload_byte.wrapping_add(2), 
+                        payload_byte.wrapping_add(3), payload_byte.wrapping_add(4), payload_byte.wrapping_add(5), 0x01];
+            if packet_num == 255 {
+                let results = reassembler.process_frame(&make_frame(dt_base_can_id, &data));
+                match &results[0] {
+                    TpReassemblyResult::Complete(msg) => {
+                        assert_eq!(msg.data.len(), 1785);
+                        assert_eq!(msg.pgn(), 0xF000);
+                        // Verify first few bytes
+                        assert_eq!(msg.data[0], 0x00);
+                        assert_eq!(msg.data[1], 0x01);
+                        assert_eq!(msg.data[2], 0x02);
+                        // Verify last few bytes (packet 255, payload starts with byte 254)
+                        let offset = 254 * 7;
+                        assert_eq!(msg.data[offset], 254u8.wrapping_sub(0));
+                    }
+                    other => panic!("Expected Complete for last packet, got {:?}", other),
+                }
+            } else {
+                reassembler.process_frame(&make_frame(dt_base_can_id, &data));
+            }
+        }
+    }
+
+    #[test]
+    fn test_large_message_1000_bytes() {
+        // 1000 bytes = 143 DT packets (ceil(1000/7))
+        let mut reassembler = TpReassembler::new(false, 5000, false);
+
+        // RTS with PGN=0xF800, total_size=1000 (0x03E8 LE), num_packets=143
+        let rts_can_id = (7u32 << 26) | ((0xEC as u32) << 16) | ((0x40 as u32) << 8) | 0x30;
+        reassembler.process_frame(&make_frame(rts_can_id, &[0x10, 0xE8, 0x03, 0x8F, 0xFF, 0x00, 0xF8, 0x00]));
+
+        // CTS (same CAN ID direction)
+        let cts_can_id = (7u32 << 26) | ((0xEC as u32) << 16) | ((0x40 as u32) << 8) | 0x30;
+        reassembler.process_frame(&make_frame(cts_can_id, &[0x11, 0x8F, 0x8F, 0xFF, 0x00, 0x00, 0x00]));
+
+        // Send all 143 DT packets
+        let dt_base_can_id = (7u32 << 26) | ((0xEB as u32) << 16) | ((0x40 as u32) << 8) | 0x30;
+        for packet_num in 1u8..=143 {
+            let payload_byte = (packet_num.wrapping_sub(1)) & 0xFF;
+            let data = [packet_num, payload_byte, payload_byte.wrapping_add(1), payload_byte.wrapping_add(2), 
+                        payload_byte.wrapping_add(3), payload_byte.wrapping_add(4), payload_byte.wrapping_add(5), 0x01];
+            if packet_num == 143 {
+                let results = reassembler.process_frame(&make_frame(dt_base_can_id, &data));
+                match &results[0] {
+                    TpReassemblyResult::Complete(msg) => {
+                        assert_eq!(msg.data.len(), 1000);
+                        assert_eq!(msg.pgn(), 0xF800);
+                        // Verify first byte and last byte
+                        assert_eq!(msg.data[0], 0x00);
+                        let offset = 142 * 7;
+                        assert_eq!(msg.data[offset], 142u8.wrapping_sub(0));
+                    }
+                    other => panic!("Expected Complete for last packet, got {:?}", other),
+                }
+            } else {
+                reassembler.process_frame(&make_frame(dt_base_can_id, &data));
+            }
+        }
+    }
+
+    #[test]
+    fn test_bam_1785_bytes() {
+        // BAM with max J1939 TP payload: 1785 bytes = 255 packets (u8 max)
+        // 255 * 7 = 1785 bytes exactly
+        let mut reassembler = TpReassembler::new(false, 5000, false);
+
+        // BAM with PGN=0xFF80, total_size=1785 (0x06F9 LE), num_packets=255
+        let bam_can_id = (7u32 << 26) | ((0xEC as u32) << 16) | ((0xFF as u32) << 8) | 0x10;
+        reassembler.process_frame(&make_frame(bam_can_id, &[0x20, 0xF9, 0x06, 0xFF, 0xFF, 0x80, 0xFF, 0x00]));
+
+        // Send all 255 DT packets
+        let dt_base_can_id = (7u32 << 26) | ((0xEB as u32) << 16) | ((0xFF as u32) << 8) | 0x10;
+        for packet_num in 1u8..=255 {
+            let payload_byte = (packet_num.wrapping_sub(1)) & 0xFF;
+            let data = [packet_num, payload_byte, payload_byte.wrapping_add(1), payload_byte.wrapping_add(2), 
+                        payload_byte.wrapping_add(3), payload_byte.wrapping_add(4), payload_byte.wrapping_add(5), 0x01];
+            if packet_num == 255 {
+                let results = reassembler.process_frame(&make_frame(dt_base_can_id, &data));
+                match &results[0] {
+                    TpReassemblyResult::Complete(msg) => {
+                        assert_eq!(msg.data.len(), 1785);
+                        assert_eq!(msg.pgn(), 0xFF80);
+                        // Verify first few bytes
+                        assert_eq!(msg.data[0], 0x00);
+                        assert_eq!(msg.data[1], 0x01);
+                    }
+                    other => panic!("Expected Complete for last packet, got {:?}", other),
+                }
+            } else {
+                reassembler.process_frame(&make_frame(dt_base_can_id, &data));
+            }
+        }
+    }
 }
