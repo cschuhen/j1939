@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use j1939_async::name::Name;
+
 type PGN = u32;
 
 #[derive(Debug, Clone)]
@@ -32,6 +34,7 @@ pub enum DeviceEvent {
 pub struct DeviceManager {
     devices: HashMap<u8, Device>,
     parameter_cache: HashMap<u8, HashMap<PGN, Vec<u8>>>,
+    name_table: HashMap<u8, u64>,
     ttl_microseconds: u64,
 }
 
@@ -40,6 +43,7 @@ impl DeviceManager {
         Self {
             devices: HashMap::new(),
             parameter_cache: HashMap::new(),
+            name_table: HashMap::new(),
             ttl_microseconds: ttl_seconds * 1_000_000,
         }
     }
@@ -61,6 +65,7 @@ impl DeviceManager {
                     timestamp,
                 });
                 self.devices.remove(&address);
+                self.name_table.remove(&address);
             } else {
                 // Not expired yet - update normally
                 if let Some(new_name) = name.clone() {
@@ -106,6 +111,7 @@ impl DeviceManager {
                     address: device.address,
                     timestamp,
                 });
+                self.name_table.remove(&addr);
             }
         }
 
@@ -153,5 +159,39 @@ impl DeviceManager {
 
     pub fn get_parameter(&self, address: u8, pgn: PGN) -> Option<&Vec<u8>> {
         self.parameter_cache.get(&address)?.get(&pgn)
+    }
+
+    /// Parse 8 bytes into a J1939 u64 NAME using the j1939-async library.
+    pub fn parse_name_from_bytes(bytes: &[u8]) -> Result<u64, String> {
+        if bytes.len() < 8 {
+            return Err(format!(
+                "Expected 8 bytes for NAME parsing, got {}",
+                bytes.len()
+            ));
+        }
+        let name = Name::from_bytes(bytes).map_err(|_| "Failed to parse NAME from bytes")?;
+        Ok(name.raw())
+    }
+
+    /// Store a u64 NAME for a given address, parsed from raw bytes.
+    pub fn set_name_from_bytes(&mut self, address: u8, bytes: &[u8]) -> Result<(), String> {
+        let name_u64 = Self::parse_name_from_bytes(bytes)?;
+        self.name_table.insert(address, name_u64);
+        Ok(())
+    }
+
+    /// Store a u64 NAME for a given address directly.
+    pub fn set_name_u64(&mut self, address: u8, name_u64: u64) {
+        self.name_table.insert(address, name_u64);
+    }
+
+    /// Retrieve the stored u64 NAME for a given address.
+    pub fn get_name_u64(&self, address: u8) -> Option<u64> {
+        self.name_table.get(&address).copied()
+    }
+
+    /// Remove the stored NAME for a given address (e.g., on device expiration).
+    pub fn remove_name(&mut self, address: u8) {
+        self.name_table.remove(&address);
     }
 }

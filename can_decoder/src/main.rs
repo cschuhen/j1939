@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::Result;
+use can_decoder::device_manager::DeviceManager;
 use can_decoder::filters::{CompositeFilter, FilterParser};
 use can_decoder::pipeline::{ConsoleRenderer, Pipeline};
 use can_decoder::sources::{CandumpFileSource, SocketCanSource};
@@ -83,10 +84,12 @@ async fn main() -> Result<()> {
     }
 
     // Wire up Decoder → Filter → Renderer
-    let decoder = Box::new(can_decoder::pgn_decoder::J1939Decoder::new(
+    let device_manager = Arc::new(std::sync::Mutex::new(DeviceManager::new(60)));
+    let decoder = Box::new(can_decoder::pgn_decoder::J1939Decoder::with_device_manager(
         cli.force_output_partial_tp,
         5000,
         cli.debug,
+        Some(device_manager),
     ));
     pipeline.spawn_decoder(decoder);
 

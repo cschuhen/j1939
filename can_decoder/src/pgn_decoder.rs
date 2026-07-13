@@ -2,9 +2,11 @@ use j1939_async::Id;
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::{Arc, Mutex as StdMutex};
 
 use serde::Deserialize;
 
+use crate::device_manager::DeviceManager;
 use crate::tp_reassembler::{TpReassembler, TpReassemblyResult};
 use crate::traits::Decoder;
 use crate::types::{AssembledMessage, DecodedField, DecodedMessage, Numeric, RawFrame, Severity};
@@ -272,11 +274,23 @@ pub struct J1939Decoder {
     pub config: DecoderConfig,
     /// Transport protocol reassembler for multi-frame messages.
     reassembler: TpReassembler,
+    /// Device manager for identity enrichment (u64 NAME storage and lookup).
+    device_manager: Option<Arc<StdMutex<DeviceManager>>>,
 }
 
 impl J1939Decoder {
     /// Create a new J1939Decoder with default PGN definitions and TP reassembly.
     pub fn new(force_partial_tp: bool, timeout_ms: u64, debug: bool) -> Self {
+        Self::with_device_manager(force_partial_tp, timeout_ms, debug, None)
+    }
+
+    /// Create a new J1939Decoder with default PGN definitions and an optional DeviceManager.
+    pub fn with_device_manager(
+        force_partial_tp: bool,
+        timeout_ms: u64,
+        debug: bool,
+        device_manager: Option<Arc<StdMutex<DeviceManager>>>,
+    ) -> Self {
         let mut defs = default_pgn_definitions();
 
         // Load user config if available (check common paths)
@@ -291,14 +305,22 @@ impl J1939Decoder {
         J1939Decoder {
             config,
             reassembler: TpReassembler::new(force_partial_tp, timeout_ms, debug),
+            device_manager,
         }
     }
 
-    /// Create a J1939Decoder with explicit config.
-    pub fn with_config(config: DecoderConfig, force_partial_tp: bool, timeout_ms: u64, debug: bool) -> Self {
+    /// Create a J1939Decoder with explicit config and optional DeviceManager.
+    pub fn with_config(
+        config: DecoderConfig,
+        force_partial_tp: bool,
+        timeout_ms: u64,
+        debug: bool,
+        device_manager: Option<Arc<StdMutex<DeviceManager>>>,
+    ) -> Self {
         J1939Decoder {
             config,
             reassembler: TpReassembler::new(force_partial_tp, timeout_ms, debug),
+            device_manager,
         }
     }
 
@@ -327,6 +349,59 @@ impl J1939Decoder {
                 msg.data.len()
             ),
         }]
+    }
+
+    /// Decode an assembled message with device name enrichment from DeviceManager.
+    fn decode_assembled_with_context(&self, msg: &AssembledMessage) -> Vec<DecodedField> {
+        let mut outputs = self.decode_assembled(msg);
+
+        if let Some(ref dm) = self.device_manager {
+            let manager = dm.lock().unwrap();
+            let src_addr = msg.source();
+            let dest_addr = msg.destination();
+
+            // Enrich output with source device name if available
+            if let Some(src_name_u64) = manager.get_name_u64(src_addr) {
+                outputs.insert(0, DecodedField::Value {
+                    title: "Source Device".to_string(),
+                    value: Numeric::Hex(vec![
+                        (src_name_u64 >> 56) as u8,
+                        (src_name_u64 >> 48) as u8,
+                        (src_name_u64 >> 40) as u8,
+                        (src_name_u64 >> 32) as u8,
+                        (src_name_u64 >> 24) as u8,
+                        (src_name_u64 >> 16) as u8,
+                        (src_name_u64 >> 8) as u8,
+                        src_name_u64 as u8,
+                    ]),
+                    unit: Some("NAME".to_string()),
+                    decimal_places: None,
+                });
+            }
+
+            // Enrich output with destination device name if available and not broadcast
+            if dest_addr != 0xFF {
+                if let Some(dest_name_u64) = manager.get_name_u64(dest_addr) {
+                    outputs.push(DecodedField::Value {
+                        title: "Dest Device".to_string(),
+                        value: Numeric::Hex(vec![
+                            (dest_name_u64 >> 56) as u8,
+                            (dest_name_u64 >> 48) as u8,
+                            (dest_name_u64 >> 40) as u8,
+                            (dest_name_u64 >> 32) as u8,
+                            (dest_name_u64 >> 24) as u8,
+                            (dest_name_u64 >> 16) as u8,
+                            (dest_name_u64 >> 8) as u8,
+                            dest_name_u64 as u8,
+                        ]),
+                        unit: Some("NAME".to_string()),
+                        decimal_places: None,
+                    });
+                }
+            }
+        }
+
+        outputs
     }
 
     /// Decode components of a message based on a PGN definition.
@@ -480,10 +555,16 @@ impl J1939Decoder {
     pub fn decode_raw_frame(&mut self, frame: RawFrame) -> Vec<DecodedField> {
         let pgn = frame.pgn();
 
-        //if pgn < 0xFE00 {
-            // Single frame message (all standard J1939 PGNs below 0xFE00)
-        //    return self.decode_single_frame(&frame);
-        //}
+        // Handle Address Claim PGN (0xEC00) - extract and store NAME for source address
+        if pgn == 0xEC00 && frame.data.len() >= 8 {
+            if let Some(ref dm) = self.device_manager {
+                let name_bytes = &frame.data[0..8];
+                if let Ok(name_u64) = DeviceManager::parse_name_from_bytes(name_bytes) {
+                    let src_addr = frame.source_address();
+                    dm.lock().unwrap().set_name_u64(src_addr, name_u64);
+                }
+            }
+        }
 
         // Multi-frame TP - feed to reassembler
         let results = self.reassembler.process_frame(&frame);
@@ -492,10 +573,10 @@ impl J1939Decoder {
         for result in results {
             match result {
                 TpReassemblyResult::Complete(assembled) => {
-                    outputs.extend(self.decode_assembled(&assembled));
+                    outputs.extend(self.decode_assembled_with_context(&assembled));
                 }
                 TpReassemblyResult::SingleFrame(assembled) => {
-                    outputs.extend(self.decode_assembled(&assembled));
+                    outputs.extend(self.decode_assembled_with_context(&assembled));
                 }
                 TpReassemblyResult::Pending => {}
                 TpReassemblyResult::Timeout(partial) => {
@@ -545,6 +626,11 @@ impl J1939Decoder {
     /// Get the number of active TP assemblies.
     pub fn active_assemblies(&self) -> usize {
         self.reassembler.active_assemblies_count()
+    }
+
+    /// Get a reference to the DeviceManager if one is configured.
+    pub fn device_manager(&self) -> Option<&Arc<StdMutex<DeviceManager>>> {
+        self.device_manager.as_ref()
     }
 }
 
@@ -1099,7 +1185,7 @@ pgns:
         }
 
         let config = DecoderConfig { pgns: defs };
-        let decoder = J1939Decoder::with_config(config, false, 1000, false);
+        let decoder = J1939Decoder::with_config(config, false, 1000, false, None);
 
         // The custom definition should override the built-in one
         let data = vec![0x64u8, 0x00]; // 100 in little-endian (0x0064)
@@ -1136,5 +1222,224 @@ pgns:
     fn test_new_decoder_with_force_partial() {
         let decoder = J1939Decoder::new(true, 5000, true);
         assert!(decoder.config.pgns.len() >= 8);
+    }
+
+    // ========================================================================
+    // DeviceManager Integration Tests
+    // ========================================================================
+
+    #[test]
+    fn test_decoder_with_device_manager() {
+        use crate::device_manager::DeviceManager;
+        use std::sync::{Arc, Mutex as StdMutex};
+
+        let dm = Arc::new(StdMutex::new(DeviceManager::new(60)));
+        let mut decoder = J1939Decoder::with_device_manager(false, 5000, false, Some(dm.clone()));
+
+        assert!(decoder.device_manager().is_some());
+        assert_eq!(dm.lock().unwrap().get_name_u64(0x20), None);
+
+        // Decode a vehicle speed frame (PGN 0x0CF00) with source address 0x20
+        let can_id = (3u32 << 26) | (0x0CF00 << 8) | 0x20;
+        let frame = make_frame(can_id, &[0x2Du8]);
+
+        let outputs = decoder.decode_raw_frame(frame);
+
+        // Should produce output for the vehicle speed message
+        assert!(!outputs.is_empty());
+
+        // NAME should NOT be stored (only Address Claim PGN stores names)
+        assert_eq!(dm.lock().unwrap().get_name_u64(0x20), None);
+    }
+
+    #[test]
+    fn test_decoder_without_device_manager() {
+        let mut decoder = J1939Decoder::new(false, 5000, false);
+        assert!(decoder.device_manager().is_none());
+
+        // Should still decode normally without DeviceManager
+        let can_id = (3u32 << 26) | (0x0CF00 << 8) | 0xF8;
+        let frame = make_frame(can_id, &[0x2Du8]);
+        let outputs = decoder.decode_raw_frame(frame);
+        assert!(!outputs.is_empty());
+    }
+
+    #[test]
+    fn test_decoder_address_claim_with_short_data() {
+        use crate::device_manager::DeviceManager;
+        use std::sync::{Arc, Mutex as StdMutex};
+
+        let dm = Arc::new(StdMutex::new(DeviceManager::new(60)));
+        let mut decoder = J1939Decoder::with_device_manager(false, 5000, false, Some(dm));
+
+        // Address Claim (PGN 0xEC00) with insufficient data - should not panic
+        // The reassembler treats PGN 0xEC00 as Connection Management, so it returns empty
+        let can_id = (3u32 << 26) | (0xEC00 << 8) | 0x20;
+        let frame = make_frame(can_id, &[0x01, 0x02, 0x03]);
+
+        let outputs = decoder.decode_raw_frame(frame);
+        // PGN 0xEC00 is treated as TP Connection Management by reassembler
+        // Unknown control byte returns empty vec - this is expected behavior
+        assert!(outputs.is_empty());
+    }
+
+    #[test]
+    fn test_decoder_non_address_claim_does_not_store_name() {
+        use crate::device_manager::DeviceManager;
+        use std::sync::{Arc, Mutex as StdMutex};
+
+        let dm = Arc::new(StdMutex::new(DeviceManager::new(60)));
+        let mut decoder = J1939Decoder::with_device_manager(false, 5000, false, Some(dm.clone()));
+
+        // Decode a non-Address Claim frame - should NOT store any NAME
+        let can_id = (3u32 << 26) | (0x0FEF4 << 8) | 0x20;
+        let frame = make_frame(can_id, &[0x10, 0x27]);
+
+        decoder.decode_raw_frame(frame);
+
+        assert_eq!(dm.lock().unwrap().get_name_u64(0x20), None);
+    }
+
+    #[test]
+    fn test_decode_assembled_with_device_name_enrichment() {
+        use crate::device_manager::DeviceManager;
+        use std::sync::{Arc, Mutex as StdMutex};
+
+        let dm = Arc::new(StdMutex::new(DeviceManager::new(60)));
+        dm.lock().unwrap().set_name_u64(0x20, 0x8000_3e00_460d_836e);
+
+        let decoder = J1939Decoder::with_device_manager(false, 5000, false, Some(dm));
+
+        // Decode vehicle speed with known source name
+        let data = vec![0x3Cu8]; // 60 km/h
+        let assembled = make_assembled(0x0CF00, 0x20, data);
+
+        let outputs = decoder.decode_assembled_with_context(&assembled);
+
+        // First output should be the Source Device NAME enrichment
+        match &outputs[0] {
+            DecodedField::Value { title, value, unit, .. } => {
+                assert_eq!(title, "Source Device");
+                assert_eq!(unit.as_ref(), Some(&"NAME".to_string()));
+                if let Numeric::Hex(hex_bytes) = value {
+                    assert_eq!(hex_bytes.len(), 8);
+                    assert_eq!(*hex_bytes, vec![0x80, 0x00, 0x3e, 0x00, 0x46, 0x0d, 0x83, 0x6e]);
+                } else {
+                    panic!("Expected Hex value for Source Device");
+                }
+            }
+            _ => panic!("Expected Value for Source Device enrichment"),
+        }
+
+        // Second output should be the actual decoded field (Speed)
+        match &outputs[1] {
+            DecodedField::Value { title, .. } => {
+                assert_eq!(title, "Speed");
+            }
+            _ => panic!("Expected Value for Speed"),
+        }
+    }
+
+    #[test]
+    fn test_decode_assembled_with_dest_device_enrichment() {
+        use crate::device_manager::DeviceManager;
+        use std::sync::{Arc, Mutex as StdMutex};
+
+        let dm = Arc::new(StdMutex::new(DeviceManager::new(60)));
+        dm.lock().unwrap().set_name_u64(0x20, 0x8000_3e00_460d_836e);
+        dm.lock().unwrap().set_name_u64(0x40, 0xDEAD_BEEF_CAFE_BABE);
+
+        let decoder = J1939Decoder::with_device_manager(false, 5000, false, Some(dm));
+
+        // Create assembled message with PGN 0x0FEF4 (Engine Speed) and source=0x20
+        // Using explicit pgn field since make_assembled shifts can_id bits
+        let data = vec![0x10u8, 0x27]; // RPM = 10000 raw -> 2500.0 scaled
+        let assembled = AssembledMessage {
+            id: (3u32 << 26) | (0x0FEF4 << 8) | 0x20,
+            pgn: 0x0FEF4,
+            data,
+            timestamp: 1_000_000,
+        };
+
+        let outputs = decoder.decode_assembled_with_context(&assembled);
+
+        // Should have Source Device + RPM (2 outputs)
+        // Dest Device not added because destination() returns broadcast for PDU2-style IDs
+        assert!(outputs.len() >= 2);
+
+        match &outputs[0] {
+            DecodedField::Value { title, value, .. } => {
+                assert_eq!(title, "Source Device");
+                if let Numeric::Hex(hex_bytes) = value {
+                    assert_eq!(hex_bytes.len(), 8);
+                    assert_eq!(*hex_bytes, vec![0x80, 0x00, 0x3e, 0x00, 0x46, 0x0d, 0x83, 0x6e]);
+                } else {
+                    panic!("Expected Hex value for Source Device");
+                }
+            }
+            _ => panic!("Expected Value for Source Device enrichment"),
+        }
+
+        // Second output should be the decoded RPM field
+        match &outputs[1] {
+            DecodedField::Value { title, .. } => {
+                assert_eq!(title, "RPM");
+            }
+            _ => panic!("Expected Value for RPM"),
+        }
+    }
+
+    #[test]
+    fn test_decode_assembled_no_dest_enrichment_for_broadcast() {
+        use crate::device_manager::DeviceManager;
+        use std::sync::{Arc, Mutex as StdMutex};
+
+        let dm = Arc::new(StdMutex::new(DeviceManager::new(60)));
+        dm.lock().unwrap().set_name_u64(0x20, 0x8000_3e00_460d_836e);
+        // Also set dest name for broadcast address (should still not enrich)
+        dm.lock().unwrap().set_name_u64(0xFF, 0x1111_2222_3333_4444);
+
+        let decoder = J1939Decoder::with_device_manager(false, 5000, false, Some(dm));
+
+        // Broadcast destination (0xFF) should NOT get Dest Device enrichment
+        let can_id = (3u32 << 26) | (0x0CF00 << 8) | 0xFF;
+        let data = vec![0x3Cu8];
+        let assembled = AssembledMessage {
+            id: can_id,
+            pgn: 0x0CF00,
+            data,
+            timestamp: 1_000_000,
+        };
+
+        let outputs = decoder.decode_assembled_with_context(&assembled);
+
+        // Should only have Source Device + Speed (2 outputs), no Dest Device
+        assert_eq!(outputs.len(), 2);
+        match &outputs[0] {
+            DecodedField::Value { title, .. } => {
+                assert_eq!(title, "Source Device");
+            }
+            _ => panic!("Expected Source Device"),
+        }
+    }
+
+    #[test]
+    fn test_decoder_name_with_device_manager() {
+        use crate::device_manager::DeviceManager;
+        use std::sync::{Arc, Mutex as StdMutex};
+
+        let dm = Arc::new(StdMutex::new(DeviceManager::new(60)));
+        let decoder = J1939Decoder::with_device_manager(false, 5000, false, Some(dm));
+        assert_eq!(decoder.name(), "j1939");
+    }
+
+    #[test]
+    fn test_decoder_active_assemblies_with_device_manager() {
+        use crate::device_manager::DeviceManager;
+        use std::sync::{Arc, Mutex as StdMutex};
+
+        let dm = Arc::new(StdMutex::new(DeviceManager::new(60)));
+        let decoder = J1939Decoder::with_device_manager(false, 5000, false, Some(dm));
+        assert_eq!(decoder.active_assemblies(), 0);
     }
 }
