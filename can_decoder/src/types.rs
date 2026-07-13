@@ -222,6 +222,8 @@ pub struct DecodedMessage {
     pub title: String,
     pub outputs: Vec<DecodedField>,
     pub updates: Vec<DeviceUpdate>,
+    /// Assembled message containing raw data, timestamp, source/dest addresses, and PGN.
+    pub assembled_message: AssembledMessage,
 }
 
 impl DecodedMessage {
@@ -230,7 +232,43 @@ impl DecodedMessage {
             title,
             outputs: Vec::new(),
             updates: Vec::new(),
+            assembled_message: AssembledMessage::new(0, vec![]),
         }
+    }
+
+    /// Create a DecodedMessage with an assembled message attached.
+    pub fn with_assembled(title: String, assembled: AssembledMessage) -> Self {
+        DecodedMessage {
+            title,
+            outputs: Vec::new(),
+            updates: Vec::new(),
+            assembled_message: assembled,
+        }
+    }
+
+    /// Get the PGN from the attached assembled message.
+    pub fn pgn(&self) -> u32 {
+        self.assembled_message.pgn
+    }
+
+    /// Get the source address from the attached assembled message.
+    pub fn source_address(&self) -> u8 {
+        self.assembled_message.source()
+    }
+
+    /// Get the destination address from the attached assembled message.
+    pub fn dest_address(&self) -> u8 {
+        self.assembled_message.destination()
+    }
+
+    /// Get the timestamp from the attached assembled message.
+    pub fn timestamp(&self) -> u64 {
+        self.assembled_message.timestamp
+    }
+
+    /// Get the raw data bytes from the attached assembled message.
+    pub fn data_bytes(&self) -> &Vec<u8> {
+        &self.assembled_message.data
     }
 }
 

@@ -2,6 +2,7 @@ use can_decoder::pgn_decoder::J1939Decoder;
 use can_decoder::pipeline::{ConsoleRenderer, Pipeline};
 use can_decoder::traits::{Decoder, Filter, Renderer, Source};
 use can_decoder::types::{DecodedField, DecodedMessage, FlagValue, Numeric, RawFrame, Severity};
+use j1939_async::can::Id;
 use std::error::Error;
 use std::future::Future;
 use std::pin::Pin;
@@ -19,7 +20,7 @@ async fn test_console_renderer() {
         unit: Some("unit".to_string()),
         decimal_places: None,
     };
-    let mut output_message = DecodedMessage::new("Some Title".into());
+    let mut output_message = DecodedMessage::new("Some Title".to_string());
     output_message.outputs.push(output_val);
 
     let res_val = renderer.render(&output_message).await.unwrap();
@@ -32,7 +33,7 @@ async fn test_console_renderer() {
         severity: Severity::Error,
         text: "Error message".to_string(),
     };
-    let mut output_message = DecodedMessage::new("Some Title".into());
+    let mut output_message = DecodedMessage::new("Some Title".to_string());
     output_message.outputs.push(output_str);
     let res_str = renderer.render(&output_message).await.unwrap();
     assert!(res_str.contains("ERROR"));
@@ -43,7 +44,7 @@ async fn test_console_renderer() {
         title: "Flag Title".to_string(),
         value: FlagValue::On,
     };
-    let mut output_message = DecodedMessage::new("Some Title".into());
+    let mut output_message = DecodedMessage::new("Some Title".to_string());
     output_message.outputs.push(output_flag);
     let res_flag = renderer.render(&output_message).await.unwrap();
     assert!(res_flag.contains("Flag Title"));
@@ -103,8 +104,9 @@ impl Decoder for MockDecoder {
         >,
     > {
         Box::pin(async move {
+            let pgn = j1939_async::can::IdImpl::new_unchecked(frame.can_id).pgn();
             let mut output_message =
-                DecodedMessage::new(format!("Frame: {:08X}", frame.can_id).into());
+                DecodedMessage::new(format!("Frame: {:08X}", frame.can_id));
             output_message.outputs = vec![DecodedField::StringMessage {
                 severity: Severity::Info,
                 text: format!("Frame: {:08X}", frame.can_id),

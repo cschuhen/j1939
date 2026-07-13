@@ -6,7 +6,7 @@ use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinHandle;
 
 use crate::traits::{Decoder, Filter, Renderer, Source};
-use crate::types::{DecodedField, DecodedMessage, RawFrame};
+use crate::types::{AssembledMessage, DecodedField, DecodedMessage, RawFrame};
 
 /// Manages the async pipeline: Source → Decoder → Filter → Renderer.
 ///
@@ -165,6 +165,12 @@ impl Decoder for NullDecoder {
                     .collect::<Vec<_>>()
                     .join(" ")
             );
+            let assembled = AssembledMessage {
+                id: frame.can_id,
+                pgn: frame.pgn(),
+                data: frame.data.clone(),
+                timestamp: frame.timestamp,
+            };
             Ok(DecodedMessage {
                 title: format!("Raw Frame {:08X}", frame.can_id),
                 outputs: vec![DecodedField::StringMessage {
@@ -172,6 +178,7 @@ impl Decoder for NullDecoder {
                     text,
                 }],
                 updates: vec![],
+                assembled_message: assembled,
             })
         })
     }

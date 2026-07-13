@@ -565,12 +565,19 @@ impl Decoder for J1939Decoder {
     > {
         Box::pin(async move {
             let can_id = frame.can_id;
-            let outputs = self.decode_raw_frame(frame);
+            let outputs = self.decode_raw_frame(frame.clone());
             let id = j1939_async::can::IdImpl::new_unchecked(can_id);
+            let assembled = AssembledMessage {
+                id: can_id,
+                pgn: id.pgn(),
+                data: frame.data.clone(),
+                timestamp: frame.timestamp,
+            };
             Ok(DecodedMessage {
                 title: format!("PGN {:X} from {:X}", id.pgn(), id.source()),
                 outputs,
                 updates: vec![],
+                assembled_message: assembled,
             })
         })
     }
