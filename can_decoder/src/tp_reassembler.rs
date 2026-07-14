@@ -551,6 +551,8 @@ impl TpReassembler {
                 pgn: assembly.pgn,
                 data: assembled_data,
                 timestamp: frame.timestamp,
+                source_name: None,
+                dest_name: None,
             };
 
             self.assemblies.remove(&key);

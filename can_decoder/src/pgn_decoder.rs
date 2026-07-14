@@ -355,50 +355,42 @@ impl J1939Decoder {
     fn decode_assembled_with_context(&self, msg: &AssembledMessage) -> Vec<DecodedField> {
         let mut outputs = self.decode_assembled(msg);
 
-        if let Some(ref dm) = self.device_manager {
-            let manager = dm.lock().unwrap();
-            let src_addr = msg.source();
-            let dest_addr = msg.destination();
+        // Enrich output with source device name if available in assembled message
+        if let Some(src_name_u64) = msg.source_name {
+            outputs.insert(0, DecodedField::Value {
+                title: "Source Device".to_string(),
+                value: Numeric::Hex(vec![
+                    (src_name_u64 >> 56) as u8,
+                    (src_name_u64 >> 48) as u8,
+                    (src_name_u64 >> 40) as u8,
+                    (src_name_u64 >> 32) as u8,
+                    (src_name_u64 >> 24) as u8,
+                    (src_name_u64 >> 16) as u8,
+                    (src_name_u64 >> 8) as u8,
+                    src_name_u64 as u8,
+                ]),
+                unit: Some("NAME".to_string()),
+                decimal_places: None,
+            });
+        }
 
-            // Enrich output with source device name if available
-            if let Some(src_name_u64) = manager.get_name_u64(src_addr) {
-                outputs.insert(0, DecodedField::Value {
-                    title: "Source Device".to_string(),
-                    value: Numeric::Hex(vec![
-                        (src_name_u64 >> 56) as u8,
-                        (src_name_u64 >> 48) as u8,
-                        (src_name_u64 >> 40) as u8,
-                        (src_name_u64 >> 32) as u8,
-                        (src_name_u64 >> 24) as u8,
-                        (src_name_u64 >> 16) as u8,
-                        (src_name_u64 >> 8) as u8,
-                        src_name_u64 as u8,
-                    ]),
-                    unit: Some("NAME".to_string()),
-                    decimal_places: None,
-                });
-            }
-
-            // Enrich output with destination device name if available and not broadcast
-            if dest_addr != 0xFF {
-                if let Some(dest_name_u64) = manager.get_name_u64(dest_addr) {
-                    outputs.push(DecodedField::Value {
-                        title: "Dest Device".to_string(),
-                        value: Numeric::Hex(vec![
-                            (dest_name_u64 >> 56) as u8,
-                            (dest_name_u64 >> 48) as u8,
-                            (dest_name_u64 >> 40) as u8,
-                            (dest_name_u64 >> 32) as u8,
-                            (dest_name_u64 >> 24) as u8,
-                            (dest_name_u64 >> 16) as u8,
-                            (dest_name_u64 >> 8) as u8,
-                            dest_name_u64 as u8,
-                        ]),
-                        unit: Some("NAME".to_string()),
-                        decimal_places: None,
-                    });
-                }
-            }
+        // Enrich output with destination device name if available and not broadcast
+        if let Some(dest_name_u64) = msg.dest_name {
+            outputs.push(DecodedField::Value {
+                title: "Dest Device".to_string(),
+                value: Numeric::Hex(vec![
+                    (dest_name_u64 >> 56) as u8,
+                    (dest_name_u64 >> 48) as u8,
+                    (dest_name_u64 >> 40) as u8,
+                    (dest_name_u64 >> 32) as u8,
+                    (dest_name_u64 >> 24) as u8,
+                    (dest_name_u64 >> 16) as u8,
+                    (dest_name_u64 >> 8) as u8,
+                    dest_name_u64 as u8,
+                ]),
+                unit: Some("NAME".to_string()),
+                decimal_places: None,
+            });
         }
 
         outputs
@@ -607,6 +599,8 @@ impl J1939Decoder {
                 pgn: pgn_key,
                 data: frame.data.clone(),
                 timestamp: frame.timestamp,
+                source_name: None,
+                dest_name: None,
             };
             return self.decode_assembled(&assembled);
         }
@@ -653,11 +647,25 @@ impl Decoder for J1939Decoder {
             let can_id = frame.can_id;
             let outputs = self.decode_raw_frame(frame.clone());
             let id = j1939_async::can::IdImpl::new_unchecked(can_id);
+            
+            let mut source_name: Option<u64> = None;
+            let mut dest_name: Option<u64> = None;
+            
+            if let Some(ref dm) = self.device_manager {
+                let manager = dm.lock().unwrap();
+                source_name = manager.get_name_u64(id.source());
+                if id.destination() != 0xFF {
+                    dest_name = manager.get_name_u64(id.destination());
+                }
+            }
+            
             let assembled = AssembledMessage {
                 id: can_id,
                 pgn: id.pgn(),
                 data: frame.data.clone(),
                 timestamp: frame.timestamp,
+                source_name,
+                dest_name,
             };
             Ok(DecodedMessage {
                 title: format!("PGN {:X} from {:X}", id.pgn(), id.source()),
@@ -693,6 +701,8 @@ mod tests {
             pgn: pgn_val,
             data,
             timestamp: 1_000_000,
+            source_name: None,
+            dest_name: None,
         }
     }
 
@@ -1312,7 +1322,8 @@ pgns:
 
         // Decode vehicle speed with known source name
         let data = vec![0x3Cu8]; // 60 km/h
-        let assembled = make_assembled(0x0CF00, 0x20, data);
+        let mut assembled = make_assembled(0x0CF00, 0x20, data);
+        assembled.source_name = Some(0x8000_3e00_460d_836e);
 
         let outputs = decoder.decode_assembled_with_context(&assembled);
 
@@ -1354,11 +1365,13 @@ pgns:
         // Create assembled message with PGN 0x0FEF4 (Engine Speed) and source=0x20
         // Using explicit pgn field since make_assembled shifts can_id bits
         let data = vec![0x10u8, 0x27]; // RPM = 10000 raw -> 2500.0 scaled
-        let assembled = AssembledMessage {
+        let mut assembled = AssembledMessage {
             id: (3u32 << 26) | (0x0FEF4 << 8) | 0x20,
             pgn: 0x0FEF4,
             data,
             timestamp: 1_000_000,
+            source_name: Some(0x8000_3e00_460d_836e),
+            dest_name: None,
         };
 
         let outputs = decoder.decode_assembled_with_context(&assembled);
@@ -1404,11 +1417,13 @@ pgns:
         // Broadcast destination (0xFF) should NOT get Dest Device enrichment
         let can_id = (3u32 << 26) | (0x0CF00 << 8) | 0xFF;
         let data = vec![0x3Cu8];
-        let assembled = AssembledMessage {
+        let mut assembled = AssembledMessage {
             id: can_id,
             pgn: 0x0CF00,
             data,
             timestamp: 1_000_000,
+            source_name: Some(0x8000_3e00_460d_836e),
+            dest_name: None,
         };
 
         let outputs = decoder.decode_assembled_with_context(&assembled);

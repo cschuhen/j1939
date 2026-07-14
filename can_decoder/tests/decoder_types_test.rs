@@ -13,6 +13,8 @@ mod tests {
             pgn,
             data: vec![],
             timestamp: 1_000_000,
+            source_name: None,
+            dest_name: None,
         }
     }
 
@@ -23,6 +25,8 @@ mod tests {
             pgn,
             data,
             timestamp: 1_000_000,
+            source_name: None,
+            dest_name: None,
         }
     }
 
@@ -33,6 +37,8 @@ mod tests {
             pgn,
             data: vec![],
             timestamp: 1_000_000,
+            source_name: None,
+            dest_name: None,
         }
     }
 
@@ -43,6 +49,8 @@ mod tests {
             pgn,
             data,
             timestamp: 1_000_000,
+            source_name: None,
+            dest_name: None,
         }
     }
 
@@ -273,5 +281,94 @@ mod tests {
         assert_eq!(msg.dest_address(), 0x34);
         assert_eq!(msg.timestamp(), 7_777_777);
         assert_eq!(*msg.data_bytes(), vec![0xDE, 0xAD]);
+    }
+
+    #[test]
+    fn test_decoded_message_source_name_none_by_default() {
+        let assembled = make_dummy_assembled(0xEF4, 0x20);
+        let msg = DecodedMessage::with_assembled("No Name".to_string(), assembled);
+        
+        assert_eq!(msg.source_name(), None);
+    }
+
+    #[test]
+    fn test_decoded_message_dest_name_none_by_default() {
+        let assembled = make_dummy_assembled(0xEF4, 0x20);
+        let msg = DecodedMessage::with_assembled("No Name".to_string(), assembled);
+        
+        assert_eq!(msg.dest_name(), None);
+    }
+
+    #[test]
+    fn test_decoded_message_source_name_with_value() {
+        let mut assembled = make_dummy_assembled(0xEF4, 0x20);
+        assembled.source_name = Some(0x8000_3e00_460d_836e);
+        
+        let msg = DecodedMessage::with_assembled("With Source Name".to_string(), assembled);
+        
+        assert_eq!(msg.source_name(), Some(0x8000_3e00_460d_836e));
+    }
+
+    #[test]
+    fn test_decoded_message_dest_name_with_value() {
+        let mut assembled = make_dummy_assembled(0xEF4, 0x20);
+        assembled.dest_name = Some(0xDEAD_BEEF_CAFE_BABE);
+        
+        let msg = DecodedMessage::with_assembled("With Dest Name".to_string(), assembled);
+        
+        assert_eq!(msg.dest_name(), Some(0xDEAD_BEEF_CAFE_BABE));
+    }
+
+    #[test]
+    fn test_decoded_message_both_names_set() {
+        let mut assembled = make_dummy_assembled(0xEF4, 0x20);
+        assembled.source_name = Some(0x8000_3e00_460d_836e);
+        assembled.dest_name = Some(0xDEAD_BEEF_CAFE_BABE);
+        
+        let msg = DecodedMessage::with_assembled("Both Names".to_string(), assembled);
+        
+        assert_eq!(msg.source_name(), Some(0x8000_3e00_460d_836e));
+        assert_eq!(msg.dest_name(), Some(0xDEAD_BEEF_CAFE_BABE));
+    }
+
+    #[test]
+    fn test_decoded_message_clone_preserves_names() {
+        let mut assembled = make_dummy_assembled(0xEF4, 0x20);
+        assembled.source_name = Some(0x8000_3e00_460d_836e);
+        assembled.dest_name = Some(0xDEAD_BEEF_CAFE_BABE);
+        
+        let msg = DecodedMessage::with_assembled("Clone Test".to_string(), assembled);
+        let cloned = msg.clone();
+        
+        assert_eq!(cloned.source_name(), Some(0x8000_3e00_460d_836e));
+        assert_eq!(cloned.dest_name(), Some(0xDEAD_BEEF_CAFE_BABE));
+    }
+
+    #[test]
+    fn test_assembled_message_names_in_data() {
+        let mut assembled = make_dummy_assembled_with_data(0xEC00, 0x22, vec![0xFF, 0xFE]);
+        assembled.source_name = Some(0x1111_2222_3333_4444);
+        
+        assert_eq!(assembled.source_name, Some(0x1111_2222_3333_4444));
+    }
+
+    #[test]
+    fn test_assembled_message_names_clone() {
+        let mut assembled = make_dummy_assembled(0xEF4, 0x20);
+        assembled.source_name = Some(0x8000_3e00_460d_836e);
+        assembled.dest_name = Some(0xDEAD_BEEF_CAFE_BABE);
+        
+        let cloned = assembled.clone();
+        
+        assert_eq!(cloned.source_name, Some(0x8000_3e00_460d_836e));
+        assert_eq!(cloned.dest_name, Some(0xDEAD_BEEF_CAFE_BABE));
+    }
+
+    #[test]
+    fn test_new_decoded_message_has_no_names() {
+        let msg = DecodedMessage::new("New Message".to_string());
+        
+        assert_eq!(msg.source_name(), None);
+        assert_eq!(msg.dest_name(), None);
     }
 }

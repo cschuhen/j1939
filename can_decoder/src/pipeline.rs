@@ -170,6 +170,8 @@ impl Decoder for NullDecoder {
                 pgn: frame.pgn(),
                 data: frame.data.clone(),
                 timestamp: frame.timestamp,
+                source_name: None,
+                dest_name: None,
             };
             Ok(DecodedMessage {
                 title: format!("Raw Frame {:08X}", frame.can_id),

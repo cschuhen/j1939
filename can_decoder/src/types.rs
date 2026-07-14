@@ -57,6 +57,12 @@ pub struct AssembledMessage {
     pub data: Vec<u8>,
     /// Microseconds since Unix epoch when this message was assembled.
     pub timestamp: u64,
+    
+    /// J1939 NAME of the source device (if known via Address Claim or other means).
+    pub source_name: Option<u64>,
+    
+    /// J1939 NAME of the destination device (if known and not broadcast).
+    pub dest_name: Option<u64>,
 }
 
 impl AssembledMessage {
@@ -70,6 +76,8 @@ impl AssembledMessage {
             pgn: 0,
             data,
             timestamp: duration.as_micros() as u64,
+            source_name: None,
+            dest_name: None,
         }
     }
 
@@ -83,6 +91,8 @@ impl AssembledMessage {
             pgn,
             data,
             timestamp: duration.as_micros() as u64,
+            source_name: None,
+            dest_name: None,
         }
     }
 
@@ -269,6 +279,16 @@ impl DecodedMessage {
     /// Get the raw data bytes from the attached assembled message.
     pub fn data_bytes(&self) -> &Vec<u8> {
         &self.assembled_message.data
+    }
+
+    /// Get the source device NAME if known (from Address Claim or other means).
+    pub fn source_name(&self) -> Option<u64> {
+        self.assembled_message.source_name
+    }
+
+    /// Get the destination device NAME if known and not broadcast.
+    pub fn dest_name(&self) -> Option<u64> {
+        self.assembled_message.dest_name
     }
 }
 
