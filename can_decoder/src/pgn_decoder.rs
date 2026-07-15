@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex as StdMutex};
 use serde::Deserialize;
 
 use crate::device_manager::DeviceManager;
+use crate::task_controller::{TaskControllerDecoder, PROCESS_DATA_PGN};
 use crate::tp_reassembler::{TpReassembler, TpReassemblyResult};
 use crate::traits::{ComplexDecoder, Decoder};
 use crate::types::{AssembledMessage, DecodeContext, DecodedField, DecodedMessage, Numeric, RawFrame, Severity};
@@ -304,12 +305,16 @@ impl J1939Decoder {
         }
 
         let config = DecoderConfig { pgns: defs };
-        J1939Decoder {
+        let mut decoder = J1939Decoder {
             config,
             reassembler: TpReassembler::new(force_partial_tp, timeout_ms, debug),
             device_manager,
             complex_decoders: HashMap::new(),
-        }
+        };
+
+        decoder.register_complex_decoder(PROCESS_DATA_PGN, Box::new(TaskControllerDecoder::new()));
+
+        decoder
     }
 
     /// Create a J1939Decoder with explicit config and optional DeviceManager.
@@ -320,12 +325,16 @@ impl J1939Decoder {
         debug: bool,
         device_manager: Option<Arc<StdMutex<DeviceManager>>>,
     ) -> Self {
-        J1939Decoder {
+        let mut decoder = J1939Decoder {
             config,
             reassembler: TpReassembler::new(force_partial_tp, timeout_ms, debug),
             device_manager,
             complex_decoders: HashMap::new(),
-        }
+        };
+
+        decoder.register_complex_decoder(PROCESS_DATA_PGN, Box::new(TaskControllerDecoder::new()));
+
+        decoder
     }
 
     /// Register a ComplexDecoder for a specific PGN.
@@ -1731,7 +1740,7 @@ pgns:
     #[test]
     fn test_complex_decoder_registry_count() {
         let mut decoder = J1939Decoder::new(false, 1000, false);
-        assert_eq!(decoder.complex_decoder_count(), 0);
+        assert_eq!(decoder.complex_decoder_count(), 1);
 
         decoder.register_complex_decoder(
             0xAAAA,
@@ -1745,7 +1754,7 @@ pgns:
                 call_count: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             }),
         );
-        assert_eq!(decoder.complex_decoder_count(), 1);
+        assert_eq!(decoder.complex_decoder_count(), 2);
 
         decoder.register_complex_decoder(
             0xBBBB,
@@ -1759,7 +1768,7 @@ pgns:
                 call_count: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             }),
         );
-        assert_eq!(decoder.complex_decoder_count(), 2);
+        assert_eq!(decoder.complex_decoder_count(), 3);
     }
 
     #[test]
@@ -1796,5 +1805,115 @@ pgns:
             severity: Severity::Info,
             text: "Overridden".to_string(),
         });
+    }
+
+    // ========================================================================
+    // TaskController Decoder Integration Tests (Phase 6)
+    // ========================================================================
+
+    #[test]
+    fn test_taskcontroller_decoder_registered_by_default() {
+        let decoder = J1939Decoder::new(false, 1000, false);
+        assert_eq!(decoder.complex_decoder_count(), 1);
+    }
+
+    #[test]
+    fn test_pgn_51968_decoded_by_taskcontroller() {
+        use crate::task_controller::PROCESS_DATA_PGN;
+
+        let mut decoder = J1939Decoder::new(false, 1000, false);
+
+        // Element 10, Command=3 (Value), DDI=57344, Value=-1685540174
+        let data = vec![0xA3, 0x00, 0x00, 0xE0, 0xB2, 0xB2, 0x88, 0x9B];
+        let assembled = make_assembled(PROCESS_DATA_PGN, 0x90, data);
+
+        let outputs = decoder.decode_assembled(&assembled);
+        assert!(!outputs.is_empty());
+
+        // First output should be Element ID from TaskController decoder
+        match &outputs[0] {
+            DecodedField::Value { title, value, .. } => {
+                assert_eq!(title, "Element ID");
+                assert_eq!(*value, Numeric::Int(10));
+            }
+            _ => panic!("Expected Element ID Value from TaskController decoder"),
+        }
+
+        // Second output should be DDI
+        match &outputs[1] {
+            DecodedField::Value { title, value, .. } => {
+                assert_eq!(title, "DDI");
+                if let Numeric::Int(v) = value {
+                    assert_eq!(*v, 57344i64);
+                } else {
+                    panic!("Expected Int for DDI");
+                }
+            }
+            _ => panic!("Expected DDI Value"),
+        }
+
+        // Third output should be Value
+        match &outputs[2] {
+            DecodedField::Value { title, value, .. } => {
+                assert_eq!(title, "Value");
+                if let Numeric::Int(v) = value {
+                    assert_eq!(*v, -1685540174i64);
+                } else {
+                    panic!("Expected Int for Value");
+                }
+            }
+            _ => panic!("Expected Value field"),
+        }
+    }
+
+    #[test]
+    fn test_pgn_51968_all_elements_round_robin() {
+        use crate::task_controller::PROCESS_DATA_PGN;
+
+        let mut decoder = J1939Decoder::new(false, 1000, false);
+
+        let elements = [
+            (0xA3, 10, -1685540174i64),
+            (0xB3, 11, -1686193997i64),
+            (0xC3, 12, -1686236656i64),
+            (0xD3, 13, -1686726305i64),
+        ];
+
+        for (byte_val, expected_elem, expected_value) in &elements {
+            let data = vec![
+                *byte_val, 0x00, 0x00, 0xE0,
+                ((expected_value % 256) as i32) as u8,
+                (((expected_value >> 8) % 256) as i32) as u8,
+                (((expected_value >> 16) % 256) as i32) as u8,
+                (((expected_value >> 24) % 256) as i32) as u8,
+            ];
+
+            let assembled = make_assembled(PROCESS_DATA_PGN, 0x90, data);
+            let outputs = decoder.decode_assembled(&assembled);
+
+            assert_eq!(outputs.len(), 3, "Expected 3 outputs for element {}", expected_elem);
+
+            match &outputs[0] {
+                DecodedField::Value { value, .. } => {
+                    if let Numeric::Int(v) = value {
+                        assert_eq!(*v, *expected_elem as i64);
+                    } else {
+                        panic!("Expected Int for Element ID");
+                    }
+                }
+                _ => panic!("Expected Value"),
+            }
+
+            match &outputs[2] {
+                DecodedField::Value { value, .. } => {
+                    if let Numeric::Int(v) = value {
+                        assert_eq!(*v, *expected_value);
+                    } else {
+                        panic!("Expected Int for Value");
+                    }
+                }
+                _ => panic!("Expected Value"),
+            }
+        }
     }
 }

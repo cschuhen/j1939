@@ -9,6 +9,8 @@ pub mod pipeline;
 pub mod sources;
 /// J1939 Transport Protocol reassembly module.
 pub mod tp_reassembler;
+/// ISO-11783-10 Task Controller Process Data decoder (PGN 51968).
+pub mod task_controller;
 /// Core traits defining the pipeline architecture.
 pub mod traits;
 /// Data models for CAN frames, messages, and decoded output.

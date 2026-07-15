@@ -145,6 +145,56 @@ pub trait Renderer: Send + Sync {
 - [ ] **5.2 Implement ISO-11783 Process Data Logic:** Reference `j1939_async/src/process_data.rs` for existing patterns. Requires understanding of SAE J1939-81 Task Controller state machines.
 - [ ] **5.3 Final Integration Test:** Full end-to-end test: `Candump File` $\rightarrow$ `TpReassembler` $\rightarrow$ `PgnDecoder` $\rightarrow$ `DeviceManager Update`.
 
+### Phase 6: TaskController Process Data Decoder (PGN 51968 / 0xCB00) ⏳ NOT STARTED — High Effort
+
+*Goal: Implement a `TaskControllerDecoder` ComplexDecoder that parses ISO-11783-10 Annex B.3 Process Data messages for command=0x3 (Value command), extracting Element ID, DDI, and Value fields from 8-byte payloads.*
+
+**Assessment:** Medium-high effort. The packet format is confirmed from candump analysis. Requires implementing a ComplexDecoder with proper byte parsing, unit tests against real capture data, and integration with the existing decoder registry. No Transport Protocol reassembly needed — all TaskController Process Data messages are single-frame (8 bytes).
+
+#### 6a. Packet Format Analysis ✅ COMPLETED
+*Confirmed from candump captures of PGN 51968 messages (source=0x90/240, dest=0xFF/255).*
+
+**ISO 11783-10 Annex B.3 Layout (verified against real data):**
+
+| Field | Bytes | Type | Description |
+|---|---|---|---|
+| Command | Byte 0, bits [3:0] | u4 | Always `0x3` in captures (Value command per Table B.1) |
+| Element ID | Byte 0, bits [7:4] + Byte 1 | u12 | Low nibble of element in byte[0], high byte in byte[1]. Range 0–4095. SPN 5200. |
+| DDI | Bytes 2–3 | u16 LE | Data Dictionary Identifier. Always `0xE000` (57344) in captures — represents the controlled process variable. |
+| Value | Bytes 4–7 | s32 LE | Signed 32-bit little-endian process variable value. |
+
+**Verified against candump frames:**
+
+```
+Payload: a3 00 00 e0 b2 b2 88 9b → Element=10, Command=3, DDI=57344, Value=-1685540174 ✓
+Payload: b3 00 00 e0 b3 b8 7e 9b → Element=11, Command=3, DDI=57344, Value=-1686193997 ✓
+Payload: c3 00 00 e0 10 12 7e 9b → Element=12, Command=3, DDI=57344, Value=-1686236656 ✓
+Payload: d3 00 00 e0 5f 99 76 9b → Element=13, Command=3, DDI=57344, Value=-1686726305 ✓
+```
+
+**Transmission pattern observed:** Round-robin across 4 elements (A/B/C/D = 10/11/12/13), each sending 3 CAN frames per cycle:
+- Frame `xx 00`: Element value (command=3)
+- Frame `xx 01`: Unknown sub-command (DDI varies, e.g., 0xD3D8)
+- Frame `xx 02`: Unknown sub-command (DDI=0x9240 in some frames)
+
+Cycle repeats every ~750ms–1s. Source address always 0x90 (240), destination always 0xFF (global).
+
+#### 6b. Implement `TaskControllerDecoder` ComplexDecoder — NOT STARTED
+- [ ] **6b.1 Create `task_controller.rs`:** New module in `src/`. Define `TaskControllerDecoder` struct implementing `ComplexDecoder` trait. Register for PGN 51968 (0xCB00).
+- [ ] **6b.2 Parse payload bytes:** Extract Command (4 bits), Element ID (12-bit: `(byte[0] >> 4) << 8 | byte[1]`), DDI (`byte[2] | (byte[3] << 8)`), Value (`i32::from_le_bytes(bytes[4..8])`). Add bounds checking for payload length < 8.
+- [ ] **6b.3 Decode command=0x3 (Value):** Return `DecodedMessage` with title `"TaskController Element {elem} DDI {ddi}"`, outputs: `Element(u12)`, `DDI(u16)`, `Value(s32)`. Handle other commands (0x0–0x2, 0x4–0x9, 0xa, 0xd–0xf) as unrecognized StringMessage warnings.
+- [ ] **6b.4 Register in J1939Decoder:** Add `register_task_controller_decoder()` method or inline registration in `J1939Decoder::new()`. Use PGN constant from `j1939_async` (`PROCESS_DATA = 0x00cb00`).
+
+#### 6c. Unit Tests — NOT STARTED
+- [ ] **6c.1 Test payload parsing:** Verify Element/Command/DDI/Value extraction from all 4 verified candump frames.
+- [ ] **6c.2 Test short payload handling:** Payload < 8 bytes returns `DecodeError::InvalidLength`.
+- [ ] **6c.3 Test command dispatch:** Command=0x3 produces Value output; other commands produce warning StringMessage.
+- [ ] **6c.4 Test round-robin detection (optional):** Track element sequence across multiple decode calls, detect missing elements in cycle.
+
+#### 6d. Integration — NOT STARTED
+- [ ] **6d.1 Wire into main.rs pipeline:** Ensure TaskController messages flow through `TpReassembler` → `PgnDecoder` (ComplexDecoder registry) → Filter → Renderer.
+- [ ] **6d.2 Test with candump file:** Run against `example_candump.longer.decoded` or raw candump to verify end-to-end decoding of TaskController Process Data messages.
+
 ## 3. Architecture Gaps & Improvements
 
 ### 3.1 Unused Types
@@ -162,6 +212,7 @@ pub trait Renderer: Send + Sync {
 
 1. **Phase 2a (DecodeContext wiring)** ✅ COMPLETED — Low effort, high value. Wires up existing types.
 2. **Phase 2c (NAME storage in AssembledMessage)** ✅ COMPLETED — NAMEs now stored directly in assembled messages with DeviceManager lookup.
-3. **Phase 4 (ComplexDecoder registry)** — Low effort if the architecture is desired; otherwise skip in favor of expanding YAML config definitions.
+3. **Phase 4 (ComplexDecoder registry)** ✅ COMPLETED — Registry active, mock decoder tests pass.
 4. **Cleanup** — Remove dead code (`extract_tp_addresses`, stale comments) to reduce compiler warnings.
-5. **Phase 5** — Defer until specific PGNs and protocols are prioritized with clear scope.
+5. **Phase 6 (TaskController PGN 51968 decoder)** — First concrete ComplexDecoder implementation. Packet format fully analyzed from real candump data. Start here before Phase 5 general work.
+6. **Phase 5** — Expand with additional complex PGNs (e.g., PGN 0xEA00 ECU Status, PGN 0xFE8D Active Faults) after TaskController decoder validates the pattern.

@@ -1,0 +1,593 @@
+use crate::traits::ComplexDecoder;
+use crate::types::{DecodeContext, DecodeError, DecodedField, DecodedMessage, Numeric, Severity};
+
+/// J1939 ISO-11783-10 Task Controller Process Data PGN (51968 / 0xCB00).
+pub const PROCESS_DATA_PGN: u32 = 0x00cb00;
+
+/// Command values for TaskController Process Data messages.
+#[derive(Debug, Clone, PartialEq)]
+pub enum TaskCommand {
+    /// Value command - sends element process variable values.
+    Value,
+    /// Unknown/unrecognized command.
+    Unknown(u8),
+}
+
+impl From<u8> for TaskCommand {
+    fn from(value: u8) -> Self {
+        match value & 0x0F {
+            0x0 => TaskCommand::Unknown(0),
+            0x1 => TaskCommand::Unknown(1),
+            0x2 => TaskCommand::Unknown(2),
+            0x3 => TaskCommand::Value,
+            0x4 => TaskCommand::Unknown(4),
+            0x5 => TaskCommand::Unknown(5),
+            0x6 => TaskCommand::Unknown(6),
+            0x7 => TaskCommand::Unknown(7),
+            0x8 => TaskCommand::Unknown(8),
+            0x9 => TaskCommand::Unknown(9),
+            0xa => TaskCommand::Unknown(10),
+            0xb => TaskCommand::Unknown(11),
+            0xc => TaskCommand::Unknown(12),
+            0xd => TaskCommand::Unknown(13),
+            0xe => TaskCommand::Unknown(14),
+            0xf => TaskCommand::Unknown(15),
+            _ => TaskCommand::Unknown(value & 0x0F),
+        }
+    }
+}
+
+/// Parsed TaskController Process Data message fields.
+#[derive(Debug, Clone)]
+pub struct TaskControllerData {
+    pub command: TaskCommand,
+    pub element_id: u16,
+    pub ddi: u16,
+    pub value: i32,
+}
+
+/// ComplexDecoder for ISO-11783-10 Annex B.3 Process Data messages (PGN 51968).
+/// Parses Element ID, DDI, and Value fields from 8-byte payloads.
+pub struct TaskControllerDecoder {
+    /// Track last seen element IDs for sequence detection.
+    last_elements: Vec<u16>,
+}
+
+impl TaskControllerDecoder {
+    pub fn new() -> Self {
+        TaskControllerDecoder {
+            last_elements: Vec::new(),
+        }
+    }
+
+    /// Parse the 8-byte payload into TaskControllerData fields.
+    /// Returns DecodeError::InvalidLength if payload is shorter than 8 bytes.
+    pub fn parse_payload(payload: &[u8]) -> Result<TaskControllerData, DecodeError> {
+        if payload.len() < 8 {
+            return Err(DecodeError::InvalidLength {
+                expected: 8,
+                found: payload.len(),
+            });
+        }
+
+        let command_byte = payload[0];
+        let command = TaskCommand::from(command_byte);
+        let element_id = (command_byte >> 4) as u16;
+        let ddi = u16::from_le_bytes([payload[2], payload[3]]);
+        let value = i32::from_le_bytes([payload[4], payload[5], payload[6], payload[7]]);
+
+        Ok(TaskControllerData {
+            command,
+            element_id,
+            ddi,
+            value,
+        })
+    }
+
+    /// Decode a TaskController Process Data message.
+    fn decode_value_command(data: &TaskControllerData) -> DecodedMessage {
+        let title = format!(
+            "TaskController Element {} DDI {}",
+            data.element_id, data.ddi
+        );
+
+        DecodedMessage::with_assembled(
+            title.clone(),
+            crate::types::AssembledMessage::new(0, vec![]),
+        )
+    }
+
+    /// Decode an unrecognized command into a warning message.
+    fn decode_unknown_command(command: u8) -> DecodedMessage {
+        let title = format!("TaskController Unknown Command 0x{:X}", command);
+
+        DecodedMessage::with_assembled(
+            title.clone(),
+            crate::types::AssembledMessage::new(0, vec![]),
+        )
+    }
+}
+
+impl Default for TaskControllerDecoder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ComplexDecoder for TaskControllerDecoder {
+    fn decode(
+        &mut self,
+        _context: &DecodeContext,
+        payload: &[u8],
+    ) -> Result<Option<DecodedMessage>, DecodeError> {
+        let data = Self::parse_payload(payload)?;
+
+        match &data.command {
+            TaskCommand::Value => {
+                let mut msg = Self::decode_value_command(&data);
+
+                msg.outputs.push(DecodedField::Value {
+                    title: "Element ID".to_string(),
+                    value: Numeric::Int(data.element_id as i64),
+                    unit: Some("element".to_string()),
+                    decimal_places: None,
+                });
+
+                msg.outputs.push(DecodedField::Value {
+                    title: "DDI".to_string(),
+                    value: Numeric::Int(data.ddi as i64),
+                    unit: Some("DDI".to_string()),
+                    decimal_places: None,
+                });
+
+                msg.outputs.push(DecodedField::Value {
+                    title: "Value".to_string(),
+                    value: Numeric::Int(data.value as i64),
+                    unit: None,
+                    decimal_places: None,
+                });
+
+                self.last_elements.push(data.element_id);
+
+                Ok(Some(msg))
+            }
+            TaskCommand::Unknown(cmd) => {
+                let mut msg = Self::decode_unknown_command(*cmd);
+
+                msg.outputs.push(DecodedField::StringMessage {
+                    severity: Severity::Warning,
+                    text: format!(
+                        "TaskController command=0x{:02X} element={} DDI={} value={}",
+                        cmd, data.element_id, data.ddi, data.value
+                    ),
+                });
+
+                Ok(Some(msg))
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::traits::ComplexDecoder;
+
+    fn make_dummy_context() -> DecodeContext {
+        DecodeContext {
+            pgn: PROCESS_DATA_PGN,
+            priority: 7,
+            src_addr: 0x90,
+            dest_addr: 0xFF,
+            src_name: None,
+            dest_name: None,
+            timestamp: 1_000_000,
+        }
+    }
+
+    // ========================================================================
+    // Payload Parsing Tests (6c.1)
+    // ========================================================================
+
+    #[test]
+    fn test_parse_payload_element_10() {
+        let payload = vec![0xA3, 0x00, 0x00, 0xE0, 0xB2, 0xB2, 0x88, 0x9B];
+        let data = TaskControllerDecoder::parse_payload(&payload).unwrap();
+
+        assert_eq!(data.command, TaskCommand::Value);
+        assert_eq!(data.element_id, 10);
+        assert_eq!(data.ddi, 0xE000);
+        assert_eq!(data.value, -1685540174i32);
+    }
+
+    #[test]
+    fn test_parse_payload_element_11() {
+        let payload = vec![0xB3, 0x00, 0x00, 0xE0, 0xB3, 0xB8, 0x7E, 0x9B];
+        let data = TaskControllerDecoder::parse_payload(&payload).unwrap();
+
+        assert_eq!(data.command, TaskCommand::Value);
+        assert_eq!(data.element_id, 11);
+        assert_eq!(data.ddi, 0xE000);
+        assert_eq!(data.value, -1686193997i32);
+    }
+
+    #[test]
+    fn test_parse_payload_element_12() {
+        let payload = vec![0xC3, 0x00, 0x00, 0xE0, 0x10, 0x12, 0x7E, 0x9B];
+        let data = TaskControllerDecoder::parse_payload(&payload).unwrap();
+
+        assert_eq!(data.command, TaskCommand::Value);
+        assert_eq!(data.element_id, 12);
+        assert_eq!(data.ddi, 0xE000);
+        assert_eq!(data.value, -1686236656i32);
+    }
+
+    #[test]
+    fn test_parse_payload_element_13() {
+        let payload = vec![0xD3, 0x00, 0x00, 0xE0, 0x5F, 0x99, 0x76, 0x9B];
+        let data = TaskControllerDecoder::parse_payload(&payload).unwrap();
+
+        assert_eq!(data.command, TaskCommand::Value);
+        assert_eq!(data.element_id, 13);
+        assert_eq!(data.ddi, 0xE000);
+        assert_eq!(data.value, -1686726305i32);
+    }
+
+    #[test]
+    fn test_parse_payload_all_candump_frames() {
+        let frames = [
+            (vec![0xA3, 0x00, 0x00, 0xE0, 0xB2, 0xB2, 0x88, 0x9B], 10),
+            (vec![0xB3, 0x00, 0x00, 0xE0, 0xB3, 0xB8, 0x7E, 0x9B], 11),
+            (vec![0xC3, 0x00, 0x00, 0xE0, 0x10, 0x12, 0x7E, 0x9B], 12),
+            (vec![0xD3, 0x00, 0x00, 0xE0, 0x5F, 0x99, 0x76, 0x9B], 13),
+        ];
+
+        for (payload, expected_elem) in &frames {
+            let data = TaskControllerDecoder::parse_payload(payload).unwrap();
+            assert_eq!(data.element_id, *expected_elem);
+            assert_eq!(data.command, TaskCommand::Value);
+            assert_eq!(data.ddi, 0xE000);
+        }
+    }
+
+    // ========================================================================
+    // Short Payload Tests (6c.2)
+    // ========================================================================
+
+    #[test]
+    fn test_parse_payload_too_short() {
+        let payload = vec![0xA3, 0x00, 0x00];
+        let result = TaskControllerDecoder::parse_payload(&payload);
+        assert!(result.is_err());
+
+        match result.unwrap_err() {
+            DecodeError::InvalidLength { expected, found } => {
+                assert_eq!(expected, 8);
+                assert_eq!(found, 3);
+            }
+            _ => panic!("Expected InvalidLength error"),
+        }
+    }
+
+    #[test]
+    fn test_parse_payload_empty() {
+        let payload = vec![];
+        let result = TaskControllerDecoder::parse_payload(&payload);
+        assert!(result.is_err());
+
+        match result.unwrap_err() {
+            DecodeError::InvalidLength { expected, found } => {
+                assert_eq!(expected, 8);
+                assert_eq!(found, 0);
+            }
+            _ => panic!("Expected InvalidLength error"),
+        }
+    }
+
+    #[test]
+    fn test_parse_payload_seven_bytes() {
+        let payload = vec![0xA3, 0x00, 0x00, 0xE0, 0xB2, 0xB2, 0x88];
+        let result = TaskControllerDecoder::parse_payload(&payload);
+        assert!(result.is_err());
+
+        match result.unwrap_err() {
+            DecodeError::InvalidLength { expected, found } => {
+                assert_eq!(expected, 8);
+                assert_eq!(found, 7);
+            }
+            _ => panic!("Expected InvalidLength error"),
+        }
+    }
+
+    // ========================================================================
+    // Command Dispatch Tests (6c.3)
+    // ========================================================================
+
+    #[test]
+    fn test_decode_value_command() {
+        let mut decoder = TaskControllerDecoder::new();
+        let context = make_dummy_context();
+        let payload = vec![0xA3, 0x00, 0x00, 0xE0, 0xB2, 0xB2, 0x88, 0x9B];
+
+        let result = decoder.decode(&context, &payload).unwrap();
+        assert!(result.is_some());
+        let msg = result.unwrap();
+
+        assert_eq!(msg.title, "TaskController Element 10 DDI 57344");
+        assert_eq!(msg.outputs.len(), 3);
+
+        match &msg.outputs[0] {
+            DecodedField::Value { title, value, unit, .. } => {
+                assert_eq!(title, "Element ID");
+                assert_eq!(*value, Numeric::Int(10));
+                assert_eq!(unit.as_ref(), Some(&"element".to_string()));
+            }
+            _ => panic!("Expected Value for Element ID"),
+        }
+
+        match &msg.outputs[1] {
+            DecodedField::Value { title, value, .. } => {
+                assert_eq!(title, "DDI");
+                if let Numeric::Int(v) = value {
+                    assert_eq!(*v, 0xE000i64);
+                } else {
+                    panic!("Expected Int for DDI");
+                }
+            }
+            _ => panic!("Expected Value for DDI"),
+        }
+
+        match &msg.outputs[2] {
+            DecodedField::Value { title, value, .. } => {
+                assert_eq!(title, "Value");
+                if let Numeric::Int(v) = value {
+                    assert_eq!(*v, -1685540174i64);
+                } else {
+                    panic!("Expected Int for Value");
+                }
+            }
+            _ => panic!("Expected Value for Value"),
+        }
+    }
+
+    #[test]
+    fn test_decode_unknown_command_zero() {
+        let mut decoder = TaskControllerDecoder::new();
+        let context = make_dummy_context();
+        // Command 0x0: element=15, command=0
+        let payload = vec![0xF0, 0x00, 0x00, 0xE0, 0x00, 0x00, 0x00, 0x00];
+
+        let result = decoder.decode(&context, &payload).unwrap();
+        assert!(result.is_some());
+        let msg = result.unwrap();
+
+        assert_eq!(msg.title, "TaskController Unknown Command 0x0");
+        assert_eq!(msg.outputs.len(), 1);
+
+        match &msg.outputs[0] {
+            DecodedField::StringMessage { severity, text } => {
+                assert_eq!(*severity, Severity::Warning);
+                assert!(text.contains("command=0x00"));
+                assert!(text.contains("element=15"));
+            }
+            _ => panic!("Expected StringMessage for unknown command"),
+        }
+    }
+
+    #[test]
+    fn test_decode_unknown_command_four() {
+        let mut decoder = TaskControllerDecoder::new();
+        let context = make_dummy_context();
+        // Command 0x4: element=12, command=4
+        let payload = vec![0xC4, 0x05, 0x00, 0xE0, 0x00, 0x00, 0x00, 0x00];
+
+        let result = decoder.decode(&context, &payload).unwrap();
+        assert!(result.is_some());
+        let msg = result.unwrap();
+
+        assert_eq!(msg.title, "TaskController Unknown Command 0x4");
+        match &msg.outputs[0] {
+            DecodedField::StringMessage { text, .. } => {
+                assert!(text.contains("command=0x04"));
+                assert!(text.contains("element=12"));
+            }
+            _ => panic!("Expected StringMessage"),
+        }
+    }
+
+    #[test]
+    fn test_decode_all_commands_produce_output() {
+        let mut decoder = TaskControllerDecoder::new();
+        let context = make_dummy_context();
+
+        for cmd in 0..=15u8 {
+            let payload = vec![
+                (cmd << 4) | cmd, // upper nibble = element, lower nibble = command
+                0x00,
+                0x00,
+                0xE0,
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+            ];
+
+            let result = decoder.decode(&context, &payload);
+            assert!(result.is_ok(), "Command 0x{:X} should not error", cmd);
+            let msg = result.unwrap();
+            assert!(msg.is_some(), "Command 0x{:X} should produce output", cmd);
+        }
+    }
+
+    // ========================================================================
+    // Element ID Extraction Tests
+    // ========================================================================
+
+    #[test]
+    fn test_element_id_extraction_all_nibbles() {
+        let expected_elements = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+
+        for (i, &expected) in expected_elements.iter().enumerate() {
+            let payload = vec![
+                (i as u8) << 4 | 0x03, // element nibble + command=3
+                0x00,
+                0x00,
+                0xE0,
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+            ];
+
+            let data = TaskControllerDecoder::parse_payload(&payload).unwrap();
+            assert_eq!(data.element_id, expected, "Failed for element {}", expected);
+        }
+    }
+
+    // ========================================================================
+    // DDI Value Tests
+    // ========================================================================
+
+    #[test]
+    fn test_ddi_various_values() {
+        let ddis = [0xE000u16, 0xD3D8, 0x9240, 0x0000, 0xFFFF];
+
+        for &ddi in &ddis {
+            let payload = vec![
+                0xA3, // element=10, command=3
+                0x00,
+                (ddi & 0xFF) as u8,
+                ((ddi >> 8) & 0xFF) as u8,
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+            ];
+
+            let data = TaskControllerDecoder::parse_payload(&payload).unwrap();
+            assert_eq!(data.ddi, ddi, "Failed for DDI {:#06X}", ddi);
+        }
+    }
+
+    // ========================================================================
+    // Value Field Tests (signed i32 LE)
+    // ========================================================================
+
+    #[test]
+    fn test_value_positive() {
+        let payload = vec![
+            0xA3, // element=10, command=3
+            0x00,
+            0x00,
+            0xE0,
+            0x64, 0x00, 0x00, 0x00, // value = 100 (little-endian)
+        ];
+
+        let data = TaskControllerDecoder::parse_payload(&payload).unwrap();
+        assert_eq!(data.value, 100i32);
+    }
+
+    #[test]
+    fn test_value_negative() {
+        // -1 in two's complement: 0xFFFFFFFF
+        let payload = vec![
+            0xA3,
+            0x00,
+            0x00,
+            0xE0,
+            0xFF, 0xFF, 0xFF, 0xFF,
+        ];
+
+        let data = TaskControllerDecoder::parse_payload(&payload).unwrap();
+        assert_eq!(data.value, -1i32);
+    }
+
+    #[test]
+    fn test_value_max_i32() {
+        // i32::MAX = 0x7FFFFFFF
+        let payload = vec![
+            0xA3,
+            0x00,
+            0x00,
+            0xE0,
+            0xFF, 0xFF, 0xFF, 0x7F,
+        ];
+
+        let data = TaskControllerDecoder::parse_payload(&payload).unwrap();
+        assert_eq!(data.value, i32::MAX);
+    }
+
+    #[test]
+    fn test_value_min_i32() {
+        // i32::MIN = 0x80000000
+        let payload = vec![
+            0xA3,
+            0x00,
+            0x00,
+            0xE0,
+            0x00, 0x00, 0x00, 0x80,
+        ];
+
+        let data = TaskControllerDecoder::parse_payload(&payload).unwrap();
+        assert_eq!(data.value, i32::MIN);
+    }
+
+    // ========================================================================
+    // ComplexDecoder Trait Integration Tests
+    // ========================================================================
+
+    #[test]
+    fn test_complex_decoder_trait_integration() {
+        let mut decoder = TaskControllerDecoder::new();
+        let context = make_dummy_context();
+        let payload = vec![0xA3, 0x00, 0x00, 0xE0, 0x64, 0x00, 0x00, 0x00];
+
+        // Should return Ok(Some(msg)) for valid payload
+        let result = decoder.decode(&context, &payload);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_some());
+    }
+
+    #[test]
+    fn test_complex_decoder_short_payload_returns_error() {
+        let mut decoder = TaskControllerDecoder::new();
+        let context = make_dummy_context();
+        let payload = vec![0xA3, 0x00];
+
+        let result = decoder.decode(&context, &payload);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            DecodeError::InvalidLength { expected: 8, found: 2 } => {}
+            other => panic!("Expected InvalidLength(8,2), got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_decoder_tracks_elements() {
+        let mut decoder = TaskControllerDecoder::new();
+        let context = make_dummy_context();
+
+        // Decode element 10
+        let payload_10 = vec![0xA3, 0x00, 0x00, 0xE0, 0x64, 0x00, 0x00, 0x00];
+        decoder.decode(&context, &payload_10).unwrap();
+
+        // Decode element 11
+        let payload_11 = vec![0xB3, 0x00, 0x00, 0xE0, 0x65, 0x00, 0x00, 0x00];
+        decoder.decode(&context, &payload_11).unwrap();
+
+        // Decode element 12
+        let payload_12 = vec![0xC3, 0x00, 0x00, 0xE0, 0x66, 0x00, 0x00, 0x00];
+        decoder.decode(&context, &payload_12).unwrap();
+
+        assert_eq!(decoder.last_elements.len(), 3);
+        assert_eq!(decoder.last_elements[0], 10);
+        assert_eq!(decoder.last_elements[1], 11);
+        assert_eq!(decoder.last_elements[2], 12);
+    }
+
+    #[test]
+    fn test_process_data_pgn_constant() {
+        assert_eq!(PROCESS_DATA_PGN, 0x00cb00);
+        assert_eq!(PROCESS_DATA_PGN, 51968u32);
+    }
+}
