@@ -134,7 +134,7 @@ impl PGN {
 }*/
 
 /// The primary output type emitted by the decoder pipeline.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum DecodedField {
     /// A numeric value with optional unit and precision info.
     Value {

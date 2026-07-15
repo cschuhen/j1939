@@ -6,11 +6,12 @@
 can_decoder/
 ├── src/
 │   ├── main.rs           — CLI entry point, arg parsing, pipeline wiring
-│   ├── traits.rs          — Source, Decoder, Renderer, Filter trait definitions
-│   ├── types.rs           — RawFrame, AssembledMessage, PGN, DecodedField, Numeric, Severity, FlagValue
+│   ├── traits.rs          — Source, Decoder, ComplexDecoder, Renderer, Filter trait definitions
+│   ├── types.rs           — RawFrame, AssembledMessage, DecodedField, Numeric, Severity, FlagValue, DecodeContext, DeviceUpdate, DecodedMessage, DecodeError
 │   ├── sources.rs         — SocketCanSource, CandumpFileSource implementations
 │   ├── pipeline.rs        — Pipeline struct + NullDecoder, PassThroughFilter, ConsoleRenderer stubs
-│   ├── pgn_decoder.rs     — J1939 PGN decoder engine with 40+ standard PGNs (Phase 3)
+│   ├── pgn_decoder.rs     — J1939 PGN decoder engine with 40+ standard PGNs, ComplexDecoder registry (Phase 4)
+│   ├── tp_reassembler.rs  — Transport Protocol reassembler: BAM and RTS/CTS state machines (Phase 3)
 │   └── device_manager.rs  — Device tracking, address claims, parameter cache, TTL expiration (Phase 2)
 ├── Cargo.toml             — Dependencies: clap, tokio, serde_yaml, owo-colors, socketcan
 └── requirements_and_plan.md — Full project spec and implementation roadmap
@@ -31,21 +32,25 @@ can_decoder/
 ## Key Types Summary
 
 - **`RawFrame`** (`types.rs:5`) — Single CAN frame with timestamp, can_id, data bytes. Flows from Source → Decoder.
-- **`AssembledMessage`** (`types.rs:29`) — Multi-frame assembled message with PGN, source/dest address, payload. Used by PgnDecoder for J1939 TP reassembly (Phase 3).
-- **`PGN`** (`types.rs:60`) — J1939 Protocol Group Number parsed from CAN ID. Utility for decoding.
-- **`DecodedField`** (`types.rs:94`) — Decoded output enum: `Value`, `StringMessage`, or `Flag`. Flows from Decoder → Filter → Renderer.
-- **`Numeric`** (`types.rs:116`) — Value variant type: `Int`, `Float`, `Hex`, `Bool`.
-- **`Severity`** (`types.rs:129`) — `Info`, `Warning`, `Error` for StringMessage.
-- **`FlagValue`** (`types.rs:137`) — `Off=0, On=1, Error=2, Unavailable=3`.
+- **`AssembledMessage`** (`types.rs:49`) — Multi-frame assembled message with PGN, source/dest address, payload, source/dest NAMEs. Used by PgnDecoder for J1939 TP reassembly (Phase 2c/3).
+- **`DecodedField`** (`types.rs:138`) — Decoded output enum: `Value`, `StringMessage`, or `Flag`. Flows from Decoder → Filter → Renderer. Derives `PartialEq`.
+- **`Numeric`** (`types.rs:154`) — Value variant type: `Int`, `Float`, `Hex`, `Bool`.
+- **`Severity`** (`types.rs:167`) — `Info`, `Warning`, `Error` for StringMessage.
+- **`FlagValue`** (`types.rs:175`) — `Off=0, On=1, Error=2, Unavailable=3`.
+- **`DecodeContext`** (`types.rs:210`) — Context provided to ComplexDecoder: PGN, priority, src/dest addresses and NAMEs, timestamp.
+- **`DeviceUpdate`** (`types.rs:223`) — Command returned by decoder for DeviceManager state changes (target_name, param_id, value).
+- **`DecodedMessage`** (`types.rs:231`) — Final decode result with title, outputs, updates, and attached AssembledMessage.
+- **`DecodeError`** (`types.rs:197`) — Decode error enum: `InvalidLength`, `MalformedData`, `UnknownPgn`, `Internal`.
 
 ## Trait Signatures Summary
 
 | Trait | Method | Input | Output | File |
 |---|---|---|---|---|
 | `Source` | `start(Arc<Self>, tx)` | channel sender | `Result<(), Box<dyn Error>>` | traits.rs:12 |
-| `Decoder` | `decode(frame)` | `RawFrame` | `Vec<DecodedField>` | traits.rs:25 |
-| `Renderer` | `render(output)` | `DecodedField` | `String` | traits.rs:38 |
-| `Filter` | `matches(output)` | `&DecodedField` | `bool` | traits.rs:51 |
+| `Decoder` | `decode(frame)` | `RawFrame` | `Future<Result<DecodedMessage, ...>>` | traits.rs:31 |
+| `ComplexDecoder` | `decode(context, payload)` | `&DecodeContext`, `&[u8]` | `Result<Option<DecodedMessage>, DecodeError>` | traits.rs:46 |
+| `Renderer` | `render(message)` | `&DecodedMessage` | `Future<Result<String, ...>>` | traits.rs:61 |
+| `Filter` | `matches(message)` | `&DecodedMessage` | `Future<bool>` | traits.rs:74 |
 
 ## Current Stub Implementations (pipeline.rs)
 
@@ -55,24 +60,20 @@ can_decoder/
 
 ## PGN Decoder Summary (pgn_decoder.rs)
 
-- **`PgnDecoder`** implements the `Decoder` trait, receives `RawFrame`, returns `Vec<DecodedField>`.
+- **`J1939Decoder`** implements the `Decoder` trait, receives `RawFrame`, returns `DecodedMessage`.
 - Parses J1939 CAN IDs: extracts PGN from bits 8–20 of extended CAN ID.
 - Handles Transport Protocol (TP) messages (PGN 0xF000–0xFDFF): Connection Management, Data Transfer, Abort, CM Next Ext CSN.
 - Implements reassembler with timeout logic and `--force-output-partial-tp` support.
-- Decodes 40+ standard J1939 PGNs including:
-  - **PGN 0xEA00**: ECU Status (8 numeric values + severity)
-  - **PGN 0xFE8D**: Active Faults (up to 50 fault records with status, priority, source address)
-  - **PGN 0x00FF–0x0EFU**: Engine/Rail parameters (RPM, speed, fuel rate, temperatures, pressures)
-  - **PGN 0x0700–0x07FF**: Diagnostic trouble codes, odometer, intake manifold, battery voltage, oil temp/pressure
-  - **PGN 0x0800–0x08FF**: Transmission parameters (gear, clutch, SAE J1939-81)
-  - **PGN 0x0903–0x09FE**: Aftertreatment, DPF soot/ash load, NOx sensors
-  - **PGN 0x0A00–0x0AFF**: Level sensors (fuel, AdBlue), position (lat/lon), heading
-  - **PGN 0x0B00–0x0BEF**: Vehicle parameters (mileage, trip, cruise control)
-  - **PGN 0x0BFU**: Driver ID, operator messages
-  - **PGN 0x0CFU**: Parameter list requests/responses
-  - **PGN 0x0D00–0x0DFF**: Calibration (ID, verification, history), VIN
-  - **PGN 0x0E00–0x0EFF**: Event data recording (up to 50 events)
-  - **PGN 0x0F00–0x0FFF**: Vehicle ID (NAME, manufacturer code, ECU instance, software/firmware versions)
+- **Complex Decoder Registry** (Phase 4): `HashMap<PGN, Box<dyn ComplexDecoder>>` checked before YAML config during dispatch. Registered decoders override YAML definitions; returning `Ok(None)` falls back to YAML or unrecognized message.
+- Decodes 40+ standard J1939 PGNs using YAML component-based definitions including:
+  - **PGN 0x0EC00**: Address Claim (NAME payload extraction)
+  - **PGN 0x0FEF4**: Engine Speed (RPM, scale 0.25)
+  - **PGN 0x0FEF8**: Coolant Temperature (Int8, °C)
+  - **PGN 0x0EF00**: Pressure (UInt16, kPa)
+  - **PGN 0x0CF00**: Vehicle Speed (km/h)
+  - **PGN 0x0FECC**: Engine Oil Pressure (kPa)
+  - **PGN 0x0FECE**: Engine Oil Temperature (°C)
+  - **PGN 0x0FF00**: GPS Location (Float32 lat/lon)
 - Uses `DeviceManager` for source address tracking and device name resolution.
 - All decoders use safe byte extraction with bounds checking — never panics on malformed data.
 
