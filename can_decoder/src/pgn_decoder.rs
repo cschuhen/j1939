@@ -10,6 +10,7 @@ use crate::device_manager::DeviceManager;
 use crate::task_controller::{TaskControllerDecoder, PROCESS_DATA_PGN};
 use crate::tp_reassembler::{TpReassembler, TpReassemblyResult};
 use crate::traits::{ComplexDecoder, Decoder};
+use crate::DetailLevel;
 use crate::types::{AssembledMessage, DecodeContext, DecodedField, DecodedMessage, Numeric, RawFrame, Severity};
 
 /// YAML configuration for the PGN decoder engine.
@@ -279,12 +280,14 @@ pub struct J1939Decoder {
     device_manager: Option<Arc<StdMutex<DeviceManager>>>,
     /// Registry of complex decoders keyed by PGN. Checked before YAML config during dispatch.
     complex_decoders: HashMap<u32, Box<dyn ComplexDecoder>>,
+    /// Output detail level controlling whether individual TP packets are decoded separately from assembled messages.
+    detail_level: DetailLevel,
 }
 
 impl J1939Decoder {
     /// Create a new J1939Decoder with default PGN definitions and TP reassembly.
     pub fn new(force_partial_tp: bool, timeout_ms: u64, debug: bool) -> Self {
-        Self::with_device_manager(force_partial_tp, timeout_ms, debug, None)
+        Self::with_device_manager_detail(force_partial_tp, timeout_ms, debug, None, DetailLevel::Assembled)
     }
 
     /// Create a new J1939Decoder with default PGN definitions and an optional DeviceManager.
@@ -293,6 +296,17 @@ impl J1939Decoder {
         timeout_ms: u64,
         debug: bool,
         device_manager: Option<Arc<StdMutex<DeviceManager>>>,
+    ) -> Self {
+        Self::with_device_manager_detail(force_partial_tp, timeout_ms, debug, device_manager, DetailLevel::Assembled)
+    }
+
+    /// Create a new J1939Decoder with default PGN definitions, optional DeviceManager, and detail level.
+    pub fn with_device_manager_detail(
+        force_partial_tp: bool,
+        timeout_ms: u64,
+        debug: bool,
+        device_manager: Option<Arc<StdMutex<DeviceManager>>>,
+        detail_level: DetailLevel,
     ) -> Self {
         let mut defs = default_pgn_definitions();
 
@@ -310,6 +324,7 @@ impl J1939Decoder {
             reassembler: TpReassembler::new(force_partial_tp, timeout_ms, debug),
             device_manager,
             complex_decoders: HashMap::new(),
+            detail_level,
         };
 
         decoder.register_complex_decoder(PROCESS_DATA_PGN, Box::new(TaskControllerDecoder::new()));
@@ -325,16 +340,39 @@ impl J1939Decoder {
         debug: bool,
         device_manager: Option<Arc<StdMutex<DeviceManager>>>,
     ) -> Self {
+        Self::with_config_detail(config, force_partial_tp, timeout_ms, debug, device_manager, DetailLevel::Assembled)
+    }
+
+    /// Create a J1939Decoder with explicit config, optional DeviceManager, and detail level.
+    pub fn with_config_detail(
+        config: DecoderConfig,
+        force_partial_tp: bool,
+        timeout_ms: u64,
+        debug: bool,
+        device_manager: Option<Arc<StdMutex<DeviceManager>>>,
+        detail_level: DetailLevel,
+    ) -> Self {
         let mut decoder = J1939Decoder {
             config,
             reassembler: TpReassembler::new(force_partial_tp, timeout_ms, debug),
             device_manager,
             complex_decoders: HashMap::new(),
+            detail_level,
         };
 
         decoder.register_complex_decoder(PROCESS_DATA_PGN, Box::new(TaskControllerDecoder::new()));
 
         decoder
+    }
+
+    /// Set the output detail level.
+    pub fn set_detail_level(&mut self, detail_level: DetailLevel) {
+        self.detail_level = detail_level;
+    }
+
+    /// Get the current output detail level.
+    pub fn detail_level(&self) -> &DetailLevel {
+        &self.detail_level
     }
 
     /// Register a ComplexDecoder for a specific PGN.
@@ -603,12 +641,17 @@ impl J1939Decoder {
         for result in results {
             match result {
                 TpReassemblyResult::Complete(assembled) => {
+                    // Task 2: Always pass assembled TP messages to PGN decoder, independent of detail level
                     outputs.extend(self.decode_assembled_with_context(&assembled));
                 }
                 TpReassemblyResult::SingleFrame(assembled) => {
+                    // Non-TP frames are always decoded (they're not part of a TP session)
                     outputs.extend(self.decode_assembled_with_context(&assembled));
                 }
-                TpReassemblyResult::Pending => {}
+                TpReassemblyResult::Pending => {
+                    // Task 1: Individual TP packets during assembly are NOT passed to PGN decoder
+                    // The assembler handles them; only the final assembled message gets decoded
+                }
                 TpReassemblyResult::Timeout(partial) => {
                     outputs.push(DecodedField::StringMessage {
                         severity: Severity::Warning,
@@ -1915,5 +1958,109 @@ pgns:
                 _ => panic!("Expected Value"),
             }
         }
+    }
+
+    // ========================================================================
+    // TP Assembly Detail-Level Tests (Fixes and general)
+    // ========================================================================
+
+    #[test]
+    fn test_tp_assembly_individual_packets_not_decoded_separately() {
+        let mut decoder = J1939Decoder::new(false, 5000, false);
+
+        // Step 1: Send BAM to set up broadcast transfer for PGN 0x0CF00 (Vehicle Speed)
+        let source = 0xF8u8;
+        let dest = 0xFFu8;
+        let bam_can_id = (7u32 << 26) | ((0xEC as u32) << 16) | ((dest as u32) << 8) | source as u32;
+        // PGN 0x0CF00 in little-endian: low=0xF0, mid=0xCF, high=0x00
+        let bam_data = [
+            0x20,           // control byte = BAM
+            0x0E, 0x00,     // total_size = 14 bytes
+            0x02,           // num_packets = 2
+            0xFF,           // reserved
+            0xF0, 0xCF, 0x00, // PGN = 0x0CF00 (Vehicle Speed) - Little-Endian
+        ];
+        decoder.decode_raw_frame(make_frame(bam_can_id, &bam_data));
+
+        // Step 2: Send first DT packet - should NOT produce decoded output (Pending)
+        let dt_can_id = (7u32 << 26) | ((0xEB as u32) << 16) | ((dest as u32) << 8) | source as u32;
+        let packet1_data = [0x01, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47];
+        let outputs1 = decoder.decode_raw_frame(make_frame(dt_can_id, &packet1_data));
+
+        // Individual DT packet should NOT be decoded - only Pending from reassembler
+        assert!(outputs1.is_empty(), "Individual TP packets should not produce output");
+
+        // Step 3: Send second DT packet (completes the transfer) - should produce decoded output
+        let packet2_data = [0x02, 0x48, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E];
+        let outputs2 = decoder.decode_raw_frame(make_frame(dt_can_id, &packet2_data));
+
+        // Assembled message should be decoded (regardless of PGN recognition)
+        assert!(!outputs2.is_empty(), "Assembled TP message should produce output");
+    }
+
+    #[test]
+    fn test_assembled_tp_always_decoded_independent_of_detail_level() {
+        // Test with detail_level = Assembled (default) - decode pre-built assembled message
+        let mut decoder_assembled = J1939Decoder::with_device_manager_detail(
+            false, 5000, false, None, DetailLevel::Assembled
+        );
+
+        let assembled = make_assembled(0x0CF00, 0xF8, vec![0x3Cu8]); // Speed = 60 km/h
+        let outputs = decoder_assembled.decode_assembled(&assembled);
+        assert!(!outputs.is_empty(), "Assembled message should be decoded with Assembled detail level");
+        match &outputs[0] {
+            DecodedField::Value { title, .. } => {
+                assert_eq!(title, "Speed", "Should decode as Vehicle Speed");
+            }
+            _ => panic!("Expected Value for Speed"),
+        }
+
+        // Test with detail_level = Both - assembled message should still be decoded
+        let mut decoder_both = J1939Decoder::with_device_manager_detail(
+            false, 5000, false, None, DetailLevel::Both
+        );
+
+        let outputs_both = decoder_both.decode_assembled(&assembled);
+        assert!(!outputs_both.is_empty(), "Assembled message should be decoded with Both detail level");
+
+        // Test with detail_level = Raw - assembled TP messages should still be decoded (task 2)
+        let mut decoder_raw = J1939Decoder::with_device_manager_detail(
+            false, 5000, false, None, DetailLevel::Raw
+        );
+
+        let outputs_raw = decoder_raw.decode_assembled(&assembled);
+        assert!(!outputs_raw.is_empty(), "Assembled TP message should always be decoded regardless of detail level");
+    }
+
+    #[test]
+    fn test_non_tp_frames_always_decoded() {
+        let mut decoder = J1939Decoder::new(false, 5000, false);
+
+        // Non-TP frame (vehicle speed PGN 0x0CF00) should always be decoded
+        let can_id = (3u32 << 26) | (0x0CF00 << 8) | 0xF8;
+        let outputs = decoder.decode_raw_frame(make_frame(can_id, &[0x3Cu8])); // 60 km/h
+
+        assert!(!outputs.is_empty(), "Non-TP frames should always be decoded");
+        match &outputs[0] {
+            DecodedField::Value { title, value, .. } => {
+                assert_eq!(title, "Speed");
+                assert_eq!(*value, Numeric::Float(60.0));
+            }
+            _ => panic!("Expected Value for Speed"),
+        }
+    }
+
+    #[test]
+    fn test_detail_level_wiring() {
+        let decoder = J1939Decoder::new(false, 1000, false);
+        assert_eq!(*decoder.detail_level(), DetailLevel::Assembled);
+
+        let mut decoder_both = J1939Decoder::with_device_manager_detail(
+            false, 5000, false, None, DetailLevel::Both
+        );
+        assert_eq!(*decoder_both.detail_level(), DetailLevel::Both);
+
+        decoder_both.set_detail_level(DetailLevel::Raw);
+        assert_eq!(*decoder_both.detail_level(), DetailLevel::Raw);
     }
 }

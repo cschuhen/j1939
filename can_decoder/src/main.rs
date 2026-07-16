@@ -85,13 +85,14 @@ async fn main() -> Result<()> {
 
     // Wire up Decoder → Filter → Renderer
     let device_manager = Arc::new(std::sync::Mutex::new(DeviceManager::new(60)));
-    let decoder = Box::new(can_decoder::pgn_decoder::J1939Decoder::with_device_manager(
+    let decoder = can_decoder::pgn_decoder::J1939Decoder::with_device_manager_detail(
         cli.force_output_partial_tp,
         5000,
         cli.debug,
         Some(device_manager),
-    ));
-    pipeline.spawn_decoder(decoder);
+        cli.detail_level.clone(),
+    );
+    pipeline.spawn_decoder(Box::new(decoder));
 
     let filter = build_filters(&cli.filter)?;
     let (filter_rx, _filter_handle) = pipeline.spawn_filter(filter);

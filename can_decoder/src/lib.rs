@@ -68,7 +68,7 @@ pub enum SourceType {
 }
 
 /// Detail level for output visibility.
-#[derive(clap::ValueEnum, Debug, Clone)]
+#[derive(clap::ValueEnum, Debug, Clone, PartialEq, Eq)]
 pub enum DetailLevel {
     Raw,
     Assembled,

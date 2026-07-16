@@ -3,15 +3,46 @@
 ## Phase 5: Structured Output & Advanced UI ⏳ NOT STARTED
 
 ### Fixes and general
-- [ ] If detail-level is less than 6, Don't pass on the individual packets of a TP session to the pgn decider, just let the assembler handle it.
-- [ ] Once an assembled TP(multi-frame) message is available, pass it to the pgn decider. This is independent of the detail-level setting. This means that when detail>5, there may be two outputs for one CAN frame. The data portion of the AssembledMessage should be full TP payload data bytes i.e. bytes 1-7 of each DT message.
+- [x] If detail-level is less than 6, Don't pass on the individual packets of a TP session to the pgn decider, just let the assembler handle it. (Implemented via DetailLevel enum: Raw/Assembled/Both)
+- [x] Once an assembled TP(multi-frame) message is available, pass it to the pgn decider. This is independent of the detail-level setting. This means that when detail>5, there may be two outputs for one CAN frame. The data portion of the AssembledMessage should be full TP payload data bytes i.e. bytes 1-7 of each DT message. (Implemented via DetailLevel enum + decode_assembled always called)
 - [ ] Assembled-message includes an explicit PGN field as well as the CAN id. There is a note that the CAN id is always the raw ID from the frame... However, that is not really relevant. Instead, we shoudd drop the PGN field an create a synthetic ID for the TP AssembledMessage. Source/Destination address, should be that of the RTS/BAM frame. Priorrity should be the lowest priority received for any of the CM or DT frames coming from the sender. PGN should be the PGN encoded into the data bytes of the RTS/BAM frame.
 - [ ]  Move the text-based(console/CSV/JSON) renderers into a separate file.
 
-### JSON and CSV Formatters
-- [x] Implement JSON renderer — output DecodedMessage as structured JSON.
+### CSV Formatter
 - [ ] Implement CSV renderer — output DecodedField rows with headers.
-- [x] Wire output-format flag to select between console, json, csv renderers.
+- [ ] Each row should have certian fixed columns for every message, these will be the first columns: 
+  - Timestamp
+  - CAN ID
+  - Priority
+  - PGN
+  - Source address
+  - Destination address
+  - Source NAME
+  - Destination NAME
+  - Data bytes
+  - Concatination of any StringMessages in the output list
+- [ ] The renderer should track(remember) the remaining columns for every (PGN, title) combination. 
+    - [ ] Every Title in list of DecodedField(except StringMessages) seen should get it's own column.
+    - [ ] That column should not be reused for the same (PGN, title) combination.
+    - [ ] The column header for Value DecodedFields is that of the 'title'
+    - [ ] Whenever new columns are added to a PGN/title combination, the column header should be re-printed with the updated headers.
+
+
+### Condensed Formatter
+- [ ] Implement Condensed renderer — output single-line per message
+- [ ] Each line should have certian fixed columns for every message, these will be the first columns, these fields will not have titles: 
+  - Timestamp
+  - CAN ID in hex (no 0x prefix)
+  - Priority
+  - PGN
+  - PGN in hex
+  - Source address in hex -> Destination address
+  - (Source NAME -> Destination NAME)
+  - Data bytes in hex, no 0x prefix
+  - Concatination of any StringMessages in the output list
+- [ ] Every Title in list of DecodedField seen should get it's own field. These fields should get headers in bold. 
+- [ ] Flag fields should be coloured red for Error, white for off, Green for on.
+
 
 ### TUI Integration (ratatui)
 - [ ] Develop terminal UI using ratatui/crossterm.
