@@ -2,7 +2,7 @@ use j1939_async::Id;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Represents a single raw CAN frame received from the bus.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RawFrame {
     /// Microseconds since Unix epoch.
     pub timestamp: u64,
@@ -45,7 +45,7 @@ impl j1939_async::Id for RawFrame {
 }
 
 /// Represents a fully assembled logical CAN message after multi-frame reassembly.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AssembledMessage {
     /// CAN ID of the message. For TP messages, this may not match actual on-bus ID's
     pub id: u32,
@@ -57,10 +57,10 @@ pub struct AssembledMessage {
     pub data: Vec<u8>,
     /// Microseconds since Unix epoch when this message was assembled.
     pub timestamp: u64,
-    
+
     /// J1939 NAME of the source device (if known via Address Claim or other means).
     pub source_name: Option<u64>,
-    
+
     /// J1939 NAME of the destination device (if known and not broadcast).
     pub dest_name: Option<u64>,
 }
@@ -134,7 +134,7 @@ impl PGN {
 }*/
 
 /// The primary output type emitted by the decoder pipeline.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum DecodedField {
     /// A numeric value with optional unit and precision info.
     Value {
@@ -150,7 +150,7 @@ pub enum DecodedField {
 }
 
 /// Numeric values that can be decoded from CAN data.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum Numeric {
     /// Signed integer.
     Int(i64),
@@ -163,7 +163,7 @@ pub enum Numeric {
 }
 
 /// Severity levels for diagnostic and status messages.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum Severity {
     Info,
     Warning,
@@ -171,11 +171,15 @@ pub enum Severity {
 }
 
 /// Standard flag states per J1939 conventions.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum FlagValue {
+    #[serde(rename = "off")]
     Off = 0,
+    #[serde(rename = "on")]
     On = 1,
+    #[serde(rename = "error")]
     Error = 2,
+    #[serde(rename = "unavailable")]
     Unavailable = 3,
 }
 
@@ -206,7 +210,7 @@ pub enum DecodeError {
 }
 
 /// The context provided to every decoder call.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DecodeContext {
     pub pgn: u32,
     pub priority: u8,
@@ -219,7 +223,7 @@ pub struct DecodeContext {
 
 /// A command returned by a decoder to tell the DeviceManager
 /// what to change in the system state.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DeviceUpdate {
     pub target_name: u64,
     pub param_id: u16,
@@ -227,13 +231,13 @@ pub struct DeviceUpdate {
 }
 
 /// The final result of a decoding operation.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DecodedMessage {
+    /// Assembled message containing raw data, timestamp, source/dest addresses, and PGN.
+    pub assembled_message: AssembledMessage,
     pub title: String,
     pub outputs: Vec<DecodedField>,
     pub updates: Vec<DeviceUpdate>,
-    /// Assembled message containing raw data, timestamp, source/dest addresses, and PGN.
-    pub assembled_message: AssembledMessage,
 }
 
 impl DecodedMessage {

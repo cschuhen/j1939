@@ -2,10 +2,16 @@
 
 ## Phase 5: Structured Output & Advanced UI ⏳ NOT STARTED
 
+### Fixes and general
+- [ ] If detail-level is less than 6, Don't pass on the individual packets of a TP session to the pgn decider, just let the assembler handle it.
+- [ ] Once an assembled TP(multi-frame) message is available, pass it to the pgn decider. This is independent of the detail-level setting. This means that when detail>5, there may be two outputs for one CAN frame. The data portion of the AssembledMessage should be full TP payload data bytes i.e. bytes 1-7 of each DT message.
+- [ ] Assembled-message includes an explicit PGN field as well as the CAN id. There is a note that the CAN id is always the raw ID from the frame... However, that is not really relevant. Instead, we shoudd drop the PGN field an create a synthetic ID for the TP AssembledMessage. Source/Destination address, should be that of the RTS/BAM frame. Priorrity should be the lowest priority received for any of the CM or DT frames coming from the sender. PGN should be the PGN encoded into the data bytes of the RTS/BAM frame.
+- [ ]  Move the text-based(console/CSV/JSON) renderers into a separate file.
+
 ### JSON and CSV Formatters
-- [ ] Implement JSON renderer — output DecodedMessage as structured JSON.
+- [x] Implement JSON renderer — output DecodedMessage as structured JSON.
 - [ ] Implement CSV renderer — output DecodedField rows with headers.
-- [ ] Wire output-format flag to select between console, json, csv renderers.
+- [x] Wire output-format flag to select between console, json, csv renderers.
 
 ### TUI Integration (ratatui)
 - [ ] Develop terminal UI using ratatui/crossterm.

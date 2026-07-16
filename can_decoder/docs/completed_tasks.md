@@ -100,6 +100,17 @@
 - [x] ConsoleRenderer with colorized columnar output using owo-colors.
 - [x] Uses format_output() to produce plain text display strings.
 
+## Phase 5: Structured Output — JSON Renderer ✅ COMPLETED
+
+### JSON Renderer
+- [x] Implement `JsonRenderer` struct implementing the `Renderer` trait.
+- [x] Serialize `DecodedMessage` to pretty-printed JSON via `serde_json::to_string_pretty`.
+- [x] Inject decoded J1939 fields (`priority`, `source_address`, `destination_address`) into `assembled_message` from `j1939_async::Id` trait.
+- [x] Wire `--output-format json` flag in `main.rs` to select between console/json/csv renderers.
+- [x] Add `serde::Serialize, serde::Deserialize` derives to all core data types (`RawFrame`, `AssembledMessage`, `DecodedField`, `Numeric`, `Severity`, `FlagValue`, `DecodeContext`, `DeviceUpdate`, `DecodedMessage`).
+- [x] FlagValue variants use `#[serde(rename)]` for clean JSON strings ("off", "on", "error", "unavailable").
+- [x] 20 unit tests covering all field types, flag values, severity levels, hex data, nested structure validation.
+
 ## Phase 6: TaskController Process Data Decoder ✅ COMPLETED
 
 ### Packet Format Analysis (Phase 6a)
@@ -131,7 +142,7 @@
 
 ## General Testing Achievements
 
-- [x] All 194 tests passing (145 lib + 25 types + 17 device_manager + 7 integration).
+- [x] All 214 tests passing (165 lib + 25 types + 17 device_manager + 7 integration).
 - [x] BAM broadcast tests using exact bam.log packets — payload matches reference decoder output.
 - [x] RTS/CTS unicast tests using exact rts.log packets — payload matches reference decoder output.
 - [x] Large PGN tests (PGN >= 0xF000) for both BAM and RTS/CTS.

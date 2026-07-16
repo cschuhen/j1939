@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use can_decoder::device_manager::DeviceManager;
 use can_decoder::filters::{CompositeFilter, FilterParser};
-use can_decoder::pipeline::{ConsoleRenderer, Pipeline};
+use can_decoder::pipeline::{ConsoleRenderer, JsonRenderer, Pipeline};
 use can_decoder::sources::{CandumpFileSource, SocketCanSource};
 use can_decoder::traits::Source;
 use can_decoder::Cli;
@@ -96,7 +96,14 @@ async fn main() -> Result<()> {
     let filter = build_filters(&cli.filter)?;
     let (filter_rx, _filter_handle) = pipeline.spawn_filter(filter);
 
-    let renderer = Box::new(ConsoleRenderer);
+    let renderer: Box<dyn can_decoder::traits::Renderer> = match cli.output_format {
+        can_decoder::OutputFormat::Console => Box::new(ConsoleRenderer),
+        can_decoder::OutputFormat::Json => Box::new(JsonRenderer),
+        can_decoder::OutputFormat::Csv => {
+            eprintln!("Error: CSV output not yet implemented");
+            std::process::exit(1);
+        }
+    };
     let renderer_handle = Pipeline::spawn_renderer(filter_rx, renderer);
 
     println!("Pipeline ready. Press Ctrl+C to stop.");

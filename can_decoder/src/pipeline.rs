@@ -314,3 +314,377 @@ fn format_output(output: &DecodedField) -> String {
         }
     }
 }
+
+/// JSON renderer that serializes DecodedMessage to JSON format.
+pub struct JsonRenderer;
+
+impl Renderer for JsonRenderer {
+    fn name(&self) -> &str {
+        "json"
+    }
+
+    fn render<'a>(
+        &'a mut self,
+        message: &'a DecodedMessage,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = Result<String, Box<dyn std::error::Error + Send + Sync>>,
+                > + Send
+                + '_,
+        >,
+    > {
+        Box::pin(async move {
+            let mut json_value = serde_json::to_value(message).map_err(|e| e.to_string())?;
+            if let Some(assembled) = json_value.get_mut("assembled_message").and_then(|a| a.as_object_mut()) {
+                assembled.insert("priority".to_string(), serde_json::json!(message.assembled_message.priority()));
+                assembled.insert("source_address".to_string(), serde_json::json!(message.assembled_message.source()));
+                assembled.insert("destination_address".to_string(), serde_json::json!(message.assembled_message.destination()));
+            }
+            Ok(serde_json::to_string_pretty(&json_value).map_err(|e| e.to_string())?)
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{DecodedField, Numeric};
+
+    fn make_test_message() -> DecodedMessage {
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![0x01, 0x02]);
+        DecodedMessage {
+            title: "Engine Speed".to_string(),
+            outputs: vec![
+                DecodedField::Value {
+                    title: "RPM".to_string(),
+                    value: Numeric::Int(1500),
+                    unit: Some("rpm".to_string()),
+                    decimal_places: None,
+                },
+                DecodedField::StringMessage {
+                    severity: crate::types::Severity::Info,
+                    text: "Engine running".to_string(),
+                },
+            ],
+            updates: vec![],
+            assembled_message: assembled,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_json_renderer_name() {
+        let renderer = JsonRenderer;
+        assert_eq!(renderer.name(), "json");
+    }
+
+    #[tokio::test]
+    async fn test_json_renderer_valid_output() {
+        let mut renderer = JsonRenderer;
+        let message = make_test_message();
+        let result = renderer.render(&message).await.unwrap();
+        assert!(!result.is_empty());
+        assert!(result.contains("\"title\": \"Engine Speed\""));
+    }
+
+    #[tokio::test]
+    async fn test_json_renderer_contains_outputs() {
+        let mut renderer = JsonRenderer;
+        let message = make_test_message();
+        let result = renderer.render(&message).await.unwrap();
+        assert!(result.contains("\"title\": \"RPM\""));
+        assert!(result.contains("1500"));
+        assert!(result.contains("\"text\": \"Engine running\""));
+    }
+
+    #[tokio::test]
+    async fn test_json_renderer_output_structure() {
+        let mut renderer = JsonRenderer;
+        let message = make_test_message();
+        let result = renderer.render(&message).await.unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+
+        let outputs = parsed["outputs"].as_array().unwrap();
+        assert_eq!(outputs.len(), 2);
+
+        let first_output = &outputs[0];
+        assert!(first_output.get("Value").is_some());
+        let value_obj = &first_output["Value"];
+        assert_eq!(value_obj["title"], "RPM");
+        assert_eq!(value_obj["value"]["Int"], 1500);
+
+        let second_output = &outputs[1];
+        assert!(second_output.get("StringMessage").is_some());
+        let msg_obj = &second_output["StringMessage"];
+        assert_eq!(msg_obj["text"], "Engine running");
+    }
+
+    #[tokio::test]
+    async fn test_json_renderer_contains_pgn() {
+        let mut renderer = JsonRenderer;
+        let message = make_test_message();
+        let result = renderer.render(&message).await.unwrap();
+        assert!(result.contains("\"pgn\": 61248"));
+    }
+
+    #[tokio::test]
+    async fn test_json_renderer_contains_timestamp() {
+        let mut renderer = JsonRenderer;
+        let message = make_test_message();
+        let result = renderer.render(&message).await.unwrap();
+        assert!(result.contains("\"timestamp\":"));
+    }
+
+    #[tokio::test]
+    async fn test_json_renderer_parseable() {
+        let mut renderer = JsonRenderer;
+        let message = make_test_message();
+        let result = renderer.render(&message).await.unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+        assert_eq!(parsed["title"], "Engine Speed");
+        assert_eq!(parsed["outputs"].as_array().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_json_renderer_empty_outputs() {
+        let mut renderer = JsonRenderer;
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let message = DecodedMessage {
+            title: "Empty Message".to_string(),
+            outputs: vec![],
+            updates: vec![],
+            assembled_message: assembled,
+        };
+        let result = renderer.render(&message).await.unwrap();
+        assert!(result.contains("\"outputs\": []"));
+    }
+
+    #[tokio::test]
+    async fn test_json_renderer_flag_value() {
+        let mut renderer = JsonRenderer;
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let message = DecodedMessage {
+            title: "Status".to_string(),
+            outputs: vec![DecodedField::Flag {
+                title: "Engine".to_string(),
+                value: crate::types::FlagValue::On,
+            }],
+            updates: vec![],
+            assembled_message: assembled,
+        };
+        let result = renderer.render(&message).await.unwrap();
+        assert!(result.contains("\"value\": \"on\""));
+    }
+
+    #[tokio::test]
+    async fn test_json_renderer_hex_value() {
+        let mut renderer = JsonRenderer;
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let message = DecodedMessage {
+            title: "VIN".to_string(),
+            outputs: vec![DecodedField::Value {
+                title: "Data".to_string(),
+                value: Numeric::Hex(vec![0x12, 0x34, 0xAB]),
+                unit: None,
+                decimal_places: None,
+            }],
+            updates: vec![],
+            assembled_message: assembled,
+        };
+        let result = renderer.render(&message).await.unwrap();
+        assert!(result.contains("\"Hex\""));
+        assert!(result.contains("18"));
+        assert!(result.contains("52"));
+        assert!(result.contains("171"));
+    }
+
+    #[tokio::test]
+    async fn test_json_renderer_bool_value() {
+        let mut renderer = JsonRenderer;
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let message = DecodedMessage {
+            title: "Flag".to_string(),
+            outputs: vec![DecodedField::Value {
+                title: "Active".to_string(),
+                value: Numeric::Bool(true),
+                unit: None,
+                decimal_places: None,
+            }],
+            updates: vec![],
+            assembled_message: assembled,
+        };
+        let result = renderer.render(&message).await.unwrap();
+        assert!(result.contains("\"Bool\": true"));
+    }
+
+    #[tokio::test]
+    async fn test_json_renderer_float_value() {
+        let mut renderer = JsonRenderer;
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let message = DecodedMessage {
+            title: "Temperature".to_string(),
+            outputs: vec![DecodedField::Value {
+                title: "Coolant".to_string(),
+                value: Numeric::Float(92.5),
+                unit: Some("C".to_string()),
+                decimal_places: Some(1),
+            }],
+            updates: vec![],
+            assembled_message: assembled,
+        };
+        let result = renderer.render(&message).await.unwrap();
+        assert!(result.contains("\"Float\": 92.5"));
+    }
+
+    #[tokio::test]
+    async fn test_json_renderer_severity_values() {
+        let mut renderer = JsonRenderer;
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+
+        for severity in [
+            crate::types::Severity::Info,
+            crate::types::Severity::Warning,
+            crate::types::Severity::Error,
+        ] {
+            let message = DecodedMessage {
+                title: "Test".to_string(),
+                outputs: vec![DecodedField::StringMessage {
+                    severity: severity.clone(),
+                    text: "test".to_string(),
+                }],
+                updates: vec![],
+                assembled_message: assembled.clone(),
+            };
+            let result = renderer.render(&message).await.unwrap();
+            let expected = format!("\"severity\": \"{:?}\"", severity);
+            assert!(result.contains(&expected));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_json_renderer_data_bytes() {
+        let mut renderer = JsonRenderer;
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![0xDE, 0xAD, 0xBE, 0xEF]);
+        let message = DecodedMessage {
+            title: "Data".to_string(),
+            outputs: vec![],
+            updates: vec![],
+            assembled_message: assembled,
+        };
+        let result = renderer.render(&message).await.unwrap();
+        assert!(result.contains("\"data\""));
+        assert!(result.contains("222"));
+        assert!(result.contains("173"));
+    }
+
+    #[tokio::test]
+    async fn test_json_renderer_assembled_message_fields() {
+        let mut renderer = JsonRenderer;
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let message = DecodedMessage {
+            title: "Address".to_string(),
+            outputs: vec![],
+            updates: vec![],
+            assembled_message: assembled,
+        };
+        let result = renderer.render(&message).await.unwrap();
+        assert!(result.contains("\"id\":"));
+        assert!(result.contains("\"pgn\":"));
+        assert!(result.contains("\"timestamp\":"));
+    }
+
+    #[tokio::test]
+    async fn test_json_renderer_source_dest_name() {
+        let mut renderer = JsonRenderer;
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let message = DecodedMessage {
+            title: "Names".to_string(),
+            outputs: vec![],
+            updates: vec![],
+            assembled_message: assembled,
+        };
+        let result = renderer.render(&message).await.unwrap();
+        assert!(result.contains("\"source_name\": null"));
+        assert!(result.contains("\"dest_name\": null"));
+    }
+
+    #[tokio::test]
+    async fn test_json_renderer_updates() {
+        let mut renderer = JsonRenderer;
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let message = DecodedMessage {
+            title: "Updates".to_string(),
+            outputs: vec![],
+            updates: vec![crate::types::DeviceUpdate {
+                target_name: 0x1234567890ABCDEF,
+                param_id: 42,
+                value: Numeric::Int(100),
+            }],
+            assembled_message: assembled,
+        };
+        let result = renderer.render(&message).await.unwrap();
+        assert!(result.contains("\"updates\":"));
+        assert!(result.contains("42"));
+    }
+
+    #[tokio::test]
+    async fn test_json_renderer_can_id() {
+        let mut renderer = JsonRenderer;
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let message = DecodedMessage {
+            title: "ID".to_string(),
+            outputs: vec![],
+            updates: vec![],
+            assembled_message: assembled,
+        };
+        let result = renderer.render(&message).await.unwrap();
+        assert!(result.contains("\"id\""));
+    }
+
+    #[tokio::test]
+    async fn test_json_renderer_all_flag_values() {
+        let mut renderer = JsonRenderer;
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+
+        for (flag_val, expected_str) in [
+            (crate::types::FlagValue::Off, "\"off\""),
+            (crate::types::FlagValue::On, "\"on\""),
+            (crate::types::FlagValue::Error, "\"error\""),
+            (crate::types::FlagValue::Unavailable, "\"unavailable\""),
+        ] {
+            let message = DecodedMessage {
+                title: "Test".to_string(),
+                outputs: vec![DecodedField::Flag {
+                    title: "Status".to_string(),
+                    value: flag_val.clone(),
+                }],
+                updates: vec![],
+                assembled_message: assembled.clone(),
+            };
+            let result = renderer.render(&message).await.unwrap();
+            assert!(result.contains(expected_str), "Failed for {:?}", flag_val);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_json_renderer_nested_structure() {
+        let mut renderer = JsonRenderer;
+        let message = make_test_message();
+        let result = renderer.render(&message).await.unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+
+        assert!(parsed.get("title").is_some());
+        assert!(parsed.get("outputs").is_some());
+        assert!(parsed.get("updates").is_some());
+        assert!(parsed.get("assembled_message").is_some());
+
+        let outputs = parsed["outputs"].as_array().unwrap();
+        assert_eq!(outputs.len(), 2);
+
+        let first_output = &outputs[0];
+        assert!(first_output.get("Value").is_some());
+        let value_obj = &first_output["Value"];
+        assert!(value_obj.get("title").is_some());
+        assert!(value_obj.get("value").is_some());
+    }
+}
