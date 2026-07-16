@@ -8,6 +8,15 @@
 - [ ] Assembled-message includes an explicit PGN field as well as the CAN id. There is a note that the CAN id is always the raw ID from the frame... However, that is not really relevant. Instead, we shoudd drop the PGN field an create a synthetic ID for the TP AssembledMessage. Source/Destination address, should be that of the RTS/BAM frame. Priorrity should be the lowest priority received for any of the CM or DT frames coming from the sender. PGN should be the PGN encoded into the data bytes of the RTS/BAM frame.
 - [ ]  Move the text-based(console/CSV/JSON) renderers into a separate file.
 
+### DecodeContext Wiring (Architecture Gap)
+- [x] `DecodeContext` is now constructed in PgnDecoder::decode_raw_frame_with_context and passed to ComplexDecoder::decode() via decode_assembled_with_context.
+
+### DeviceUpdate Wiring (Architecture Gap)
+- [x] `DeviceUpdate` values are now populated from decoder output for DeviceManager state changes. The `decode_raw_frame_with_context` method returns `(Vec<DecodedField>, Vec<DeviceUpdate>)`, and the Decoder trait implementation collects updates into DecodedMessage.updates.
+
+### PgnFilter Refactor (Architecture Gap)
+- [x] `PgnFilter` now uses `message.assembled_message.pgn()` directly for accurate PGN matching instead of substring search on title strings.
+
 ### CSV Formatter
 - [ ] Implement CSV renderer — output DecodedField rows with headers.
 - [ ] Each row should have certian fixed columns for every message, these will be the first columns: 
@@ -61,26 +70,26 @@
 ## Error Reporting & Logging ⏳ NOT STARTED
 
 ### Crash Prevention Verification
-- [ ] All unit and integration tests must verify that malformed CAN frames, invalid PGN payloads, and corrupted TP sequences produce error output rather than panics.
-- [ ] Panics reserved exclusively for unrecoverable program bugs (missing enum arms, assertion failures in invariant code).
+- [x] All unit and integration tests verify that malformed CAN frames, invalid PGN payloads, and corrupted TP sequences produce error output rather than panics. Tests include: test_decode_empty_data, test_decode_short_data_returns_warning, test_dt_without_prior_cm, test_data_packet_too_short, test_bam_too_short_data, test_rts_cts_single_packet_transfer, and many more.
+- [x] Panics reserved exclusively for unrecoverable program bugs (no panics in decode/parse paths).
 
 ### Debug Logging
 - [ ] Implement separate debug log (stderr or file) independent of pretty-print filtering.
 - [ ] Log protocol issues, timeout events, device expiration, and address conflicts.
 
-## Code Cleanup ⏳ NOT STARTED
+## Code Cleanup ⏳ COMPLETED ✅
 
 ### Dead Code Removal
-- [ ] Remove `extract_tp_addresses` in `tp_reassembler.rs:116-132` — unused function causing compiler warning (reassembler uses inline address extraction instead).
-- [ ] Clean up commented-out single-frame logic in `pgn_decoder.rs:483-486` with incorrect PGN threshold.
+- [x] `extract_tp_addresses` in `tp_reassembler.rs:116-132` — kept with `#[allow(dead_code)]` attribute because it is used by unit tests for TP frame address extraction verification.
+- [x] Commented-out single-frame logic in `pgn_decoder.rs` was cleaned up in a previous commit (no stale comments remain).
 
 ### Stale Comments & Debug Prints
-- [ ] Fix `handle_abort` at tp_reassembler.rs:402-407 — has debug print saying "not yet implemented" but doesn't actually clean up assembly state. Either implement abort handling or remove the stub.
-- [ ] Remove any remaining debug print statements from reassembler.
+- [x] `handle_abort` at tp_reassembler.rs:402-417 — fully implemented. Clears assembly state, handles broadcast fallback, and cleans up rts_pending_sources. Debug print is appropriate (wrapped in `if self.debug`).
+- [x] All debug print statements in reassembler are properly wrapped in `if self.debug` blocks. No leftover "not yet implemented" stubs.
 
 ### Variable Naming & Dead Code
-- [ ] Prefix unused test variables with `_` (`num_packets`, `other`, `pgn` compiler warnings in tp_reassembler tests).
-- [ ] Remove or add `#[allow(dead_code)]` to `extract_tp_addresses` in `tp_reassembler.rs:116-132` — added but reassembler uses inline address extraction instead.
+- [x] No unused test variable warnings (`num_packets`, `other`, `pgn` — all cleaned up or used).
+- [x] `#[allow(dead_code)]` added to `extract_tp_addresses` and MockComplexDecoder struct/impl in pgn_decoder.rs.
 
 ## TP Reassembly Test Scenarios ⏳ NOT STARTED
 

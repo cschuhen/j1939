@@ -136,14 +136,7 @@ impl Filter for PgnFilter {
     }
 
     fn matches(&self, message: &DecodedMessage) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
-        let result = message.outputs.iter().any(|output| {
-            if let DecodedField::Value { title, .. } = output {
-                // Match on known PGN-containing titles from the decoder
-                title.contains("PGN") || title.contains("pgn")
-            } else {
-                false
-            }
-        });
+        let result = self.pgn == message.assembled_message.pgn();
         Box::pin(async move { result })
     }
 }

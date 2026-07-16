@@ -104,7 +104,7 @@ impl Decoder for MockDecoder {
         >,
     > {
         Box::pin(async move {
-            let pgn = j1939_async::can::IdImpl::new_unchecked(frame.can_id).pgn();
+            let _pgn = j1939_async::can::IdImpl::new_unchecked(frame.can_id).pgn();
             let mut output_message =
                 DecodedMessage::new(format!("Frame: {:08X}", frame.can_id));
             output_message.outputs = vec![DecodedField::StringMessage {

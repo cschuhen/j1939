@@ -5,6 +5,8 @@ pub mod filters;
 pub mod pgn_decoder;
 /// Async channel-based pipeline wiring stages together.
 pub mod pipeline;
+/// Output renderers (Console, JSON).
+pub mod renderers;
 /// Input sources (SocketCAN, candump files).
 pub mod sources;
 /// J1939 Transport Protocol reassembly module.

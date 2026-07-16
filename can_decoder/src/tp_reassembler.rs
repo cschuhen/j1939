@@ -37,6 +37,15 @@ pub struct TpAssemblyState {
     pub last_packet_time: u64,
 }
 
+impl TpAssemblyState {
+    /// Update the priority to the minimum of current and new priority.
+    pub fn update_priority(&mut self, new_priority: u8) {
+        if new_priority < self.priority {
+            self.priority = new_priority;
+        }
+    }
+}
+
 /// Result of TP reassembly for a single frame.
 #[derive(Debug, Clone)]
 pub enum TpReassemblyResult {
@@ -108,11 +117,9 @@ impl fmt::Display for TpError {
 
 impl std::error::Error for TpError {}
 
-/// Extract source and destination addresses from a J1939 CAN ID.
-///
-/// TP.CM (PF=0xEC) and TP.DT (PF=0xEB) transport mechanism is ALWAYS PDU1 format.
-/// PS = destination address: 0xFF = broadcast, otherwise unicast to that node.
-/// The payload inside may encode a larger message that is PDU1 or PDU2 -- separate concern.
+/// Extract source address and destination/group extension from a J1939 CAN ID.
+/// Used by tests to verify TP frame address extraction logic.
+#[allow(dead_code)]
 fn extract_tp_addresses(can_id: u32) -> (u8, u8) {
     let pf = ((can_id >> 16) & 0xFF) as u8;
     let ps = ((can_id >> 8) & 0xFF) as u8;
@@ -184,21 +191,8 @@ impl TpReassembler {
 
     /// Process a single RawFrame and return reassembly results.
     pub fn process_frame(&mut self, frame: &RawFrame) -> Vec<TpReassemblyResult> {
-        // Zero len data is OK
-        // if frame.data.is_empty() {
-        //     return vec![];
-        // }
-
         self.cleanup_expired(frame.timestamp / 1000);
         let results = self.process_frame_internal(frame);
-
-        if self.debug {
-            eprintln!(
-                "[DEBUG] process_frame: can_id={:#010X}, pgn.pgn={:#06X}, data[0]={}, len={}, results.len()={}",
-                frame.can_id, frame.pgn(), frame.data.first().unwrap_or(&0), frame.data.len(), results.len()
-            );
-        }
-
         results
     }
 
@@ -399,10 +393,26 @@ impl TpReassembler {
         vec![]
     }
 
-    fn handle_abort(&self, _frame: &RawFrame, _data: &[u8]) -> Vec<TpReassemblyResult> {
-        if self.debug {
-            eprintln!("[TP] Abort received - not yet implemented");
+    fn handle_abort(&mut self, frame: &RawFrame, _data: &[u8]) -> Vec<TpReassemblyResult> {
+        let transmitter = frame.source_address();
+        let receiver = frame.destination_address();
+
+        if let Some(assembly) = self.assemblies.remove(&(transmitter, receiver)) {
+            if self.debug {
+                eprintln!(
+                    "[TP] Abort received: cleared assembly for transmitter={:#04X} receiver={:#04X}, PGN={:#06X}",
+                    transmitter, receiver, assembly.pgn
+                );
+            }
         }
+
+        // Also try (transmitter, 0xFF) fallback for broadcast transfers
+        self.assemblies.remove(&(transmitter, 0xFF));
+
+        // Clean up rts_pending_sources if the abort came from a known RTS source
+        self.rts_pending_sources.remove(&transmitter);
+        self.rts_pending_sources.remove(&receiver);
+
         vec![]
     }
 
@@ -1939,7 +1949,7 @@ mod tests {
 
         match &results[0] {
             TpReassemblyResult::Complete(_) => {}
-            other => panic!("Expected Complete"),
+            _other => panic!("Expected Complete"),
         }
 
         // EOM should be processed after assembly completes without interfering

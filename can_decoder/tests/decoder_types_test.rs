@@ -30,6 +30,7 @@ mod tests {
         }
     }
 
+    #[allow(dead_code)]
     fn make_dummy_assembled_with_dest(pgn: u32, source: u8, dest: u8) -> AssembledMessage {
         let can_id = (3u32 << 26) | (pgn << 16) | ((dest as u32) << 8) | source as u32;
         AssembledMessage {
@@ -42,6 +43,7 @@ mod tests {
         }
     }
 
+    #[allow(dead_code)]
     fn make_dummy_assembled_with_dest_data(pgn: u32, source: u8, dest: u8, data: Vec<u8>) -> AssembledMessage {
         let can_id = (3u32 << 26) | (pgn << 16) | ((dest as u32) << 8) | source as u32;
         AssembledMessage {

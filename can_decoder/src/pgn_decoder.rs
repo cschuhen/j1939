@@ -393,7 +393,8 @@ impl J1939Decoder {
     }
 
     /// Decode an assembled message into DecodedField items using config definitions.
-    pub fn decode_assembled(&mut self, msg: &AssembledMessage) -> Vec<DecodedField> {
+    /// Returns (outputs, updates) tuple to capture DeviceUpdates from complex decoders.
+    pub fn decode_assembled(&mut self, msg: &AssembledMessage) -> (Vec<DecodedField>, Vec<crate::types::DeviceUpdate>) {
         let pgn_key = msg.pgn();
 
         if let Some(decoder) = self.complex_decoders.get_mut(&pgn_key) {
@@ -407,16 +408,16 @@ impl J1939Decoder {
                 timestamp: msg.timestamp,
             };
             if let Ok(Some(msg_result)) = decoder.decode(&context, &msg.data) {
-                return msg_result.outputs;
+                return (msg_result.outputs, msg_result.updates);
             }
         }
 
         if let Some(pgn_def) = self.config.pgns.get(&pgn_key) {
-            return self.decode_components(msg, pgn_def);
+            return (self.decode_components(msg, pgn_def), vec![]);
         }
 
         // No definition found - emit raw hex as info message
-        vec![DecodedField::StringMessage {
+        (vec![DecodedField::StringMessage {
             severity: Severity::Info,
             text: format!(
                 "Unrecognized PGN={:#06X} source={:#04X}: {} bytes",
@@ -424,12 +425,13 @@ impl J1939Decoder {
                 msg.source(),
                 msg.data.len()
             ),
-        }]
+        }], vec![])
     }
 
     /// Decode an assembled message with device name enrichment from DeviceManager.
-    fn decode_assembled_with_context(&mut self, msg: &AssembledMessage) -> Vec<DecodedField> {
-        let mut outputs = self.decode_assembled(msg);
+    #[allow(unused_mut)]
+    fn decode_assembled_with_context(&mut self, msg: &AssembledMessage) -> (Vec<DecodedField>, Vec<crate::types::DeviceUpdate>) {
+        let (mut outputs, mut updates) = self.decode_assembled(msg);
 
         // Enrich output with source device name if available in assembled message
         if let Some(src_name_u64) = msg.source_name {
@@ -469,7 +471,7 @@ impl J1939Decoder {
             });
         }
 
-        outputs
+        (outputs, updates)
     }
 
     /// Decode components of a message based on a PGN definition.
@@ -621,6 +623,12 @@ impl J1939Decoder {
 
     /// Decode a raw frame directly (for single-frame/broadcast compressed messages).
     pub fn decode_raw_frame(&mut self, frame: RawFrame) -> Vec<DecodedField> {
+        let (outputs, _) = self.decode_raw_frame_with_updates(frame);
+        outputs
+    }
+
+    /// Decode a raw frame and return both outputs and DeviceUpdates.
+    pub fn decode_raw_frame_with_updates(&mut self, frame: RawFrame) -> (Vec<DecodedField>, Vec<crate::types::DeviceUpdate>) {
         let pgn = frame.pgn();
 
         // Handle Address Claim PGN (0xEC00) - extract and store NAME for source address
@@ -637,16 +645,21 @@ impl J1939Decoder {
         // Multi-frame TP - feed to reassembler
         let results = self.reassembler.process_frame(&frame);
         let mut outputs = Vec::new();
+        let mut updates = Vec::new();
 
         for result in results {
             match result {
                 TpReassemblyResult::Complete(assembled) => {
                     // Task 2: Always pass assembled TP messages to PGN decoder, independent of detail level
-                    outputs.extend(self.decode_assembled_with_context(&assembled));
+                    let (o, u) = self.decode_assembled_with_context(&assembled);
+                    outputs.extend(o);
+                    updates.extend(u);
                 }
                 TpReassemblyResult::SingleFrame(assembled) => {
                     // Non-TP frames are always decoded (they're not part of a TP session)
-                    outputs.extend(self.decode_assembled_with_context(&assembled));
+                    let (o, u) = self.decode_assembled_with_context(&assembled);
+                    outputs.extend(o);
+                    updates.extend(u);
                 }
                 TpReassemblyResult::Pending => {
                     // Task 1: Individual TP packets during assembly are NOT passed to PGN decoder
@@ -667,35 +680,7 @@ impl J1939Decoder {
             }
         }
 
-        outputs
-    }
-
-    /// Decode a single frame using config definitions.
-    fn decode_single_frame(&mut self, frame: &RawFrame) -> Vec<DecodedField> {
-        let pgn_key = frame.pgn();
-
-        if let Some(_pgn_def) = self.config.pgns.get(&pgn_key) {
-            let assembled = AssembledMessage {
-                id: frame.can_id,
-                pgn: pgn_key,
-                data: frame.data.clone(),
-                timestamp: frame.timestamp,
-                source_name: None,
-                dest_name: None,
-            };
-            return self.decode_assembled(&assembled);
-        }
-
-        // No definition - emit raw info
-        vec![DecodedField::StringMessage {
-            severity: Severity::Info,
-            text: format!(
-                "PGN={:#08X} source={:#04X}: {} bytes",
-                pgn_key,
-                (frame.can_id & 0xFF),
-                frame.data.len()
-            ),
-        }]
+        (outputs, updates)
     }
 
     /// Get the number of active TP assemblies.
@@ -726,7 +711,7 @@ impl Decoder for J1939Decoder {
     > {
         Box::pin(async move {
             let can_id = frame.can_id;
-            let outputs = self.decode_raw_frame(frame.clone());
+            let (outputs, updates) = self.decode_raw_frame_with_updates(frame.clone());
             let id = j1939_async::can::IdImpl::new_unchecked(can_id);
             
             let mut source_name: Option<u64> = None;
@@ -751,7 +736,7 @@ impl Decoder for J1939Decoder {
             Ok(DecodedMessage {
                 title: format!("PGN {:X} from {:X}", id.pgn(), id.source()),
                 outputs,
-                updates: vec![],
+                updates,
                 assembled_message: assembled,
             })
         })
@@ -1116,7 +1101,7 @@ pgns:
         let data = vec![0x10u8, 0x27]; // Little-endian: 10000
         let assembled = make_assembled(0x0FEF4, 0x20, data);
 
-        let outputs = decoder.decode_assembled(&assembled);
+        let (outputs, _) = decoder.decode_assembled(&assembled);
         assert!(!outputs.is_empty());
 
         match &outputs[0] {
@@ -1139,7 +1124,7 @@ pgns:
         let data = vec![0x3Cu8]; // 60 in decimal
         let assembled = make_assembled(0x0CF00, 0xF8, data);
 
-        let outputs = decoder.decode_assembled(&assembled);
+        let (outputs, _) = decoder.decode_assembled(&assembled);
         assert!(!outputs.is_empty());
 
         match &outputs[0] {
@@ -1161,7 +1146,7 @@ pgns:
         let data = vec![0x01u8, 0x02, 0x03];
         let assembled = make_assembled(0xDEADBEEF & 0x3FFFF, 0x40, data);
 
-        let outputs = decoder.decode_assembled(&assembled);
+        let (outputs, _) = decoder.decode_assembled(&assembled);
         assert!(!outputs.is_empty());
 
         match &outputs[0] {
@@ -1175,7 +1160,7 @@ pgns:
         let mut decoder = J1939Decoder::new(false, 1000, false);
 
         let assembled = make_assembled(0x0FEF4, 0x20, vec![]);
-        let outputs = decoder.decode_assembled(&assembled);
+        let (outputs, _) = decoder.decode_assembled(&assembled);
 
         assert!(!outputs.is_empty());
         match &outputs[0] {
@@ -1281,7 +1266,7 @@ pgns:
         // The custom definition should override the built-in one
         let data = vec![0x64u8, 0x00]; // 100 in little-endian (0x0064)
         let assembled = make_assembled(0x0FEF4, 0x20, data);
-        let outputs = decoder.decode_assembled(&assembled);
+        let (outputs, _) = decoder.decode_assembled(&assembled);
 
         match &outputs[0] {
             DecodedField::Value { title, value, .. } => {
@@ -1406,7 +1391,7 @@ pgns:
         let mut assembled = make_assembled(0x0CF00, 0x20, data);
         assembled.source_name = Some(0x8000_3e00_460d_836e);
 
-        let outputs = decoder.decode_assembled_with_context(&assembled);
+        let (outputs, _) = decoder.decode_assembled_with_context(&assembled);
 
         // First output should be the Source Device NAME enrichment
         match &outputs[0] {
@@ -1455,7 +1440,7 @@ pgns:
             dest_name: None,
         };
 
-        let outputs = decoder.decode_assembled_with_context(&assembled);
+        let (outputs, _) = decoder.decode_assembled_with_context(&assembled);
 
         // Should have Source Device + RPM (2 outputs)
         // Dest Device not added because destination() returns broadcast for PDU2-style IDs
@@ -1507,7 +1492,7 @@ pgns:
             dest_name: None,
         };
 
-        let outputs = decoder.decode_assembled_with_context(&assembled);
+        let (outputs, _) = decoder.decode_assembled_with_context(&assembled);
 
         // Should only have Source Device + Speed (2 outputs), no Dest Device
         assert_eq!(outputs.len(), 2);
@@ -1544,6 +1529,7 @@ pgns:
     // ========================================================================
 
     /// Mock complex decoder for testing dispatch routing.
+    #[allow(dead_code)]
     struct MockComplexDecoder {
         handled_pgns: Vec<u32>,
         output: DecodedMessage,
@@ -1551,6 +1537,7 @@ pgns:
         call_count: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     }
 
+    #[allow(dead_code)]
     impl MockComplexDecoder {
         fn new(handled_pgn: u32, output: DecodedMessage) -> Self {
             MockComplexDecoder {
@@ -1627,7 +1614,7 @@ pgns:
 
         let data = vec![0xAAu8, 0xBB];
         let assembled = make_assembled(0xDEADBEEF & 0x3FFFF, 0x50, data);
-        let outputs = decoder.decode_assembled(&assembled);
+        let (outputs, _) = decoder.decode_assembled(&assembled);
 
         assert_eq!(outputs.len(), 1);
         match &outputs[0] {
@@ -1660,7 +1647,7 @@ pgns:
 
         let data = vec![0x3Cu8]; // 60 km/h
         let assembled = make_assembled(0x0CF00, 0xF8, data);
-        let outputs = decoder.decode_assembled(&assembled);
+        let (outputs, _) = decoder.decode_assembled(&assembled);
 
         assert!(!outputs.is_empty());
         match &outputs[0] {
@@ -1693,7 +1680,7 @@ pgns:
         // PGN 0x0CF00 is NOT registered with the complex decoder
         let data = vec![0x2Du8]; // 45 km/h
         let assembled = make_assembled(0x0CF00, 0xF8, data);
-        let outputs = decoder.decode_assembled(&assembled);
+        let (outputs, _) = decoder.decode_assembled(&assembled);
 
         assert!(!outputs.is_empty());
         match &outputs[0] {
@@ -1753,7 +1740,7 @@ pgns:
 
         // Decode PGN 0x1111 -> should use mock A
         let assembled_a = make_assembled(0x1111, 0x30, vec![0x01]);
-        let outputs_a = decoder.decode_assembled(&assembled_a);
+        let (outputs_a, _) = decoder.decode_assembled(&assembled_a);
         assert_eq!(outputs_a[0], DecodedField::StringMessage {
             severity: Severity::Info,
             text: "Mock A".to_string(),
@@ -1763,7 +1750,7 @@ pgns:
 
         // Decode PGN 0x2222 -> should use mock B
         let assembled_b = make_assembled(0x2222, 0x40, vec![0x02]);
-        let outputs_b = decoder.decode_assembled(&assembled_b);
+        let (outputs_b, _) = decoder.decode_assembled(&assembled_b);
         assert_eq!(outputs_b[0], DecodedField::StringMessage {
             severity: Severity::Info,
             text: "Mock B".to_string(),
@@ -1773,7 +1760,7 @@ pgns:
 
         // Decode unregistered PGN -> should fall back to YAML (or unrecognized)
         let assembled_c = make_assembled(0x3333, 0x50, vec![0x03]);
-        let outputs_c = decoder.decode_assembled(&assembled_c);
+        let (outputs_c, _) = decoder.decode_assembled(&assembled_c);
         assert_eq!(outputs_c[0], DecodedField::StringMessage {
             severity: Severity::Info,
             text: "Unrecognized PGN=0x3333 source=0x50: 1 bytes".to_string(),
@@ -1841,7 +1828,7 @@ pgns:
 
         let data = vec![0x10u8, 0x27]; // RPM = 10000 raw -> would be 2500.0 from YAML
         let assembled = make_assembled(0x0FEF4, 0x20, data);
-        let outputs = decoder.decode_assembled(&assembled);
+        let (outputs, _) = decoder.decode_assembled(&assembled);
 
         // Should get mock output, not YAML-decoded RPM
         assert_eq!(outputs[0], DecodedField::StringMessage {
@@ -1870,7 +1857,7 @@ pgns:
         let data = vec![0xA3, 0x00, 0x00, 0xE0, 0xB2, 0xB2, 0x88, 0x9B];
         let assembled = make_assembled(PROCESS_DATA_PGN, 0x90, data);
 
-        let outputs = decoder.decode_assembled(&assembled);
+        let (outputs, _) = decoder.decode_assembled(&assembled);
         assert!(!outputs.is_empty());
 
         // First output should be Element ID from TaskController decoder
@@ -1932,7 +1919,7 @@ pgns:
             ];
 
             let assembled = make_assembled(PROCESS_DATA_PGN, 0x90, data);
-            let outputs = decoder.decode_assembled(&assembled);
+            let (outputs, _) = decoder.decode_assembled(&assembled);
 
             assert_eq!(outputs.len(), 3, "Expected 3 outputs for element {}", expected_elem);
 
@@ -2006,7 +1993,7 @@ pgns:
         );
 
         let assembled = make_assembled(0x0CF00, 0xF8, vec![0x3Cu8]); // Speed = 60 km/h
-        let outputs = decoder_assembled.decode_assembled(&assembled);
+        let (outputs, _) = decoder_assembled.decode_assembled(&assembled);
         assert!(!outputs.is_empty(), "Assembled message should be decoded with Assembled detail level");
         match &outputs[0] {
             DecodedField::Value { title, .. } => {
@@ -2020,7 +2007,7 @@ pgns:
             false, 5000, false, None, DetailLevel::Both
         );
 
-        let outputs_both = decoder_both.decode_assembled(&assembled);
+        let (outputs_both, _) = decoder_both.decode_assembled(&assembled);
         assert!(!outputs_both.is_empty(), "Assembled message should be decoded with Both detail level");
 
         // Test with detail_level = Raw - assembled TP messages should still be decoded (task 2)
@@ -2028,7 +2015,7 @@ pgns:
             false, 5000, false, None, DetailLevel::Raw
         );
 
-        let outputs_raw = decoder_raw.decode_assembled(&assembled);
+        let (outputs_raw, _) = decoder_raw.decode_assembled(&assembled);
         assert!(!outputs_raw.is_empty(), "Assembled TP message should always be decoded regardless of detail level");
     }
 
