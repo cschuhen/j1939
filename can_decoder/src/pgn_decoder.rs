@@ -725,8 +725,15 @@ impl Decoder for J1939Decoder {
                 }
             }
             
+            let synthetic_id = crate::tp_reassembler::build_assembled_can_id(
+                id.pgn(),
+                id.source(),
+                id.destination(),
+                id.priority(),
+            );
+
             let assembled = AssembledMessage {
-                id: can_id,
+                id: synthetic_id,
                 pgn: id.pgn(),
                 data: frame.data.clone(),
                 timestamp: frame.timestamp,

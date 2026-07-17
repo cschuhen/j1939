@@ -138,12 +138,11 @@ fn extract_tp_addresses(can_id: u32) -> (u8, u8) {
     }
 }
 
-/// Build a CAN ID from a payload PGN and source/destination addresses.
+/// Build a synthetic J1939 CAN ID from PGN, source, destination, and priority.
 ///
-/// The payload PGN is extracted from BAM/RTS data bytes 5-7 (little-endian).
 /// For TP messages (PGN >= 0xF000), uses PDU2 format where destination=0xFF.
 /// For standard J1939 messages (PGN < 0xF000), uses PDU1 format with dest in PS field.
-fn build_assembled_can_id(pgn: u32, source: u8, dest: u8, priority: u8) -> u32 {
+pub fn build_assembled_can_id(pgn: u32, source: u8, dest: u8, priority: u8) -> u32 {
     let mut id = source as u32;
     id |= (priority as u32) << 26;
 

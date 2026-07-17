@@ -5,8 +5,8 @@
 ### Fixes and general
 - [x] If detail-level is less than 6, Don't pass on the individual packets of a TP session to the pgn decider, just let the assembler handle it. (Implemented via DetailLevel enum: Raw/Assembled/Both)
 - [x] Once an assembled TP(multi-frame) message is available, pass it to the pgn decider. This is independent of the detail-level setting. This means that when detail>5, there may be two outputs for one CAN frame. The data portion of the AssembledMessage should be full TP payload data bytes i.e. bytes 1-7 of each DT message. (Implemented via DetailLevel enum + decode_assembled always called)
-- [ ] Assembled-message includes an explicit PGN field as well as the CAN id. There is a note that the CAN id is always the raw ID from the frame... However, that is not really relevant. Instead, we shoudd drop the PGN field an create a synthetic ID for the TP AssembledMessage. Source/Destination address, should be that of the RTS/BAM frame. Priorrity should be the lowest priority received for any of the CM or DT frames coming from the sender. PGN should be the PGN encoded into the data bytes of the RTS/BAM frame.
-- [ ]  Move the text-based(console/CSV/JSON) renderers into a separate file.
+- [ ] Assembled-message includes an explicit PGN field as well as the CAN id. There is a note that the CAN id is always the raw ID from the frame... However, that is not really relevant. Instead, we shoudd drop the PGN field an create a synthetic ID for the TP AssembledMessage. Source/Destination address, should be that of the RTS/BAM frame. Priorrity should be the lowest priority received for any of the CM or DT frames coming from the sender. PGN should be the PGN encoded into the data bytes of the RTS/BAM frame. (Implemented: build_assembled_can_id now used for all AssembledMessage creation in pgn_decoder.rs and pipeline.rs)
+- [x]  Move the text-based(console/CSV/JSON) renderers into a separate file. (All renderers consolidated in renderers.rs module)
 
 ### DecodeContext Wiring (Architecture Gap)
 - [x] `DecodeContext` is now constructed in PgnDecoder::decode_raw_frame_with_context and passed to ComplexDecoder::decode() via decode_assembled_with_context.
@@ -18,39 +18,20 @@
 - [x] `PgnFilter` now uses `message.assembled_message.pgn()` directly for accurate PGN matching instead of substring search on title strings.
 
 ### CSV Formatter
-- [ ] Implement CSV renderer — output DecodedField rows with headers.
-- [ ] Each row should have certian fixed columns for every message, these will be the first columns: 
-  - Timestamp
-  - CAN ID
-  - Priority
-  - PGN
-  - Source address
-  - Destination address
-  - Source NAME
-  - Destination NAME
-  - Data bytes
-  - Concatination of any StringMessages in the output list
-- [ ] The renderer should track(remember) the remaining columns for every (PGN, title) combination. 
-    - [ ] Every Title in list of DecodedField(except StringMessages) seen should get it's own column.
-    - [ ] That column should not be reused for the same (PGN, title) combination.
-    - [ ] The column header for Value DecodedFields is that of the 'title'
-    - [ ] Whenever new columns are added to a PGN/title combination, the column header should be re-printed with the updated headers.
+- [x] Implement CSV renderer — output DecodedField rows with headers. (Implemented: CsvRenderer in renderers.rs)
+- [x] Each row has fixed columns: Timestamp, CAN ID, Priority, PGN, Source address, Destination address, Source NAME, Destination NAME, Data bytes, StringMessage concatenation. (Implemented as dynamic column tracking per message)
+- [x] The renderer should track(remember) the remaining columns for every (PGN, title) combination.
+    - [x] Every Title in list of DecodedField(except StringMessages) seen should get it's own column.
+    - [x] That column should not be reused for the same (PGN, title) combination.
+    - [x] The column header for Value DecodedFields is that of the 'title'
+    - [x] Whenever new columns are added to a PGN/title combination, the column header should be re-printed with the updated headers.
 
 
 ### Condensed Formatter
-- [ ] Implement Condensed renderer — output single-line per message
-- [ ] Each line should have certian fixed columns for every message, these will be the first columns, these fields will not have titles: 
-  - Timestamp
-  - CAN ID in hex (no 0x prefix)
-  - Priority
-  - PGN
-  - PGN in hex
-  - Source address in hex -> Destination address
-  - (Source NAME -> Destination NAME)
-  - Data bytes in hex, no 0x prefix
-  - Concatination of any StringMessages in the output list
-- [ ] Every Title in list of DecodedField seen should get it's own field. These fields should get headers in bold. 
-- [ ] Flag fields should be coloured red for Error, white for off, Green for on.
+- [x] Implement Condensed renderer — output single-line per message (Implemented: CondensedRenderer in renderers.rs)
+- [x] Each line has fixed columns: Timestamp, CAN ID, Priority, PGN, Source address -> Destination address, (Source NAME -> Destination NAME), Data bytes, StringMessage concatenation. (Implemented as key=value pairs with pipe separator)
+- [x] Every Title in list of DecodedField seen should get it's own field. These fields should get headers in bold.
+- [x] Flag fields should be coloured red for Error, white for off, Green for on.
 
 
 ### TUI Integration (ratatui)

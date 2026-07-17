@@ -83,4 +83,5 @@ pub enum OutputFormat {
     Console,
     Json,
     Csv,
+    Condensed,
 }

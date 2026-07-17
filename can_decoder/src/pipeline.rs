@@ -165,8 +165,15 @@ impl Decoder for NullDecoder {
                     .collect::<Vec<_>>()
                     .join(" ")
             );
+            let synthetic_id = crate::tp_reassembler::build_assembled_can_id(
+                frame.pgn(),
+                0x20,
+                0xFF,
+                6,
+            );
+
             let assembled = AssembledMessage {
-                id: frame.can_id,
+                id: synthetic_id,
                 pgn: frame.pgn(),
                 data: frame.data.clone(),
                 timestamp: frame.timestamp,
@@ -207,6 +214,12 @@ pub use crate::renderers::ConsoleRenderer;
 
 /// JSON renderer that serializes DecodedMessage to JSON format.
 pub use crate::renderers::JsonRenderer;
+
+/// CSV renderer that outputs DecodedMessage in CSV format with dynamic columns.
+pub use crate::renderers::CsvRenderer;
+
+/// Condensed renderer that outputs a single-line summary per message.
+pub use crate::renderers::CondensedRenderer;
 
 #[cfg(test)]
 mod tests {
