@@ -1,4 +1,4 @@
-/// Source: AEF Functionalities.xlsx rev 1, downloaded 2026-07-19
+/// Source: AEF Functionalities.xlsx rev 1, downloaded 2026-07-20
 pub const PARAM_NAME_LIST: &[(u32, &str)] = &[
     (0, "Minimum Control Function"),
     (1, "Universal Terminal (UT) Server"),

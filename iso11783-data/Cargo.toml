@@ -8,10 +8,11 @@ keywords = ["j1939", "isobus", "iso11783", "pgn", "ddi"]
 categories = ["embedded", "hardware-support", "no-std"]
 
 [features]
-default = ["pgn", "isobus_params", "task_controller_ddi"]
+default = ["pgn", "isobus_params", "task_controller_ddi", "name"]
 pgn = []
 isobus_params = []
 task_controller_ddi = []
+name = []
 
 [workspace]
 members = ["generator"]

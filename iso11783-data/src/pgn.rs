@@ -1,4 +1,4 @@
-/// Source: SPNs and PGNs.xlsx rev 1, downloaded 2026-07-19
+/// Source: SPNs and PGNs.xlsx rev 1, downloaded 2026-07-20
 pub const PGN_LIST: &[(u32, &str)] = &[
     (0, "Torque/Speed Control 1"),
     (256, "Transmission Control 1"),

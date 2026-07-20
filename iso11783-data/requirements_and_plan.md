@@ -127,6 +127,109 @@ pub fn to_physical(ddi: u16, raw: i32) -> Option<f64> {
 
 ---
 
+## NAME Lookup Module (`name`)
+
+Maps ISOBUS NAME structure fields (part of ISO 11783-2 CAN Name) to human-readable strings. The NAME structure contains: Manufacturer ID, Industry Group, Vehicle System, Function, Function Instance, ECU Instance, Serial Number. This module provides lookups for all enumerated fields except Identity/Instance (which are purely numeric).
+
+### Data Sources
+
+| Table | Source File | Rows | Lookup Signature |
+|-------|------------|------|------------------|
+| Manufacturer IDs | `downloads/extract/Manufacturer IDs.xlsx` | 1,653 | `manufacturer_id_lookup(u8) -> Option<&str>` |
+| Industry Groups | `downloads/extract/Industry Groups.xlsx` | 9 | `industry_group_lookup(u8) -> Option<&str>` |
+| Global NAME Functions | `downloads/extract/Global NAME Functions.xlsx` | 97 | `global_function_lookup(u16) -> Option<&str>` |
+| IG Specific NAME Functions | `downloads/extract/IG Specific NAME Function.xlsx` | 287 | `ig_specific_function_lookup(ig: u8, vs: u8, func: u16) -> Option<&str>` |
+| Vehicle Systems | Derived from IG Specific NAME data | ~15 | `vehicle_system_lookup(ig: u8, vs: u8) -> Option<&str>` |
+
+### Lookup Design (Option C — Flat tables with bit-packing)
+
+All lookups use static slices of packed keys for binary search. Keys are constructed by bit-shifting multi-argument indices into a single 32-bit value.
+
+```rust
+/// Source: ISOBUS NAME lookup tables, downloaded YYYY-MM-DD
+
+// Manufacturer IDs: simple u8 -> string
+pub const MANUFACTURER_ID_LIST: &[(u8, &str)] = &[
+    (0, "For experimental or developmental use only."),
+    (1, "Bendix Commercial Vehicle Systems LLC"),
+    // ... sorted by manufacturer ID
+];
+
+pub fn manufacturer_id_lookup(id: u8) -> Option<&'static str> {
+    match MANUFACTURER_ID_LIST.binary_search_by_key(&id, |(value, _)| *value) {
+        Ok(idx) => Some(MANUFACTURER_ID_LIST[idx].1),
+        Err(_) => None,
+    }
+}
+
+// Industry Groups: simple u8 -> string
+pub const INDUSTRY_GROUP_LIST: &[(u8, &str)] = &[
+    (0, "Global, applies to all"),
+    (1, "On-Highway Equipment"),
+    // ... sorted by industry group ID
+];
+
+pub fn industry_group_lookup(id: u8) -> Option<&'static str> {
+    match INDUSTRY_GROUP_LIST.binary_search_by_key(&id, |(value, _)| *value) {
+        Ok(idx) => Some(INDUSTRY_GROUP_LIST[idx].1),
+        Err(_) => None,
+    }
+}
+
+// Global NAME Functions: simple u16 -> string
+pub const GLOBAL_FUNCTION_LIST: &[(u16, &str)] = &[
+    (0, "Engine"),
+    (1, "Auxiliary Power Unit (APU)"),
+    // ... sorted by function ID
+];
+
+pub fn global_function_lookup(func_id: u16) -> Option<&'static str> {
+    match GLOBAL_FUNCTION_LIST.binary_search_by_key(&func_id, |(value, _)| *value) {
+        Ok(idx) => Some(GLOBAL_FUNCTION_LIST[idx].1),
+        Err(_) => None,
+    }
+}
+
+// IG Specific NAME Functions: 3-arg lookup via bit-packing
+// Key = (ig << 24) | (vs << 16) | func_id
+pub const IG_SPECIFIC_FUNCTION_LIST: &[(u32, &str)] = &[
+    // packed key constructed as: ((ig as u32) << 24) | ((vs as u32) << 16) | (func_id as u32)
+    // ... sorted by packed key
+];
+
+pub fn ig_specific_function_lookup(ig: u8, vs: u8, func_id: u16) -> Option<&'static str> {
+    let key = ((ig as u32) << 24) | ((vs as u32) << 16) | (func_id as u32);
+    match IG_SPECIFIC_FUNCTION_LIST.binary_search_by_key(&key, |(value, _)| *value) {
+        Ok(idx) => Some(IG_SPECIFIC_FUNCTION_LIST[idx].1),
+        Err(_) => None,
+    }
+}
+
+// Vehicle Systems: 2-arg lookup via bit-packing
+// Key = (ig << 16) | vs
+pub const VEHICLE_SYSTEM_LIST: &[(u32, &str)] = &[
+    // packed key constructed as: ((ig as u32) << 16) | (vs as u32)
+    // ... sorted by packed key
+];
+
+pub fn vehicle_system_lookup(ig: u8, vs: u8) -> Option<&'static str> {
+    let key = ((ig as u32) << 16) | (vs as u32);
+    match VEHICLE_SYSTEM_LIST.binary_search_by_key(&key, |(value, _)| *value) {
+        Ok(idx) => Some(VEHICLE_SYSTEM_LIST[idx].1),
+        Err(_) => None,
+    }
+}
+```
+
+**Design notes:**
+- Bit-packing avoids nested data structures while keeping lookup efficient (single binary search)
+- `u8` indices are safe — industry groups use 0-5, vehicle systems use 0-255, function IDs use 0-65535
+- The packed key for IG-specific functions uses 8 bits for ig, 8 bits for vs, 16 bits for func_id = 32 bits total
+- The packed key for vehicle systems uses 8 bits for ig, 8 bits for vs = 16 bits (stored in u32 for consistency)
+- All tables sorted by their lookup key for binary search
+
+---
+
 ## Module Organization
 
 The library crate has one module per data domain:
@@ -136,6 +239,7 @@ The library crate has one module per data domain:
 | `pgn` | PGN name lookups | Always needed for any J1939 work |
 | `isobus_params` | ISOBUS parameter NAME lookups | Only when working with ISOBUS/ARBI protocols |
 | `task_controller_ddi` | Task Controller DDI lookups + metadata | Only when implementing ISO-11783-10 (Task Controller) |
+| `name` | ISOBUS NAME field lookups (manufacturer, industry group, vehicle system, functions) | Only when working with ISOBUS/ARBI protocols and NAME structure decoding |
 
 The main `lib.rs` re-exports all modules unconditionally. Consumers that want to reduce compile time / binary size can use conditional compilation via features:
 

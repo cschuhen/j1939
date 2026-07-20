@@ -2,7 +2,7 @@ mod codegen;
 mod data;
 mod excel;
 mod parsers;
-use parsers::{isobus_params_parser, pgn_parser, task_controller_ddi};
+use parsers::{isobus_params_parser, name_parsers, name_parsers_ig, pgn_parser, task_controller_ddi};
 
 
 use std::fs;
@@ -278,7 +278,12 @@ fn cmd_generate(cli: &CliArgs) {
 
     // Determine which modules to generate
     let all_modules = if cli.modules.is_empty() {
-        vec!["pgn".to_string(), "isobus_params".to_string(), "task_controller_ddi".to_string()]
+        vec![
+            "pgn".to_string(),
+            "isobus_params".to_string(),
+            "task_controller_ddi".to_string(),
+            "name".to_string(),
+        ]
     } else {
         cli.modules.clone()
     };
@@ -288,6 +293,7 @@ fn cmd_generate(cli: &CliArgs) {
             "pgn" => generate_pgn(&output_dir, &pgn_path, today.as_str(), &mut rev_data),
             "isobus_params" => generate_isobus_params(&output_dir, &params_path, today.as_str(), &mut rev_data),
             "task_controller_ddi" => generate_task_controller_ddi(&output_dir, &ddi_path, today.as_str(), &mut rev_data),
+            "name" => generate_name(&output_dir, today.as_str(), &mut rev_data),
             _ => eprintln!("Unknown module: {}", module),
         }
     }
@@ -455,6 +461,84 @@ fn generate_task_controller_ddi(
         println!("  Written task_controller_ddi.rs (rev {})", new_rev);
     }
 }
+
+fn generate_name(
+    output_dir: &PathBuf,
+    date: &str,
+    rev_data: &mut serde_json::Value,
+) {
+    let extract_dir = PathBuf::from(DOWNLOADS_DIR).join("extract");
+
+    let manufacturer_path = extract_dir.join("Manufacturer IDs.xlsx");
+    let industry_groups_path = extract_dir.join("Industry Groups.xlsx");
+    let global_functions_path = extract_dir.join("Global NAME Functions.xlsx");
+    let ig_specific_path = extract_dir.join("IG Specific NAME Function.xlsx");
+
+    if !manufacturer_path.exists() || !industry_groups_path.exists() || !global_functions_path.exists() || !ig_specific_path.exists() {
+        eprintln!("WARNING: Required source files for 'name' module not found in downloads/extract/. Skipping name module.");
+        return;
+    }
+
+    println!("Generating NAME lookup from extracted Excel files ...");
+
+    let manufacturer_ids = name_parsers::parse_manufacturer_ids(manufacturer_path.to_str().unwrap());
+    println!("  Found {} manufacturer IDs", manufacturer_ids.len());
+
+    let industry_groups = name_parsers::parse_industry_groups(industry_groups_path.to_str().unwrap());
+    println!("  Found {} industry groups", industry_groups.len());
+
+    let global_functions = name_parsers::parse_global_functions(global_functions_path.to_str().unwrap());
+    println!("  Found {} global NAME functions", global_functions.len());
+
+    let ig_specific_functions = name_parsers_ig::parse_ig_specific_functions(ig_specific_path.to_str().unwrap());
+    println!("  Found {} IG-specific NAME function entries", ig_specific_functions.len());
+
+    let vehicle_systems = name_parsers_ig::parse_vehicle_systems(ig_specific_path.to_str().unwrap());
+    println!("  Found {} unique vehicle systems", vehicle_systems.len());
+
+    let source_name = "NAME lookup tables (Manufacturer IDs, Industry Groups, Global NAME Functions, IG Specific NAME Function)";
+    let prev_rev = rev_data.get("name").and_then(|v| v.get("rev")).and_then(|v| v.as_u64()).unwrap_or(0);
+
+    let current_content = codegen::generate_name(
+        &manufacturer_ids,
+        &industry_groups,
+        &global_functions,
+        &ig_specific_functions,
+        &vehicle_systems,
+        source_name,
+        date,
+    );
+
+    let new_rev = if prev_rev == 0 {
+        1
+    } else {
+        let existing_path = output_dir.join("name.rs");
+        if existing_path.exists() {
+            if let Ok(existing) = fs::read_to_string(&existing_path) {
+                if existing == current_content {
+                    prev_rev
+                } else {
+                    prev_rev + 1
+                }
+            } else {
+                prev_rev + 1
+            }
+        } else {
+            prev_rev + 1
+        }
+    };
+
+    rev_data["name"]["source"] = serde_json::json!(source_name);
+    rev_data["name"]["rev"] = serde_json::json!(new_rev);
+    rev_data["name"]["date"] = serde_json::json!(date);
+
+    if let Err(e) = codegen::write_output(output_dir, "name", &current_content) {
+        eprintln!("ERROR writing name.rs: {}", e);
+    } else {
+        println!("  Written name.rs (rev {})", new_rev);
+    }
+}
+
 
 fn cmd_info(_cli: &CliArgs) {
     println!("=== ISO 11783 Data — Source Info ===\n");

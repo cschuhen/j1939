@@ -1,4 +1,4 @@
-/// Source: TaskControllerDDI.txt rev 1, downloaded 2026-07-19
+/// Source: TaskControllerDDI.txt rev 1, downloaded 2026-07-20
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct DdiInfo {
     pub ddi: u16,

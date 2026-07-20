@@ -154,3 +154,113 @@ fn format_float(v: f64) -> String {
         }
     }
 }
+
+
+/// Generate name.rs source file from parsed NAME entries.
+pub fn generate_name(
+    manufacturer_ids: &[crate::data::ManufacturerIdEntry],
+    industry_groups: &[crate::data::IndustryGroupEntry],
+    global_functions: &[crate::data::GlobalFunctionEntry],
+    ig_specific_functions: &[crate::data::IgSpecificFunctionEntry],
+    vehicle_systems: &[crate::data::VehicleSystemEntry],
+    source_file: &str,
+    date: &str,
+) -> String {
+    let mut out = String::new();
+    out.push_str(&format!(
+        "/// Source: {} rev {}, downloaded {}\n",
+        source_file, 1, date
+    ));
+
+    // Manufacturer IDs
+    out.push_str("pub const MANUFACTURER_ID_LIST: &[(u8, &str)] = &[\n");
+    for entry in manufacturer_ids {
+        let name_escaped = entry.name.replace('\\', "\\\\").replace('"', "\\\"");
+        out.push_str(&format!("    ({}, \"{}\"),\n", entry.id, name_escaped));
+    }
+    out.push_str("];\n\n");
+    out.push_str("/// Lookup manufacturer ID by numeric value.\n");
+    out.push_str("pub fn manufacturer_id_lookup(id: u8) -> Option<&'static str> {\n");
+    out.push_str(
+        "    match MANUFACTURER_ID_LIST.binary_search_by_key(&id, |(value, _)| *value) {\n",
+    );
+    out.push_str("        Ok(idx) => Some(MANUFACTURER_ID_LIST[idx].1),\n");
+    out.push_str("        Err(_) => None,\n");
+    out.push_str("    }\n}\n\n");
+
+    // Industry Groups
+    out.push_str("pub const INDUSTRY_GROUP_LIST: &[(u8, &str)] = &[\n");
+    for entry in industry_groups {
+        let desc_escaped = entry.description.replace('\\', "\\\\").replace('"', "\\\"");
+        out.push_str(&format!("    ({}, \"{}\"),\n", entry.id, desc_escaped));
+    }
+    out.push_str("];\n\n");
+    out.push_str("/// Lookup industry group by numeric value.\n");
+    out.push_str("pub fn industry_group_lookup(id: u8) -> Option<&'static str> {\n");
+    out.push_str(
+        "    match INDUSTRY_GROUP_LIST.binary_search_by_key(&id, |(value, _)| *value) {\n",
+    );
+    out.push_str("        Ok(idx) => Some(INDUSTRY_GROUP_LIST[idx].1),\n");
+    out.push_str("        Err(_) => None,\n");
+    out.push_str("    }\n}\n\n");
+
+    // Global NAME Functions
+    out.push_str("pub const GLOBAL_FUNCTION_LIST: &[(u16, &str)] = &[\n");
+    for entry in global_functions {
+        let desc_escaped = entry.description.replace('\\', "\\\\").replace('"', "\\\"");
+        out.push_str(&format!("    ({}, \"{}\"),\n", entry.id, desc_escaped));
+    }
+    out.push_str("];\n\n");
+    out.push_str("/// Lookup global NAME function by numeric value.\n");
+    out.push_str("pub fn global_function_lookup(func_id: u16) -> Option<&'static str> {\n");
+    out.push_str(
+        "    match GLOBAL_FUNCTION_LIST.binary_search_by_key(&func_id, |(value, _)| *value) {\n",
+    );
+    out.push_str("        Ok(idx) => Some(GLOBAL_FUNCTION_LIST[idx].1),\n");
+    out.push_str("        Err(_) => None,\n");
+    out.push_str("    }\n}\n\n");
+
+    // IG Specific NAME Functions (bit-packed key: ig << 24 | vs << 16 | func)
+    out.push_str("/// IG-specific NAME function lookup.\n");
+    out.push_str("/// Key is packed as: ((ig as u32) << 24) | ((vs as u32) << 16) | (func_id as u32)\n");
+    out.push_str("pub const IG_SPECIFIC_FUNCTION_LIST: &[(u32, &str)] = &[\n");
+    for entry in ig_specific_functions {
+        let desc_escaped = entry.description.replace('\\', "\\\\").replace('"', "\\\"");
+        let key = ((entry.industry_group_id as u32) << 24)
+            | ((entry.vehicle_system_id as u32) << 16)
+            | (entry.function_id as u32);
+        out.push_str(&format!("    ({}, \"{}\"),\n", key, desc_escaped));
+    }
+    out.push_str("];\n\n");
+    out.push_str("/// Lookup IG-specific NAME function by industry group, vehicle system, and function ID.\n");
+    out.push_str("pub fn ig_specific_function_lookup(ig: u8, vs: u8, func_id: u16) -> Option<&'static str> {\n");
+    out.push_str("    let key = ((ig as u32) << 24) | ((vs as u32) << 16) | (func_id as u32);\n");
+    out.push_str(
+        "    match IG_SPECIFIC_FUNCTION_LIST.binary_search_by_key(&key, |(value, _)| *value) {\n",
+    );
+    out.push_str("        Ok(idx) => Some(IG_SPECIFIC_FUNCTION_LIST[idx].1),\n");
+    out.push_str("        Err(_) => None,\n");
+    out.push_str("    }\n}\n\n");
+
+    // Vehicle Systems (bit-packed key: ig << 16 | vs)
+    out.push_str("/// Vehicle system lookup.\n");
+    out.push_str("/// Key is packed as: ((ig as u32) << 16) | (vs as u32)\n");
+    out.push_str("pub const VEHICLE_SYSTEM_LIST: &[(u32, &str)] = &[\n");
+    for entry in vehicle_systems {
+        let desc_escaped = entry.description.replace('\\', "\\\\").replace('"', "\\\"");
+        let key = ((entry.industry_group_id as u32) << 16) | (entry.vehicle_system_id as u32);
+        out.push_str(&format!("    ({}, \"{}\"),\n", key, desc_escaped));
+    }
+    out.push_str("];\n\n");
+    out.push_str("/// Lookup vehicle system by industry group and vehicle system ID.\n");
+    out.push_str("pub fn vehicle_system_lookup(ig: u8, vs: u8) -> Option<&'static str> {\n");
+    out.push_str("    let key = ((ig as u32) << 16) | (vs as u32);\n");
+    out.push_str(
+        "    match VEHICLE_SYSTEM_LIST.binary_search_by_key(&key, |(value, _)| *value) {\n",
+    );
+    out.push_str("        Ok(idx) => Some(VEHICLE_SYSTEM_LIST[idx].1),\n");
+    out.push_str("        Err(_) => None,\n");
+    out.push_str("    }\n}\n");
+
+    out
+}
