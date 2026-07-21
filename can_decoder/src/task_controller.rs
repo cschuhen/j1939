@@ -1,8 +1,38 @@
+use crate::proprietary::ddi::canot;
 use crate::traits::ComplexDecoder;
 use crate::types::{DecodeContext, DecodeError, DecodedField, DecodedMessage, Numeric, Severity};
 
 /// J1939 ISO-11783-10 Task Controller Process Data PGN (51968 / 0xCB00).
 pub const PROCESS_DATA_PGN: u32 = 0x00cb00;
+
+use iso11783_data::task_controller_ddi::{lookup as ddi_lookup, to_physical};
+
+/// Represents a proprietary DDI handler with lookup and conversion functions.
+struct ProprietaryHandler {
+    lookup_fn: fn(u16) -> Option<&'static iso11783_data::task_controller_ddi::DdiInfo>,
+    to_physical_fn: fn(u16, i32) -> Option<f64>,
+}
+
+impl ProprietaryHandler {
+    fn new_canot() -> Self {
+        ProprietaryHandler {
+            lookup_fn: canot::lookup,
+            to_physical_fn: canot::to_physical,
+        }
+    }
+}
+
+/// Resolve proprietary handler names to actual handlers.
+fn resolve_proprietary_handlers(names: &[String]) -> Vec<ProprietaryHandler> {
+    let mut handlers = Vec::new();
+    for name in names {
+        match name.as_str() {
+            "canot" => handlers.push(ProprietaryHandler::new_canot()),
+            _ => {}
+        }
+    }
+    handlers
+}
 
 /// Command values for TaskController Process Data messages.
 #[derive(Debug, Clone, PartialEq)]
@@ -51,12 +81,23 @@ pub struct TaskControllerData {
 pub struct TaskControllerDecoder {
     /// Track last seen element IDs for sequence detection.
     last_elements: Vec<u16>,
+    /// Proprietary DDI handlers to use for DDIs in the proprietary range (0xE000-0xFFFE).
+    proprietary_handlers: Vec<ProprietaryHandler>,
 }
 
 impl TaskControllerDecoder {
     pub fn new() -> Self {
         TaskControllerDecoder {
             last_elements: Vec::new(),
+            proprietary_handlers: Vec::new(),
+        }
+    }
+
+    /// Create a new TaskControllerDecoder with the given proprietary handler names.
+    pub fn with_proprietary_handlers(handler_names: &[String]) -> Self {
+        TaskControllerDecoder {
+            last_elements: Vec::new(),
+            proprietary_handlers: resolve_proprietary_handlers(handler_names),
         }
     }
 
@@ -85,16 +126,106 @@ impl TaskControllerDecoder {
     }
 
     /// Decode a TaskController Process Data message.
-    fn decode_value_command(data: &TaskControllerData) -> DecodedMessage {
-        let title = format!(
-            "TaskController Element {} DDI {}",
-            data.element_id, data.ddi
-        );
+    fn decode_value_command(data: &TaskControllerData, proprietary_handlers: &[ProprietaryHandler]) -> DecodedMessage {
+        let ddi_info = Self::resolve_ddi_info(data.ddi, proprietary_handlers);
 
-        DecodedMessage::with_assembled(
+        let title = match &ddi_info {
+            Some(info) => format!("TaskController Element {} DDI {} ({})", data.element_id, data.ddi, info.name),
+            None if data.ddi >= 0xE000 && data.ddi <= 0xFFFE => format!("TaskController Element {} DDI {}", data.element_id, data.ddi),
+            None => format!("TaskController Element {} DDI {}", data.element_id, data.ddi),
+        };
+
+        let mut msg = DecodedMessage::with_assembled(
             title.clone(),
             crate::types::AssembledMessage::new(0, vec![]),
-        )
+        );
+
+        // Field 1: Element = element_id (no unit)
+        msg.outputs.push(DecodedField::Value {
+            title: "Element".to_string(),
+            value: Numeric::Int(data.element_id as i64),
+            unit: None,
+            decimal_places: None,
+        });
+
+        // Field 2: DDI = ddi number (no unit)
+        msg.outputs.push(DecodedField::Value {
+            title: "DDI".to_string(),
+            value: Numeric::Int(data.ddi as i64),
+            unit: None,
+            decimal_places: None,
+        });
+
+        // Field 3: RAW = raw i32_value (no unit)
+        msg.outputs.push(DecodedField::Value {
+            title: "RAW".to_string(),
+            value: Numeric::Int(data.value as i64),
+            unit: None,
+            decimal_places: None,
+        });
+
+        if let Some(info) = &ddi_info {
+            // Field 4: DDI name (e.g., "Total Charge") = physical_value with unit
+            if let Some(physical) = Self::resolve_physical(data.ddi, data.value, proprietary_handlers) {
+                msg.outputs.push(DecodedField::Value {
+                    title: info.name.to_string(),
+                    value: Numeric::Float(physical),
+                    unit: info.unit.map(|u| u.to_string()),
+                    decimal_places: Some(2),
+                });
+            } else {
+                msg.outputs.push(DecodedField::Value {
+                    title: info.name.to_string(),
+                    value: Numeric::Int(data.value as i64),
+                    unit: info.unit.map(|u| u.to_string()),
+                    decimal_places: None,
+                });
+            }
+        } else if data.ddi >= 0xE000 && data.ddi <= 0xFFFE {
+            // Unknown proprietary DDI - RAW is the only value available
+            msg.outputs.push(DecodedField::Value {
+                title: "Unknown Proprietary".to_string(),
+                value: Numeric::Int(data.value as i64),
+                unit: None,
+                decimal_places: None,
+            });
+        } else {
+            // Unknown DDI - Value is the only value available
+            msg.outputs.push(DecodedField::Value {
+                title: "Unknown".to_string(),
+                value: Numeric::Int(data.value as i64),
+                unit: None,
+                decimal_places: None,
+            });
+        }
+
+        msg
+    }
+
+    /// Resolve DDI info from proprietary handlers first (if in proprietary range), then standard lookup.
+    fn resolve_ddi_info(ddi: u16, proprietary_handlers: &[ProprietaryHandler]) -> Option<&'static iso11783_data::task_controller_ddi::DdiInfo> {
+        if ddi >= 0xE000 && ddi <= 0xFFFE {
+            for handler in proprietary_handlers {
+                if let Some(info) = (handler.lookup_fn)(ddi) {
+                    return Some(info);
+                }
+            }
+        }
+
+        ddi_lookup(ddi)
+    }
+
+    /// Resolve physical value using proprietary handlers first (if in proprietary range), then standard lookup.
+    fn resolve_physical(ddi: u16, raw_value: i32, proprietary_handlers: &[ProprietaryHandler]) -> Option<f64> {
+        if ddi >= 0xE000 && ddi <= 0xFFFE {
+            for handler in proprietary_handlers {
+                if let Some(physical) = (handler.to_physical_fn)(ddi, raw_value) {
+                    return Some(physical);
+                }
+            }
+        }
+
+        to_physical(ddi, raw_value)
     }
 
     /// Decode an unrecognized command into a warning message.
@@ -124,28 +255,7 @@ impl ComplexDecoder for TaskControllerDecoder {
 
         match &data.command {
             TaskCommand::Value => {
-                let mut msg = Self::decode_value_command(&data);
-
-                msg.outputs.push(DecodedField::Value {
-                    title: "Element ID".to_string(),
-                    value: Numeric::Int(data.element_id as i64),
-                    unit: Some("element".to_string()),
-                    decimal_places: None,
-                });
-
-                msg.outputs.push(DecodedField::Value {
-                    title: "DDI".to_string(),
-                    value: Numeric::Int(data.ddi as i64),
-                    unit: Some("DDI".to_string()),
-                    decimal_places: None,
-                });
-
-                msg.outputs.push(DecodedField::Value {
-                    title: "Value".to_string(),
-                    value: Numeric::Int(data.value as i64),
-                    unit: None,
-                    decimal_places: None,
-                });
+                let msg = Self::decode_value_command(&data, &self.proprietary_handlers);
 
                 self.last_elements.push(data.element_id);
 
@@ -313,16 +423,16 @@ mod tests {
         assert!(result.is_some());
         let msg = result.unwrap();
 
-        assert_eq!(msg.title, "TaskController Element 10 DDI 57344");
-        assert_eq!(msg.outputs.len(), 3);
+        assert_eq!(msg.title, "TaskController Element 10 DDI 57344 (65534 Proprietary DDI Range)");
+        assert_eq!(msg.outputs.len(), 4);
 
         match &msg.outputs[0] {
             DecodedField::Value { title, value, unit, .. } => {
-                assert_eq!(title, "Element ID");
+                assert_eq!(title, "Element");
                 assert_eq!(*value, Numeric::Int(10));
-                assert_eq!(unit.as_ref(), Some(&"element".to_string()));
+                assert!(unit.is_none());
             }
-            _ => panic!("Expected Value for Element ID"),
+            _ => panic!("Expected Value for Element"),
         }
 
         match &msg.outputs[1] {
@@ -338,15 +448,23 @@ mod tests {
         }
 
         match &msg.outputs[2] {
+            DecodedField::Value { title, .. } => {
+                assert_eq!(title, "RAW");
+            }
+            _ => panic!("Expected Value for RAW"),
+        }
+
+        // Without proprietary handlers, standard lookup returns "65534 Proprietary DDI Range"
+        match &msg.outputs[3] {
             DecodedField::Value { title, value, .. } => {
-                assert_eq!(title, "Value");
-                if let Numeric::Int(v) = value {
-                    assert_eq!(*v, -1685540174i64);
+                assert_eq!(title, "65534 Proprietary DDI Range");
+                if let Numeric::Float(v) = value {
+                    assert!((v - 0.0).abs() < 1.0, "Expected ~0.0, got {}", v);
                 } else {
-                    panic!("Expected Int for Value");
+                    panic!("Expected Float for DDI info name");
                 }
             }
-            _ => panic!("Expected Value for Value"),
+            _ => panic!("Expected Value for DDI info"),
         }
     }
 

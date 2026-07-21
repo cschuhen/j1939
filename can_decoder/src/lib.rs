@@ -17,6 +17,8 @@ pub mod task_controller;
 pub mod traits;
 /// Data models for CAN frames, messages, and decoded output.
 pub mod types;
+/// Proprietary DDI definitions module.
+pub mod proprietary;
 
 use clap::Parser;
 use std::path::PathBuf;
@@ -60,6 +62,10 @@ pub struct Cli {
     /// Output format (console colorized, JSON, CSV)
     #[arg(long, default_value = "console")]
     pub output_format: OutputFormat,
+
+    /// Use proprietary DDI definitions by name (repeatable; checked in order specified). Available: canot
+    #[arg(long)]
+    pub use_proprietary_ddi_definitions: Vec<String>,
 }
 
 /// Input source type selection.

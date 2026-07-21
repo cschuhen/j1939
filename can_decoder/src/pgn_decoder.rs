@@ -287,7 +287,7 @@ pub struct J1939Decoder {
 impl J1939Decoder {
     /// Create a new J1939Decoder with default PGN definitions and TP reassembly.
     pub fn new(force_partial_tp: bool, timeout_ms: u64, debug: bool) -> Self {
-        Self::with_device_manager_detail(force_partial_tp, timeout_ms, debug, None, DetailLevel::Assembled)
+        Self::with_device_manager_detail(force_partial_tp, timeout_ms, debug, None, DetailLevel::Assembled, &[])
     }
 
     /// Create a new J1939Decoder with default PGN definitions and an optional DeviceManager.
@@ -297,16 +297,17 @@ impl J1939Decoder {
         debug: bool,
         device_manager: Option<Arc<StdMutex<DeviceManager>>>,
     ) -> Self {
-        Self::with_device_manager_detail(force_partial_tp, timeout_ms, debug, device_manager, DetailLevel::Assembled)
+        Self::with_device_manager_detail(force_partial_tp, timeout_ms, debug, device_manager, DetailLevel::Assembled, &[])
     }
 
-    /// Create a new J1939Decoder with default PGN definitions, optional DeviceManager, and detail level.
+    /// Create a new J1939Decoder with default PGN definitions, optional DeviceManager, detail level, and proprietary DDI handler names.
     pub fn with_device_manager_detail(
         force_partial_tp: bool,
         timeout_ms: u64,
         debug: bool,
         device_manager: Option<Arc<StdMutex<DeviceManager>>>,
         detail_level: DetailLevel,
+        proprietary_handlers: &[String],
     ) -> Self {
         let mut defs = default_pgn_definitions();
 
@@ -327,7 +328,11 @@ impl J1939Decoder {
             detail_level,
         };
 
-        decoder.register_complex_decoder(PROCESS_DATA_PGN, Box::new(TaskControllerDecoder::new()));
+        if proprietary_handlers.is_empty() {
+            decoder.register_complex_decoder(PROCESS_DATA_PGN, Box::new(TaskControllerDecoder::new()));
+        } else {
+            decoder.register_complex_decoder(PROCESS_DATA_PGN, Box::new(TaskControllerDecoder::with_proprietary_handlers(proprietary_handlers)));
+        }
 
         decoder
     }
@@ -1867,16 +1872,16 @@ pgns:
         let (outputs, _) = decoder.decode_assembled(&assembled);
         assert!(!outputs.is_empty());
 
-        // First output should be Element ID from TaskController decoder
+        // First output should be Element from TaskController decoder
         match &outputs[0] {
             DecodedField::Value { title, value, .. } => {
-                assert_eq!(title, "Element ID");
+                assert_eq!(title, "Element");
                 assert_eq!(*value, Numeric::Int(10));
             }
-            _ => panic!("Expected Element ID Value from TaskController decoder"),
+            _ => panic!("Expected Element Value from TaskController decoder"),
         }
 
-        // Second output should be DDI
+        // Second output should be DDI number
         match &outputs[1] {
             DecodedField::Value { title, value, .. } => {
                 assert_eq!(title, "DDI");
@@ -1889,17 +1894,25 @@ pgns:
             _ => panic!("Expected DDI Value"),
         }
 
-        // Third output should be Value
+        // Third output should be RAW
         match &outputs[2] {
+            DecodedField::Value { title, .. } => {
+                assert_eq!(title, "RAW");
+            }
+            _ => panic!("Expected RAW field"),
+        }
+
+        // Fourth output: without proprietary handlers, standard lookup returns DDI info name
+        match &outputs[3] {
             DecodedField::Value { title, value, .. } => {
-                assert_eq!(title, "Value");
-                if let Numeric::Int(v) = value {
-                    assert_eq!(*v, -1685540174i64);
+                assert_eq!(title, "65534 Proprietary DDI Range");
+                if let Numeric::Float(v) = value {
+                    assert!((v - 0.0).abs() < 1.0, "Expected ~0.0, got {}", v);
                 } else {
-                    panic!("Expected Int for Value");
+                    panic!("Expected Float for DDI info name");
                 }
             }
-            _ => panic!("Expected Value field"),
+            _ => panic!("Expected DDI info field"),
         }
     }
 
@@ -1928,25 +1941,27 @@ pgns:
             let assembled = make_assembled(PROCESS_DATA_PGN, 0x90, data);
             let (outputs, _) = decoder.decode_assembled(&assembled);
 
-            assert_eq!(outputs.len(), 3, "Expected 3 outputs for element {}", expected_elem);
+            assert_eq!(outputs.len(), 4, "Expected 4 outputs for element {}", expected_elem);
 
             match &outputs[0] {
-                DecodedField::Value { value, .. } => {
+                DecodedField::Value { title, value, .. } => {
+                    assert_eq!(title, "Element");
                     if let Numeric::Int(v) = value {
                         assert_eq!(*v, *expected_elem as i64);
                     } else {
-                        panic!("Expected Int for Element ID");
+                        panic!("Expected Int for Element");
                     }
                 }
                 _ => panic!("Expected Value"),
             }
 
             match &outputs[2] {
-                DecodedField::Value { value, .. } => {
+                DecodedField::Value { title, value, .. } => {
+                    assert_eq!(title, "RAW");
                     if let Numeric::Int(v) = value {
                         assert_eq!(*v, *expected_value);
                     } else {
-                        panic!("Expected Int for Value");
+                        panic!("Expected Int for RAW");
                     }
                 }
                 _ => panic!("Expected Value"),
@@ -1996,7 +2011,7 @@ pgns:
     fn test_assembled_tp_always_decoded_independent_of_detail_level() {
         // Test with detail_level = Assembled (default) - decode pre-built assembled message
         let mut decoder_assembled = J1939Decoder::with_device_manager_detail(
-            false, 5000, false, None, DetailLevel::Assembled
+            false, 5000, false, None, DetailLevel::Assembled, &[]
         );
 
         let assembled = make_assembled(0x0CF00, 0xF8, vec![0x3Cu8]); // Speed = 60 km/h
@@ -2011,7 +2026,7 @@ pgns:
 
         // Test with detail_level = Both - assembled message should still be decoded
         let mut decoder_both = J1939Decoder::with_device_manager_detail(
-            false, 5000, false, None, DetailLevel::Both
+            false, 5000, false, None, DetailLevel::Both, &[]
         );
 
         let (outputs_both, _) = decoder_both.decode_assembled(&assembled);
@@ -2019,7 +2034,7 @@ pgns:
 
         // Test with detail_level = Raw - assembled TP messages should still be decoded (task 2)
         let mut decoder_raw = J1939Decoder::with_device_manager_detail(
-            false, 5000, false, None, DetailLevel::Raw
+            false, 5000, false, None, DetailLevel::Raw, &[]
         );
 
         let (outputs_raw, _) = decoder_raw.decode_assembled(&assembled);
@@ -2050,7 +2065,7 @@ pgns:
         assert_eq!(*decoder.detail_level(), DetailLevel::Assembled);
 
         let mut decoder_both = J1939Decoder::with_device_manager_detail(
-            false, 5000, false, None, DetailLevel::Both
+            false, 5000, false, None, DetailLevel::Both, &[]
         );
         assert_eq!(*decoder_both.detail_level(), DetailLevel::Both);
 

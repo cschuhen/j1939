@@ -10,6 +10,31 @@ use can_decoder::Cli;
 use can_decoder::SourceType;
 use clap::Parser;
 
+/// Validate proprietary DDI definition names and print available options if invalid.
+fn validate_proprietary_definitions(names: &[String]) -> Vec<String> {
+    let available = vec![("canot", "CANoT proprietary DDI definitions")];
+    
+    let mut valid_names = Vec::new();
+    for name in names {
+        match available.iter().find(|(n, _)| *n == name.as_str()) {
+            Some((_, desc)) => {
+                println!("Proprietary DDI: {} ({})", name, desc);
+                valid_names.push(name.clone());
+            }
+            None => {
+                eprintln!("Error: Unknown proprietary DDI definition '{}'", name);
+                eprintln!("Available definitions:");
+                for (n, desc) in &available {
+                    eprintln!("  {} - {}", n, desc);
+                }
+                std::process::exit(1);
+            }
+        }
+    }
+    
+    valid_names
+}
+
 /// Parse CLI filter expressions into a CompositeFilter.
 fn build_filters(
     cli_filters: &[String],
@@ -57,6 +82,8 @@ async fn main() -> Result<()> {
     println!("Filters: {}", cli.filter.len());
     println!("Output format: {:?}", cli.output_format);
 
+    let proprietary_defs = validate_proprietary_definitions(&cli.use_proprietary_ddi_definitions);
+
     let mut pipeline = Pipeline::new();
 
     // Wire up the Source based on --source and available options
@@ -91,6 +118,7 @@ async fn main() -> Result<()> {
         cli.debug,
         Some(device_manager),
         cli.detail_level.clone(),
+        &proprietary_defs,
     );
     pipeline.spawn_decoder(Box::new(decoder));
 

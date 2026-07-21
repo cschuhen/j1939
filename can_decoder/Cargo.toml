@@ -16,6 +16,7 @@ serde_json = "1"
 serde_yaml = "0.9"
 owo-colors = "4"
 j1939-async = {"path"="../j1939-async"}
+iso11783-data = { path = "../iso11783-data", features = ["task_controller_ddi"] }
 
 # SocketCAN support
 socketcan = "3"
