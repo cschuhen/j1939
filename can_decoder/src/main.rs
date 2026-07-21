@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use can_decoder::device_manager::DeviceManager;
 use can_decoder::filters::{CompositeFilter, FilterParser};
-use can_decoder::pipeline::{CondensedRenderer, ConsoleRenderer, CsvRenderer, JsonRenderer, Pipeline};
+use can_decoder::pipeline::{CondensedRenderer, ConsoleRenderer, CsvRenderer, FullCondensedRenderer, JsonRenderer, Pipeline};
 use can_decoder::sources::{CandumpFileSource, SocketCanSource};
 use can_decoder::traits::Source;
 use can_decoder::Cli;
@@ -13,7 +13,7 @@ use clap::Parser;
 /// Validate proprietary DDI definition names and print available options if invalid.
 fn validate_proprietary_definitions(names: &[String]) -> Vec<String> {
     let available = vec![("canot", "CANoT proprietary DDI definitions")];
-    
+
     let mut valid_names = Vec::new();
     for name in names {
         match available.iter().find(|(n, _)| *n == name.as_str()) {
@@ -31,7 +31,7 @@ fn validate_proprietary_definitions(names: &[String]) -> Vec<String> {
             }
         }
     }
-    
+
     valid_names
 }
 
@@ -130,6 +130,7 @@ async fn main() -> Result<()> {
         can_decoder::OutputFormat::Json => Box::new(JsonRenderer),
         can_decoder::OutputFormat::Csv => Box::new(CsvRenderer::default()),
         can_decoder::OutputFormat::Condensed => Box::new(CondensedRenderer),
+        can_decoder::OutputFormat::FullCondensed => Box::new(FullCondensedRenderer),
     };
     let renderer_handle = Pipeline::spawn_renderer(filter_rx, renderer);
 

@@ -90,4 +90,5 @@ pub enum OutputFormat {
     Json,
     Csv,
     Condensed,
+    FullCondensed,
 }

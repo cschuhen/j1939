@@ -138,10 +138,10 @@ impl Renderer for JsonRenderer {
 }
 
 /// CSV renderer that outputs DecodedMessage in CSV format with fixed and dynamic columns.
-/// 
+///
 /// Fixed columns (always first): Timestamp, CAN ID, Priority, PGN, Source address,
 /// Destination address, Source NAME, Destination NAME, Data bytes, StringMessage concatenation.
-/// 
+///
 /// Dynamic columns tracked per (PGN, title) combination - every Title from DecodedField::Value
 /// gets its own column that is not reused for the same (PGN, title). Headers are re-printed
 /// whenever new columns are added to a PGN/title combination.
@@ -171,7 +171,7 @@ impl Renderer for CsvRenderer {
         Box::pin(async move {
             let pgn = message.pgn();
             let assembled = &message.assembled_message;
-            
+
             // Fixed columns
             let fixed_columns = vec![
                 "Timestamp".to_string(),
@@ -188,7 +188,7 @@ impl Renderer for CsvRenderer {
 
             // Collect dynamic columns from Value and Flag outputs, tracked per PGN
             let mut dynamic_columns: Vec<String> = Vec::new();
-            
+
             for output in &message.outputs {
                 match output {
                     DecodedField::Value { title, .. } | DecodedField::Flag { title, .. } => {
@@ -205,7 +205,7 @@ impl Renderer for CsvRenderer {
                             self.column_registry.insert(pgn, vec![title.clone()]);
                             dynamic_columns.push(title.clone());
                         }
-                        
+
                         // Add this title if not already present
                         if !dynamic_columns.contains(title) {
                             dynamic_columns.push(title.clone());
@@ -238,10 +238,10 @@ impl Renderer for CsvRenderer {
             values.push(format!("{:X}", pgn));
             values.push(format!("{:X}", assembled.source()));
             values.push(format!("{:X}", assembled.destination()));
-            
+
             let src_name = assembled.source_name.map(|n| format!("{:X}", n)).unwrap_or_else(|| "".to_string());
             values.push(format!("\"{}\"", src_name.replace('"', "\"\"")));
-            
+
             let dst_name = assembled.dest_name.map(|n| format!("{:X}", n)).unwrap_or_else(|| "".to_string());
             values.push(format!("\"{}\"", dst_name.replace('"', "\"\"")));
 
@@ -322,12 +322,13 @@ impl Renderer for CsvRenderer {
     }
 }
 
+
 /// Condensed renderer that outputs a single-line summary per message.
-/// 
+///
 /// Fixed fields: Timestamp, CAN ID (hex, no 0x), Priority, PGN, PGN hex,
 /// Source address -> Destination address (hex), (Source NAME -> Destination NAME),
 /// Data bytes (hex, no 0x), StringMessage concatenation.
-/// 
+///
 /// Every Title from DecodedField gets its own field with bold headers.
 /// Flag fields are colored: red for Error, white for Off, green for On.
 pub struct CondensedRenderer;
@@ -335,6 +336,103 @@ pub struct CondensedRenderer;
 impl Renderer for CondensedRenderer {
     fn name(&self) -> &str {
         "condensed"
+    }
+
+    fn render<'a>(
+        &'a mut self,
+        message: &'a DecodedMessage,
+    ) -> Pin<Box<dyn Future<Output = Result<String, Box<dyn std::error::Error + Send + Sync>>> + Send + 'a>> {
+        Box::pin(async move {
+            let assembled = &message.assembled_message;
+            let mut parts = Vec::new();
+
+            // Fixed fields: PGN hex, source->dest address, data bytes
+            parts.push(format!("{:X}", message.pgn()));
+            parts.push(format!("{:X}->{:X}", assembled.source(), assembled.destination()));
+
+            let data_hex: String = assembled.data.iter().map(|b| format!("{:02X}", b)).collect();
+            parts.push(data_hex);
+
+            // Concatenate non-empty StringMessages
+            let string_msgs: Vec<String> = message.outputs.iter()
+                .filter_map(|o| {
+                    if let DecodedField::StringMessage { text, .. } = o {
+                        if !text.is_empty() {
+                            Some(text.clone())
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            if !string_msgs.is_empty() {
+                parts.push(string_msgs.join("; "));
+            }
+
+            // Dynamic fields from Value and Flag outputs with bold headers
+            for output in &message.outputs {
+                match output {
+                    DecodedField::Value { title, value, unit, .. } => {
+                        let val_str = match value {
+                            crate::types::Numeric::Int(v) => format!("{}", v),
+                            crate::types::Numeric::Float(v) => format!("{}", v),
+                            crate::types::Numeric::Hex(v) => {
+                                format!("0x{}", v.iter().map(|b| format!("{:02X}", b)).collect::<String>())
+                            }
+                            crate::types::Numeric::Bool(v) => format!("{}", v),
+                        };
+                        let display = if let Some(ref u) = unit {
+                            format!("{} {}", val_str, u)
+                        } else {
+                            val_str
+                        };
+                        parts.push(format!("{}={}", title.bold().cyan(), display));
+                    }
+                    DecodedField::StringMessage { text, severity } => {
+                        if text.is_empty() {
+                            continue;
+                        }
+                        let sev = match severity {
+                            crate::types::Severity::Info => "I".green().to_string(),
+                            crate::types::Severity::Warning => "W".yellow().to_string(),
+                            crate::types::Severity::Error => "E".red().to_string(),
+                        };
+                        parts.push(format!("[{}] {}", sev, text));
+                    }
+                    DecodedField::Flag { title, value } => {
+                        let flag_text = match value {
+                            crate::types::FlagValue::Off => "OFF".red().to_string(),
+                            crate::types::FlagValue::On => "ON".green().to_string(),
+                            crate::types::FlagValue::Error => "ERR".white().bold().to_string(),
+                            crate::types::FlagValue::Unavailable => "N/A".dimmed().to_string(),
+                        };
+                        parts.push(format!("{}={}", title.bold().cyan(), flag_text));
+                    }
+                }
+            }
+
+            Ok(parts.join(" | "))
+        })
+    }
+}
+
+
+
+/// FullCondensed renderer that outputs a single-line summary per message.
+///
+/// Fixed fields: Timestamp, CAN ID (hex, no 0x), Priority, PGN, PGN hex,
+/// Source address -> Destination address (hex), (Source NAME -> Destination NAME),
+/// Data bytes (hex, no 0x), StringMessage concatenation.
+///
+/// Every Title from DecodedField gets its own field with bold headers.
+/// Flag fields are colored: red for Error, white for Off, green for On.
+pub struct FullCondensedRenderer;
+
+impl Renderer for FullCondensedRenderer {
+    fn name(&self) -> &str {
+        "full-condensed"
     }
 
     fn render<'a>(
@@ -458,7 +556,7 @@ mod tests {
         let message = make_test_message();
         let result = renderer.render(&message).await.unwrap();
         let header_line = result.lines().next().unwrap();
-        
+
         // Check fixed columns are present in order
         assert!(header_line.contains("\"Timestamp\""));
         assert!(header_line.contains("\"CAN ID\""));
@@ -478,7 +576,7 @@ mod tests {
         let message = make_test_message();
         let result = renderer.render(&message).await.unwrap();
         let header_line = result.lines().next().unwrap();
-        
+
         // RPM should be a dynamic column for this PGN/title combination
         assert!(header_line.contains("\"RPM\""));
     }
@@ -489,7 +587,7 @@ mod tests {
         let message = make_test_message();
         let result = renderer.render(&message).await.unwrap();
         let lines: Vec<&str> = result.lines().collect();
-        
+
         assert!(lines.len() >= 2);
         // Data row should contain timestamp and assembled data
         assert!(lines[1].contains("1500"));
@@ -498,7 +596,7 @@ mod tests {
     #[tokio::test]
     async fn test_csv_renderer_column_tracking_per_pgn_title() {
         let mut renderer = CsvRenderer::default();
-        
+
         // First message with PGN 0x18EF4000 and title "RPM"
         let assembled1 = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
         let msg1 = DecodedMessage {
@@ -541,7 +639,7 @@ mod tests {
             assembled_message: AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]),
         };
         let result = renderer.render(&msg3).await.unwrap();
-        
+
         // Should have both RPM and Load columns for this PGN/title combo
         assert!(result.contains("\"RPM\""));
         assert!(result.contains("\"Load\""));
@@ -661,6 +759,7 @@ mod tests {
         }
     }
 
+
     // ========================================================================
     // Condensed Renderer Tests
     // ========================================================================
@@ -684,7 +783,7 @@ mod tests {
         let mut renderer = CondensedRenderer;
         let message = make_test_message();
         let result = renderer.render(&message).await.unwrap();
-        
+
         // Should contain fixed fields: timestamp, CAN ID hex, priority, PGN, PGN hex, source->dest
         assert!(result.contains(" | ")); // pipe separators between fields
     }
@@ -694,7 +793,7 @@ mod tests {
         let mut renderer = CondensedRenderer;
         let message = make_test_message();
         let result = renderer.render(&message).await.unwrap();
-        
+
         // CAN ID should be hex without 0x prefix in fixed fields
         assert!(result.contains("EF40"));
     }
@@ -704,7 +803,7 @@ mod tests {
         let mut renderer = CondensedRenderer;
         let message = make_test_message();
         let result = renderer.render(&message).await.unwrap();
-        
+
         // Should contain source->dest format like "EF40->FF" or similar
         assert!(result.contains("->"));
     }
@@ -850,17 +949,15 @@ mod tests {
             assembled_message: assembled,
         };
         let result = renderer.render(&message).await.unwrap();
-        // PGN should appear twice - once as decimal and once as hex
-        assert!(result.contains("61248")); // 0xEF40 in decimal
+        // PGN hex should appear (0xEF40)
+        assert!(result.contains("EF40"));
     }
 
     #[tokio::test]
     async fn test_condensed_renderer_name_and_dest_names() {
         let mut renderer = CondensedRenderer;
-        let mut assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
-        assembled.source_name = Some(0x123456789ABCDEF0);
-        assembled.dest_name = Some(0xFEDCBA9876543210);
-        
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+
         let message = DecodedMessage {
             title: "Test".to_string(),
             outputs: vec![],
@@ -868,7 +965,8 @@ mod tests {
             assembled_message: assembled,
         };
         let result = renderer.render(&message).await.unwrap();
-        assert!(result.contains("(123456789ABCDEF0 -> FEDCBA9876543210)"));
+        // NAME fields are no longer included in condensed format
+        assert!(result.contains("EF40"));
     }
 
     #[tokio::test]
@@ -970,6 +1068,317 @@ mod tests {
         assert!(stripped.contains("Coolant=92.5 C"));
     }
 
+
+
+    // ========================================================================
+    // Full Condensed Renderer Tests
+    // ========================================================================
+
+    #[tokio::test]
+    async fn test_full_condensed_renderer_name() {
+        let renderer = FullCondensedRenderer;
+        assert_eq!(renderer.name(), "full-condensed");
+    }
+
+    #[tokio::test]
+    async fn test_full_condensed_renderer_single_line() {
+        let mut renderer = FullCondensedRenderer;
+        let message = make_test_message();
+        let result = renderer.render(&message).await.unwrap();
+        assert!(!result.contains('\n'));
+    }
+
+    #[tokio::test]
+    async fn test_full_condensed_renderer_fixed_fields() {
+        let mut renderer = FullCondensedRenderer;
+        let message = make_test_message();
+        let result = renderer.render(&message).await.unwrap();
+
+        // Should contain fixed fields: timestamp, CAN ID hex, priority, PGN, PGN hex, source->dest
+        assert!(result.contains(" | ")); // pipe separators between fields
+    }
+
+    #[tokio::test]
+    async fn test_full_condensed_renderer_can_id_no_prefix() {
+        let mut renderer = FullCondensedRenderer;
+        let message = make_test_message();
+        let result = renderer.render(&message).await.unwrap();
+
+        // CAN ID should be hex without 0x prefix in fixed fields
+        assert!(result.contains("EF40"));
+    }
+
+    #[tokio::test]
+    async fn test_full_condensed_renderer_source_dest_format() {
+        let mut renderer = FullCondensedRenderer;
+        let message = make_test_message();
+        let result = renderer.render(&message).await.unwrap();
+
+        // Should contain source->dest format like "EF40->FF" or similar
+        assert!(result.contains("->"));
+    }
+
+    #[tokio::test]
+    async fn test_full_condensed_renderer_flag_colors() {
+        let mut renderer = FullCondensedRenderer;
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+
+        for (flag_val, expected_text) in [
+            (crate::types::FlagValue::Off, "OFF"),
+            (crate::types::FlagValue::On, "ON"),
+            (crate::types::FlagValue::Error, "ERR"),
+            (crate::types::FlagValue::Unavailable, "N/A"),
+        ] {
+            let message = DecodedMessage {
+                title: "Test".to_string(),
+                outputs: vec![DecodedField::Flag {
+                    title: "Status".to_string(),
+                    value: flag_val.clone(),
+                }],
+                updates: vec![],
+                assembled_message: assembled.clone(),
+            };
+            let result = renderer.render(&message).await.unwrap();
+            assert!(result.contains(expected_text), "Failed for {:?}", flag_val);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_full_condensed_renderer_severity_codes() {
+        let mut renderer = FullCondensedRenderer;
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+
+        for (severity, code) in [
+            (crate::types::Severity::Info, "I"),
+            (crate::types::Severity::Warning, "W"),
+            (crate::types::Severity::Error, "E"),
+        ] {
+            let message = DecodedMessage {
+                title: "Test".to_string(),
+                outputs: vec![DecodedField::StringMessage {
+                    severity: severity.clone(),
+                    text: "test".to_string(),
+                }],
+                updates: vec![],
+                assembled_message: assembled.clone(),
+            };
+            let result = renderer.render(&message).await.unwrap();
+            let stripped = strip_ansi_codes(&result);
+            assert!(stripped.contains(&format!("[{}] test", code)), "Failed for {:?}", severity);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_full_condensed_renderer_multiple_outputs() {
+        let mut renderer = FullCondensedRenderer;
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let message = DecodedMessage {
+            title: "Multi".to_string(),
+            outputs: vec![
+                DecodedField::Value {
+                    title: "Speed".to_string(),
+                    value: Numeric::Int(60),
+                    unit: Some("km/h".to_string()),
+                    decimal_places: None,
+                },
+                DecodedField::Flag {
+                    title: "Cruise".to_string(),
+                    value: crate::types::FlagValue::On,
+                },
+            ],
+            updates: vec![],
+            assembled_message: assembled,
+        };
+        let result = renderer.render(&message).await.unwrap();
+        let stripped = strip_ansi_codes(&result);
+        assert!(stripped.contains("Speed=60 km/h"));
+        assert!(stripped.contains("Cruise=ON"));
+        assert!(result.contains(" | "));
+    }
+
+    #[tokio::test]
+    async fn test_full_condensed_renderer_data_bytes_hex() {
+        let mut renderer = FullCondensedRenderer;
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![0xAA, 0xBB]);
+        let message = DecodedMessage {
+            title: "Test".to_string(),
+            outputs: vec![],
+            updates: vec![],
+            assembled_message: assembled,
+        };
+        let result = renderer.render(&message).await.unwrap();
+        assert!(result.contains("AABB"));
+    }
+
+    #[tokio::test]
+    async fn test_full_condensed_renderer_string_messages_concatenated() {
+        let mut renderer = FullCondensedRenderer;
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let message = DecodedMessage {
+            title: "Test".to_string(),
+            outputs: vec![
+                DecodedField::StringMessage {
+                    severity: crate::types::Severity::Info,
+                    text: "msg1".to_string(),
+                },
+                DecodedField::StringMessage {
+                    severity: crate::types::Severity::Warning,
+                    text: "msg2".to_string(),
+                },
+            ],
+            updates: vec![],
+            assembled_message: assembled,
+        };
+        let result = renderer.render(&message).await.unwrap();
+        assert!(result.contains("msg1; msg2"));
+    }
+
+    #[tokio::test]
+    async fn test_full_condensed_renderer_empty_outputs() {
+        let mut renderer = FullCondensedRenderer;
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let message = DecodedMessage {
+            title: "Empty".to_string(),
+            outputs: vec![],
+            updates: vec![],
+            assembled_message: assembled,
+        };
+        let result = renderer.render(&message).await.unwrap();
+        // Should still have fixed fields (timestamp is microseconds since epoch)
+        assert!(result.contains(" | "));
+    }
+
+    #[tokio::test]
+    async fn test_full_condensed_renderer_pgn_hex() {
+        let mut renderer = FullCondensedRenderer;
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let message = DecodedMessage {
+            title: "Test".to_string(),
+            outputs: vec![],
+            updates: vec![],
+            assembled_message: assembled,
+        };
+        let result = renderer.render(&message).await.unwrap();
+        // PGN should appear twice - once as decimal and once as hex
+        assert!(result.contains("61248")); // 0xEF40 in decimal
+    }
+
+    #[tokio::test]
+    async fn test_full_condensed_renderer_name_and_dest_names() {
+        let mut renderer = FullCondensedRenderer;
+        let mut assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        assembled.source_name = Some(0x123456789ABCDEF0);
+        assembled.dest_name = Some(0xFEDCBA9876543210);
+
+        let message = DecodedMessage {
+            title: "Test".to_string(),
+            outputs: vec![],
+            updates: vec![],
+            assembled_message: assembled,
+        };
+        let result = renderer.render(&message).await.unwrap();
+        assert!(result.contains("(123456789ABCDEF0 -> FEDCBA9876543210)"));
+    }
+
+    #[tokio::test]
+    async fn test_full_condensed_renderer_value_with_title() {
+        let mut renderer = FullCondensedRenderer;
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let message = DecodedMessage {
+            title: "Test".to_string(),
+            outputs: vec![DecodedField::Value {
+                title: "RPM".to_string(),
+                value: Numeric::Int(1500),
+                unit: Some("rpm".to_string()),
+                decimal_places: None,
+            }],
+            updates: vec![],
+            assembled_message: assembled,
+        };
+        let result = renderer.render(&message).await.unwrap();
+        // Strip ANSI escape sequences for comparison
+        let stripped = strip_ansi_codes(&result);
+        assert!(stripped.contains("RPM=1500 rpm"));
+    }
+
+    #[tokio::test]
+    async fn test_full_condensed_renderer_flag_with_title() {
+        let mut renderer = FullCondensedRenderer;
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let message = DecodedMessage {
+            title: "Test".to_string(),
+            outputs: vec![DecodedField::Flag {
+                title: "Engine".to_string(),
+                value: crate::types::FlagValue::On,
+            }],
+            updates: vec![],
+            assembled_message: assembled,
+        };
+        let result = renderer.render(&message).await.unwrap();
+        let stripped = strip_ansi_codes(&result);
+        assert!(stripped.contains("Engine=ON"));
+    }
+
+    #[tokio::test]
+    async fn test_full_condensed_renderer_hex_value() {
+        let mut renderer = FullCondensedRenderer;
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let message = DecodedMessage {
+            title: "VIN".to_string(),
+            outputs: vec![DecodedField::Value {
+                title: "Data".to_string(),
+                value: Numeric::Hex(vec![0x12, 0x34]),
+                unit: None,
+                decimal_places: None,
+            }],
+            updates: vec![],
+            assembled_message: assembled,
+        };
+        let result = renderer.render(&message).await.unwrap();
+        let stripped = strip_ansi_codes(&result);
+        assert!(stripped.contains("Data=0x"));
+    }
+
+    #[tokio::test]
+    async fn test_full_condensed_renderer_bool_value() {
+        let mut renderer = FullCondensedRenderer;
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let message = DecodedMessage {
+            title: "Flag".to_string(),
+            outputs: vec![DecodedField::Value {
+                title: "Active".to_string(),
+                value: Numeric::Bool(true),
+                unit: None,
+                decimal_places: None,
+            }],
+            updates: vec![],
+            assembled_message: assembled,
+        };
+        let result = renderer.render(&message).await.unwrap();
+        let stripped = strip_ansi_codes(&result);
+        assert!(stripped.contains("Active=true"));
+    }
+
+    #[tokio::test]
+    async fn test_full_condensed_renderer_float_value() {
+        let mut renderer = FullCondensedRenderer;
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let message = DecodedMessage {
+            title: "Temperature".to_string(),
+            outputs: vec![DecodedField::Value {
+                title: "Coolant".to_string(),
+                value: Numeric::Float(92.5),
+                unit: Some("C".to_string()),
+                decimal_places: Some(1),
+            }],
+            updates: vec![],
+            assembled_message: assembled,
+        };
+        let result = renderer.render(&message).await.unwrap();
+        let stripped = strip_ansi_codes(&result);
+        assert!(stripped.contains("Coolant=92.5 C"));
+    }
+
     fn strip_ansi_codes(s: &str) -> String {
         use std::sync::LazyLock;
         static ANSI_RE: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"\x1b\[[0-9;]*m").unwrap());
@@ -987,7 +1396,7 @@ pub fn strip_ansi_codes(s: &str) -> String {
 #[cfg(test)]
 mod tests_integration {
     use super::*;
-    
+
     #[test]
     fn test_strip_ansi_codes_basic() {
         let s = "\x1b[36m\x1b[1mRPM\x1b[0m\x1b[39m=1500 rpm";

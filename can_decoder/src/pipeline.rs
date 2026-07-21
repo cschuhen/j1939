@@ -221,6 +221,9 @@ pub use crate::renderers::CsvRenderer;
 /// Condensed renderer that outputs a single-line summary per message.
 pub use crate::renderers::CondensedRenderer;
 
+/// FullCondensed renderer that outputs a single-line summary per message.
+pub use crate::renderers::FullCondensedRenderer;
+
 #[cfg(test)]
 mod tests {
     use super::*;
