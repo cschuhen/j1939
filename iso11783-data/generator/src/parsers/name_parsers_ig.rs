@@ -1,11 +1,12 @@
 use crate::data::{IgSpecificFunctionEntry, VehicleSystemEntry};
-use calamine::{Reader, Xlsx, open_workbook};
+use calamine::{open_workbook, Reader, Xlsx};
 use std::collections::{HashMap, HashSet};
 
 /// Parse IG Specific NAME Function entries from an Excel file.
 /// Returns deduplicated entries sorted by packed key (ig << 24 | vs << 16 | func).
 pub fn parse_ig_specific_functions(path: &str) -> Vec<IgSpecificFunctionEntry> {
-    let mut xlsx: Xlsx<_> = open_workbook(path).expect("failed to open IG Specific NAME Function workbook");
+    let mut xlsx: Xlsx<_> =
+        open_workbook(path).expect("failed to open IG Specific NAME Function workbook");
 
     let sheets = xlsx.sheet_names();
     if sheets.is_empty() {
@@ -75,7 +76,11 @@ pub fn parse_ig_specific_functions(path: &str) -> Vec<IgSpecificFunctionEntry> {
             .collect();
 
         // Sort by packed key for binary search
-        entries.sort_by_key(|e| ((e.industry_group_id as u32) << 24) | ((e.vehicle_system_id as u32) << 16) | (e.function_id as u32));
+        entries.sort_by_key(|e| {
+            ((e.industry_group_id as u32) << 24)
+                | ((e.vehicle_system_id as u32) << 16)
+                | (e.function_id as u32)
+        });
 
         return entries;
     }
@@ -86,7 +91,8 @@ pub fn parse_ig_specific_functions(path: &str) -> Vec<IgSpecificFunctionEntry> {
 /// Parse Vehicle System entries directly from the IG Specific NAME Function Excel file.
 /// This extracts column C (vehicle_system_description) for unique (ig, vs) pairs.
 pub fn parse_vehicle_systems(path: &str) -> Vec<VehicleSystemEntry> {
-    let mut xlsx: Xlsx<_> = open_workbook(path).expect("failed to open IG Specific NAME Function workbook");
+    let mut xlsx: Xlsx<_> =
+        open_workbook(path).expect("failed to open IG Specific NAME Function workbook");
 
     let sheets = xlsx.sheet_names();
     if sheets.is_empty() {
@@ -146,7 +152,8 @@ pub fn parse_vehicle_systems(path: &str) -> Vec<VehicleSystemEntry> {
             })
             .collect();
 
-        entries.sort_by_key(|e| ((e.industry_group_id as u32) << 16) | (e.vehicle_system_id as u32));
+        entries
+            .sort_by_key(|e| ((e.industry_group_id as u32) << 16) | (e.vehicle_system_id as u32));
         return entries;
     }
 

@@ -1,6 +1,6 @@
 #[cfg(feature = "pgn")]
 mod pgn_tests {
-    use iso11783_data::pgn;
+    use iso11783_data::strings::pgn;
 
     #[test]
     fn test_process_data_lookup() {
@@ -18,7 +18,11 @@ mod pgn_tests {
     fn test_pgn_list_sorted() {
         let list = pgn::PGN_LIST;
         for i in 1..list.len() {
-            assert!(list[i - 1].0 < list[i].0, "PGN_LIST not sorted at index {}", i);
+            assert!(
+                list[i - 1].0 < list[i].0,
+                "PGN_LIST not sorted at index {}",
+                i
+            );
         }
     }
 

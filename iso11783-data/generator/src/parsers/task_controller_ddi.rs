@@ -46,7 +46,13 @@ pub fn parse(path: &str) -> Vec<DdiEntry> {
                         i += 1;
                     }
 
-                    entries.push(DdiEntry { ddi, name, unit, resolution, offset: 0.0 });
+                    entries.push(DdiEntry {
+                        ddi,
+                        name,
+                        unit,
+                        resolution,
+                        offset: 0.0,
+                    });
                 }
             }
         }

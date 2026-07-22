@@ -1,7 +1,7 @@
 /// CANoT proprietary DDI definitions for can_decoder.
 /// This module provides lookup tables and functions for proprietary DDI ranges (0xE000-0xFFFE).
 
-use iso11783_data::task_controller_ddi::DdiInfo;
+use iso11783_data::strings::task_controller_ddi::DdiInfo;
 
 /// Lookup table for proprietary DDIs in the range 0xE000-0xFFFE.
 pub const PROPRIETARY_DDI_LIST: &[DdiInfo] = &[

@@ -1,4 +1,4 @@
-/// Source: TaskControllerDDI.txt rev 1, downloaded 2026-07-20
+/// Source: TaskControllerDDI.txt rev 1, downloaded 2026-07-24
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct DdiInfo {
     pub ddi: u16,
@@ -405,9 +405,8 @@ pub fn lookup(ddi: u16) -> Option<&'static DdiInfo> {
     }
 }
 
-/// Convert raw i32 value to physical value using the DDI's scale and offset.
-/// Formula: physical = (raw - offset) * scale
+/// Convert raw i32 value to physical value using the DDI's resolution and offset.
 pub fn to_physical(ddi: u16, raw: i32) -> Option<f64> {
     let info = lookup(ddi)?;
-    Some((raw as f64 - info.offset as f64) * info.resolution)
+    Some((raw as f64) * info.resolution + info.offset as f64)
 }

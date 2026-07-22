@@ -1,4 +1,4 @@
-/// Source: SPNs and PGNs.xlsx rev 1, downloaded 2026-07-20
+/// Source: SPNs and PGNs.xlsx rev 1, downloaded 2026-07-24
 pub const PGN_LIST: &[(u32, &str)] = &[
     (0, "Torque/Speed Control 1"),
     (256, "Transmission Control 1"),
@@ -3223,12 +3223,3 @@ pub fn lookup(pgn: u32) -> Option<&'static str> {
         Err(_) => None,
     }
 }
-
-/// Named constants for frequently-used PGNs.
-pub const PROCESS_DATA: u32 = 0x00cb00; // 51968
-pub const BROADCAST_COMMAND: u32 = 0x00cf00; // 52992
-pub const REQUEST: u32 = 0x00e800; // 59392
-pub const TRANSMIT_COMPRESSED_TIME_DATA: u32 = 0x00ea00; // 59904
-pub const TRANSMIT_DECOMPRESSED_TIME_DATA: u32 = 0x00eb00; // 60160
-pub const COMMAND: u32 = 0x00ec00; // 60416
-pub const DYNAMIC_ADDRESS_ASSIGNMENT: u32 = 0x00f000; // 61440

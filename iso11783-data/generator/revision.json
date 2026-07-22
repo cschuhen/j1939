@@ -1,0 +1,22 @@
+{
+  "isobus_params": {
+    "date": "2026-07-24",
+    "rev": 1,
+    "source": "AEF Functionalities.xlsx"
+  },
+  "name": {
+    "date": "2026-07-24",
+    "rev": 1,
+    "source": "NAME lookup tables (Manufacturer IDs, Industry Groups, Global NAME Functions, IG Specific NAME Function)"
+  },
+  "pgn": {
+    "date": "2026-07-24",
+    "rev": 4,
+    "source": "SPNs and PGNs.xlsx"
+  },
+  "task_controller_ddi": {
+    "date": "2026-07-24",
+    "rev": 4,
+    "source": "TaskControllerDDI.txt"
+  }
+}

@@ -1,5 +1,5 @@
 use crate::data::ParamNameEntry;
-use calamine::{Reader, Xlsx, open_workbook};
+use calamine::{open_workbook, Reader, Xlsx};
 use std::collections::HashMap;
 
 /// Parse ISOBUS parameter NAME entries from an Excel file with "value" and "meaning" columns.
@@ -58,7 +58,10 @@ pub fn parse(path: &str) -> Vec<ParamNameEntry> {
             eprintln!("Total ISOBUS params warnings: {}\n", warnings);
         }
 
-        let mut sorted: Vec<_> = value_to_name.into_iter().map(|(value, name)| ParamNameEntry { value, name }).collect();
+        let mut sorted: Vec<_> = value_to_name
+            .into_iter()
+            .map(|(value, name)| ParamNameEntry { value, name })
+            .collect();
         sorted.sort_by_key(|e| e.value);
         return sorted;
     }

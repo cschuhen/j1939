@@ -1,5 +1,5 @@
 use crate::data::{GlobalFunctionEntry, IndustryGroupEntry, ManufacturerIdEntry};
-use calamine::{Reader, Xlsx, open_workbook};
+use calamine::{open_workbook, Reader, Xlsx};
 use std::collections::HashMap;
 
 /// Parse Manufacturer ID entries from an Excel file.
@@ -95,7 +95,10 @@ pub fn parse_industry_groups(path: &str) -> Vec<IndustryGroupEntry> {
 
         let mut entries: Vec<_> = id_to_desc
             .into_iter()
-            .map(|(id, desc)| IndustryGroupEntry { id, description: desc })
+            .map(|(id, desc)| IndustryGroupEntry {
+                id,
+                description: desc,
+            })
             .collect();
         entries.sort_by_key(|e| e.id);
         return entries;
@@ -106,7 +109,8 @@ pub fn parse_industry_groups(path: &str) -> Vec<IndustryGroupEntry> {
 
 /// Parse Global NAME Function entries from an Excel file.
 pub fn parse_global_functions(path: &str) -> Vec<GlobalFunctionEntry> {
-    let mut xlsx: Xlsx<_> = open_workbook(path).expect("failed to open Global NAME Functions workbook");
+    let mut xlsx: Xlsx<_> =
+        open_workbook(path).expect("failed to open Global NAME Functions workbook");
 
     let sheets = xlsx.sheet_names();
     if sheets.is_empty() {
@@ -146,7 +150,10 @@ pub fn parse_global_functions(path: &str) -> Vec<GlobalFunctionEntry> {
 
         let mut entries: Vec<_> = id_to_desc
             .into_iter()
-            .map(|(id, desc)| GlobalFunctionEntry { id, description: desc })
+            .map(|(id, desc)| GlobalFunctionEntry {
+                id,
+                description: desc,
+            })
             .collect();
         entries.sort_by_key(|e| e.id);
         return entries;

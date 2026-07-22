@@ -1,9 +1,9 @@
-use calamine::{Reader, Xlsx, open_workbook};
+use calamine::{open_workbook, Reader, Xlsx};
 use std::collections::HashMap;
 
 fn main() {
     let path = "downloads/extract/SPNs and PGNs.xlsx";
-    
+
     // Open workbook once to get all rows from first sheet
     if let Ok(data) = {
         let mut xlsx: Xlsx<_> = open_workbook(path).expect("failed to open workbook");
@@ -15,11 +15,13 @@ fn main() {
         let mut pgn_to_name: HashMap<u32, String> = HashMap::new();
         let mut mismatch_count = 0;
         let mut total_rows = 0;
-        
+
         // Skip header row (index 0), process data rows starting at index 1
         for (row_idx, row) in data.rows().enumerate() {
-            if row_idx == 0 { continue; } // skip headers
-            
+            if row_idx == 0 {
+                continue;
+            } // skip headers
+
             total_rows += 1;
 
             let pgn_cell = &row[0];
@@ -35,8 +37,10 @@ fn main() {
             // Warn if PGN doesn't fit in 24-bit unsigned (max = 0x00FFFFFF = 16777215)
             const MAX_24BIT: u32 = 0x00FFFFFF;
             if pgn_value > MAX_24BIT {
-                eprintln!("WARNING: PGN {} exceeds 24-bit unsigned max ({}). Row {}", 
-                    pgn_value, MAX_24BIT, row_idx);
+                eprintln!(
+                    "WARNING: PGN {} exceeds 24-bit unsigned max ({}). Row {}",
+                    pgn_value, MAX_24BIT, row_idx
+                );
             }
 
             // Parse name from column B

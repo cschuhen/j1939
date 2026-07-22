@@ -1,6 +1,6 @@
 #[cfg(feature = "name")]
 mod manufacturer_tests {
-    use iso11783_data::name;
+    use iso11783_data::strings::name;
 
     #[test]
     fn test_manufacturer_id_0() {
@@ -30,7 +30,11 @@ mod manufacturer_tests {
     fn test_manufacturer_list_sorted() {
         let list = name::MANUFACTURER_ID_LIST;
         for i in 1..list.len() {
-            assert!(list[i - 1].0 < list[i].0, "MANUFACTURER_ID_LIST not sorted at index {}", i);
+            assert!(
+                list[i - 1].0 < list[i].0,
+                "MANUFACTURER_ID_LIST not sorted at index {}",
+                i
+            );
         }
     }
 
@@ -42,7 +46,7 @@ mod manufacturer_tests {
 
 #[cfg(feature = "name")]
 mod industry_group_tests {
-    use iso11783_data::name;
+    use iso11783_data::strings::name;
 
     #[test]
     fn test_industry_group_0() {
@@ -71,7 +75,11 @@ mod industry_group_tests {
     fn test_industry_group_list_sorted() {
         let list = name::INDUSTRY_GROUP_LIST;
         for i in 1..list.len() {
-            assert!(list[i - 1].0 < list[i].0, "INDUSTRY_GROUP_LIST not sorted at index {}", i);
+            assert!(
+                list[i - 1].0 < list[i].0,
+                "INDUSTRY_GROUP_LIST not sorted at index {}",
+                i
+            );
         }
     }
 
@@ -83,7 +91,7 @@ mod industry_group_tests {
 
 #[cfg(feature = "name")]
 mod global_function_tests {
-    use iso11783_data::name;
+    use iso11783_data::strings::name;
 
     #[test]
     fn test_global_function_0() {
@@ -106,7 +114,11 @@ mod global_function_tests {
     fn test_global_function_list_sorted() {
         let list = name::GLOBAL_FUNCTION_LIST;
         for i in 1..list.len() {
-            assert!(list[i - 1].0 < list[i].0, "GLOBAL_FUNCTION_LIST not sorted at index {}", i);
+            assert!(
+                list[i - 1].0 < list[i].0,
+                "GLOBAL_FUNCTION_LIST not sorted at index {}",
+                i
+            );
         }
     }
 
@@ -118,7 +130,7 @@ mod global_function_tests {
 
 #[cfg(feature = "name")]
 mod ig_specific_function_tests {
-    use iso11783_data::name;
+    use iso11783_data::strings::name;
 
     #[test]
     fn test_ig_specific_reserved() {
@@ -143,7 +155,11 @@ mod ig_specific_function_tests {
     fn test_ig_specific_list_sorted() {
         let list = name::IG_SPECIFIC_FUNCTION_LIST;
         for i in 1..list.len() {
-            assert!(list[i - 1].0 < list[i].0, "IG_SPECIFIC_FUNCTION_LIST not sorted at index {}", i);
+            assert!(
+                list[i - 1].0 < list[i].0,
+                "IG_SPECIFIC_FUNCTION_LIST not sorted at index {}",
+                i
+            );
         }
     }
 
@@ -155,7 +171,7 @@ mod ig_specific_function_tests {
 
 #[cfg(feature = "name")]
 mod vehicle_system_tests {
-    use iso11783_data::name;
+    use iso11783_data::strings::name;
 
     #[test]
     fn test_vehicle_system_non_specific() {
@@ -173,12 +189,23 @@ mod vehicle_system_tests {
     fn test_vehicle_system_list_sorted() {
         let list = name::VEHICLE_SYSTEM_LIST;
         for i in 1..list.len() {
-            assert!(list[i - 1].0 < list[i].0, "VEHICLE_SYSTEM_LIST not sorted at index {}", i);
+            assert!(
+                list[i - 1].0 < list[i].0,
+                "VEHICLE_SYSTEM_LIST not sorted at index {}",
+                i
+            );
         }
     }
 
     #[test]
     fn test_vehicle_system_list_count() {
         assert_eq!(name::VEHICLE_SYSTEM_LIST.len(), 70);
+    }
+
+    #[test]
+    fn test_function() {
+        assert_eq!(iso11783_data::constants::name::industry_groups::agricultural_and_forestry_equipment::planters_seeders::SEED_RATE_CONTROL, 128);
+        assert_eq!(iso11783_data::constants::name::industry_groups::agricultural_and_forestry_equipment::planters_seeders::PLANTERS_SEEDERS_MACHINE_CONTROL, 132);
+        assert_eq!(iso11783_data::constants::name::industry_groups::agricultural_and_forestry_equipment::PLANTERS_SEEDERS , 4);
     }
 }

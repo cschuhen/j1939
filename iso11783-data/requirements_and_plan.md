@@ -20,10 +20,24 @@ iso11783-data/                    # repo root + library crate (no_std)
 ├── Cargo.toml                   # workspace root + library package definition
 ├── README.md                    # crate-level docs
 ├── src/                         # library source
-│   ├── lib.rs                   # re-exports all modules + lookup functions
-│   ├── pgn.rs                   # generated: PGN constants + lookup
-│   ├── isobus_params.rs         # generated: ISOBUS parameter NAME lookups
-│   └── task_controller_ddi.rs   # generated: Task Controller DDI lookups with metadata
+│   ├── lib.rs                   # re-exports all modules
+│   ├── strings/                 # generated: lookup tables and functions
+│   │   ├── pgn.rs               # PGN_LIST + lookup()
+│   │   ├── isobus_params.rs     # PARAM_NAME_LIST + lookup()
+│   │   ├── task_controller_ddi.rs  # DDI_LIST + lookup() + to_physical()
+│   │   └── name.rs              # NAME lookup tables and functions
+│   └── constants/               # generated: named constants
+│       ├── pgn.rs               # Named PGN constants (e.g., PROCESS_DATA)
+│       ├── isobus_params.rs     # ISOBUS parameter constants
+│       ├── task_controller_ddi.rs  # DDI constants
+│       └── name/                # Hierarchical NAME constants
+│           ├── mod.rs           # Re-exports manufacturer_ids, industry_groups
+│           ├── manufacturer_ids.rs  # Manufacturer ID constants (u8)
+│           └── industry_groups/     # Industry group + vehicle system constants
+│               ├── mod.rs       # Industry group constants + vehicle_systems submodules
+│               ├── TRACTOR.rs   # IG-specific function constants for Tractor
+│               ├── EXCAVATOR.rs # IG-specific function constants for Excavator
+│               └── ...          # One file per vehicle system with entries
 └── generator/                    # generator binary crate (std)
     ├── Cargo.toml
     └── src/
@@ -32,11 +46,12 @@ iso11783-data/                    # repo root + library crate (no_std)
         ├── parsers/             # per-sheet parsers
         │   ├── pgn_parser.rs
         │   ├── isobus_params_parser.rs
-        │   └── task_controller_ddi_parser.rs
+        │   ├── task_controller_ddi_parser.rs
+        │   └── name_parsers.rs  # NAME lookup table parsers
         └── codegen.rs           # Rust source file generation
 ```
 
-The repo root `Cargo.toml` defines a workspace with two members: the library crate (defined inline via `[package]`) and the generator. The generated `.rs` files live directly in `src/` alongside `lib.rs`.
+The repo root `Cargo.toml` defines a workspace with two members: the library crate (defined inline via `[package]`) and the generator. The generated `.rs` files live in `src/strings/` (lookup tables) and `src/constants/` (named constants). The NAME constants are organized hierarchically by industry group, with one directory per IG containing a mod.rs and vehicle system submodule files.
 
 ---
 
@@ -232,7 +247,7 @@ pub fn vehicle_system_lookup(ig: u8, vs: u8) -> Option<&'static str> {
 
 ## Module Organization
 
-The library crate has one module per data domain:
+The library crate has one module per data domain, split into two submodules:
 
 | Module | Contents | When to include |
 |--------|----------|-----------------|
@@ -240,6 +255,13 @@ The library crate has one module per data domain:
 | `isobus_params` | ISOBUS parameter NAME lookups | Only when working with ISOBUS/ARBI protocols |
 | `task_controller_ddi` | Task Controller DDI lookups + metadata | Only when implementing ISO-11783-10 (Task Controller) |
 | `name` | ISOBUS NAME field lookups (manufacturer, industry group, vehicle system, functions) | Only when working with ISOBUS/ARBI protocols and NAME structure decoding |
+
+Each module is split into two submodules:
+
+| Submodule | Contents | Example |
+|-----------|----------|---------|
+| `strings` | Lookup tables (`*_LIST` slices) and lookup functions | `iso11783_data::strings::pgn::lookup()` |
+| `constants` | Named constants for well-known values | `iso11783_data::constants::pgn::PROCESS_DATA` |
 
 The main `lib.rs` re-exports all modules unconditionally. Consumers that want to reduce compile time / binary size can use conditional compilation via features:
 
@@ -347,14 +369,90 @@ task_controller_ddi = []
 ```rust
 #![no_std]
 
+// Strings modules (lookup tables and functions)
 #[cfg(feature = "pgn")]
-pub mod pgn;
+mod pgn;
 
 #[cfg(feature = "isobus_params")]
-pub mod isobus_params;
+mod isobus_params;
 
 #[cfg(feature = "task_controller_ddi")]
-pub mod task_controller_ddi;
+mod task_controller_ddi;
+
+#[cfg(feature = "name")]
+mod name;
+
+// Public re-exports for strings (lookup tables)
+pub mod strings {
+    #[cfg(feature = "pgn")]
+    pub mod pgn { pub use crate::strings_pgn::*; }
+    #[cfg(feature = "isobus_params")]
+    pub mod isobus_params { pub use crate::strings_isobus_params::*; }
+    #[cfg(feature = "task_controller_ddi")]
+    pub mod task_controller_ddi { pub use crate::strings_task_controller_ddi::*; }
+    #[cfg(feature = "name")]
+    pub mod name { pub use crate::strings_name::*; }
+}
+
+// Public re-exports for constants (named values)
+pub mod constants {
+    #[cfg(feature = "pgn")]
+    pub mod pgn { pub use crate::pgn::*; }
+    #[cfg(feature = "isobus_params")]
+    pub mod isobus_params { pub use crate::isobus_params::*; }
+    #[cfg(feature = "task_controller_ddi")]
+    pub mod task_controller_ddi { pub use crate::task_controller_ddi::*; }
+    #[cfg(feature = "name")]
+    pub mod name { pub use crate::name::*; }
+}
+```
+
+### NAME Constants Hierarchy (`constants/name/`)
+
+The NAME constants module has a hierarchical structure organized by industry group:
+
+```rust
+// constants/name/mod.rs — re-exports submodules
+pub mod manufacturer_ids;
+pub mod global;
+pub mod on_highway_equipment;
+pub mod agricultural_and_forestry_equipment;
+// ... one submodule per industry group (IG > 0)
+
+// constants/name/manufacturer_ids.rs — 256 manufacturer ID constants (u8)
+pub const CATERPILLAR_INC: u8 = 8;
+pub const DEERE_COMPANY: u8 = 12;
+// ...
+
+// constants/name/global.rs — IG-specific function constants for Global (IG 0), grouped by vehicle system
+/// Vehicle system: on board data logger
+pub const ON_BOARD_DATA_LOGGER: u32 = 130;
+// ...
+
+// constants/name/on_highway_equipment/mod.rs — industry group constant + vehicle system submodule declarations
+pub const ON_HIGHWAY_EQUIPMENT: u8 = 1;
+pub mod tractor;        // Vehicle system submodule
+pub mod trailer;        // Vehicle system submodule
+// ...
+
+// constants/name/on_highway_equipment/tractor.rs — IG-specific function constants for Tractor (IG=1)
+pub const FORWARD_ROAD_IMAGE_PROCESSING: u32 = 16842880;
+pub const FIFTH_WHEEL_SMART_SYSTEM: u32 = 16842881;
+// ...
+```
+
+Usage:
+```rust
+use iso11783_data::constants::name::manufacturer_ids::CATERPILLAR_INC;
+use iso11783_data::constants::name::on_highway_equipment::ON_HIGHWAY_EQUIPMENT;
+use iso11783_data::constants::name::on_highway_equipment::tractor::FORWARD_ROAD_IMAGE_PROCESSING;
+```
+
+Usage:
+```rust
+use iso11783_data::constants::name::manufacturer_ids::CATERPILLAR_INC;
+use iso11783_data::constants::name::industry_groups::ON_HIGHWAY_EQUIPMENT;
+use iso11783_data::constants::name::industry_groups::TRACTOR::FORWARD_ROAD_IMAGE_PROCESSING;
 ```
 
 ### `no_std` Compatibility
@@ -366,31 +464,53 @@ pub mod task_controller_ddi;
 
 ---
 
-## Current Status (Updated 2026-07-20)
+## Current Status (Updated 2026-07-22)
 
 | Item | Status | Notes |
 |------|--------|-------|
-| Generator crate skeleton | **Done** | `main.rs`, `excel.rs`, `data.rs` implemented with CLI commands |
+| Generator crate skeleton | **Done** | `main.rs`, `excel_loader.rs`, `data.rs` implemented with CLI commands |
 | Download infrastructure | **Done** | Downloads all sources, extracts zip archives automatically |
-| PGN parser & codegen | **Done** | Integrated into main binary; generates `pgn.rs` (3,213 entries) |
-| ISOBUS params parser & codegen | **Done** | Uses `AEF Functionalities.xlsx`; generates `isobus_params.rs` (30 entries) |
-| Task Controller DDI parser & codegen | **Done** | Parses TXT format; generates `task_controller_ddi.rs` (383 entries) |
-| CLI commands | **Done** | `generate`, `info` subcommands; `--module`, `--pgn-file`, `--params-file`, `--ddi-file` flags |
+| PGN parser & codegen | **Done** | Integrated into main binary; generates strings/pgn.rs (3,213 entries) + constants/pgn.rs |
+| ISOBUS params parser & codegen | **Done** | Uses `AEF Functionalities.xlsx`; generates strings/isobus_params.rs (30 entries) |
+| Task Controller DDI parser & codegen | **Done** | Parses TXT format; generates strings/task_controller_ddi.rs (383 entries) + constants/task_controller_ddi.rs |
+| NAME lookup parser & codegen | **Done** | Parses 5 Excel sheets; generates strings/name.rs + hierarchical constants/name/ structure |
+| CLI commands | **Done** | `generate`, `info` subcommands; `--module`, custom file path flags |
 | Revision tracking | **Done** | `revision.json` tracks source, revision number, date per module |
 | Library crate (`lib.rs`) | **Done** | Feature-gated modules, `#![no_std]`, compiles in std mode |
-| Generated `.rs` files | **Done** | All three present in `src/`: pgn.rs (160KB), isobus_params.rs (1.7KB), task_controller_ddi.rs (45KB) |
-| Integration tests | **Done** | 30 tests passing: pgn (8), isobus_params (7), task_controller_ddi (12) |
+| Generated `.rs` files — strings | **Done** | Lookup tables and functions: pgn.rs (157KB), isobus_params.rs (1.7KB), task_controller_ddi.rs (44KB), name.rs (30KB) |
+| Generated `.rs` files — constants | **Done** | Named constants: pgn.rs (191KB), task_controller_ddi.rs (20KB), name/ hierarchy (32KB + 60 vehicle system files) |
+| Integration tests | **Done** | 53 tests passing: pgn (8), isobus_params (7), task_controller_ddi (12), name (26) |
 | no_std compilation | **Done** | Verified with `--target thumbv7m-none-eabi` — passes |
 
 ### Key Findings from Investigation
 
 1. **PGN source**: The planned `ISOBUSStandardParts.xlsx` is only a version catalog (19 rows). The actual PGN data lives in `"SPNs and PGNs.xlsx"` inside the zip extracted from `isoExport_xlsx.zip` (the ISOBUS Parameters download). This file has 2 columns: PGN value (column A) and name (column B), with ~17,950 total rows producing 3,213 unique entries after deduplication.
 
-2. **ISOBUS Parameters**: The zip contains 13 xlsx files. Which one holds parameter NAME values needs to be identified from the dump files in `downloads/`.
+2. **ISOBUS Parameters**: The zip contains 13 xlsx files. `AEF Functionalities.xlsx` was identified as the source for parameter NAME values (30 entries). Configurable via `--params-file` flag.
 
 3. **Task Controller DDI source**: Downloaded as TXT format (`TaskControllerDDI.txt`, version 2026050501, May 2026). Uses "DD Entity:" blocks with Definition, Unit, and Resolution fields. No Offset field in the source data (all offsets default to 0.0).
 
 4. **Data quality**: One PGN name mismatch found — PGN 65032 has a trailing space difference between duplicate entries ("Required Tractor Facilities message" vs "Required Tractor Facilities message ").
+
+### NAME Module Extraction Results
+
+The NAME lookup module was extracted from 5 Excel source files:
+
+| Table | Source File | Entries |
+|-------|------------|---------|
+| Manufacturer IDs | `downloads/extract/Manufacturer IDs.xlsx` | 256 unique IDs (u8) |
+| Industry Groups | `downloads/extract/Industry Groups.xlsx` | 8 groups (u8) |
+| Global NAME Functions | `downloads/extract/Global NAME Functions.xlsx` | 95 functions (u16) |
+| IG Specific NAME Functions | `downloads/extract/IG Specific NAME Function.xlsx` | 284 entries (packed u32 keys) |
+| Vehicle Systems | Derived from IG Specific data | 70 unique systems |
+
+The constants module uses a hierarchical structure:
+- `constants/name/mod.rs` — re-exports `manufacturer_ids` and `industry_groups` submodules
+- `constants/name/manufacturer_ids.rs` — 256 manufacturer ID constant definitions (u8)
+- `constants/name/industry_groups/mod.rs` — industry group constants + vehicle system submodule declarations
+- `constants/name/industry_groups/<vehicle_system>.rs` — one file per vehicle system with IG-specific function constants (u32 packed keys)
+
+Duplicate constant names are handled by appending numeric suffixes (e.g., `RESERVED_FOR_FUTURE_ASSIGNMENT_BY_SAE_2`).
 
 ### Phase 0: Investigation — Excel File Analysis ✅ **COMPLETE**
 
@@ -408,18 +528,18 @@ pub mod task_controller_ddi;
 
 ### Phase 1: Generator Tool — Core Parsing & Codegen ✅ **COMPLETE**
 
-**Goal**: Build the generator that produces all three generated modules.
+**Goal**: Build the generator that produces all generated modules.
 
 **Completed steps**:
 1. ✅ PGN parser integrated into main binary (`parsers/pgn_parser.rs`) — extracts, deduplicates, and sorts 3,213 unique PGNs from `"SPNs and PGNs.xlsx"`.
-2. ✅ Task Controller DDI parser wired into main binary (`parsers/task_controller_ddi.rs`) — parses DD Entity blocks from TXT format (DDI number, name, unit, resolution). Offset always 0.0 since source has no Offset field.
+2. ✅ Task Controller DDI parser wired into main binary (`parsers/task_controller_ddi_parser.rs`) — parses DD Entity blocks from TXT format (DDI number, name, unit, resolution). Offset always 0.0 since source has no Offset field.
 3. ✅ ISOBUS params parser implemented (`parsers/isobus_params_parser.rs`) — uses `AEF Functionalities.xlsx` as default source (value→meaning mapping, 30 entries). Configurable via `--params-file` flag.
 4. ✅ Validation logic — deduplication + 24-bit range check for PGNs; deduplication for ISOBUS params and DDI entries. Warnings printed to stderr.
-5. ✅ Rust source code generation (`codegen.rs`) — produces all three `.rs` files with static slices, binary search lookup functions, and named constants for well-known PGNs.
-6. ✅ CLI `generate` command with module selection (`--module pgn|isobus_params|task_controller_ddi`) and custom file paths (`--pgn-file`, `--params-file`, `--ddi-file`). Also supports `info` subcommand.
+5. ✅ Rust source code generation (`codegen.rs`) — produces lookup tables (static slices with binary search) in `src/strings/` and named constants in `src/constants/`.
+6. ✅ CLI `generate` command with module selection (`--module pgn|isobus_params|task_controller_ddi|name`) and custom file paths (`--pgn-file`, `--params-file`, `--ddi-file`). Also supports `info` subcommand.
 7. ✅ Revision tracking (`revision.json`) — tracks source file, revision number, and download date per module. Revision increments only when content changes.
 
-**Deliverable**: Running generator that produces all three `.rs` files in the repo root `src/` directory. Verified: `pgn.rs` (160KB, 3213 entries), `isobus_params.rs` (1.7KB, 30 entries), `task_controller_ddi.rs` (45KB, 383 entries).
+**Deliverable**: Running generator that produces all `.rs` files in `src/strings/` (lookup tables) and `src/constants/` (named constants). Verified: strings/pgn.rs (157KB, 3213 entries), strings/isobus_params.rs (1.7KB, 30 entries), strings/task_controller_ddi.rs (44KB, 383 entries), strings/name.rs (30KB).
 
 ### Phase 2: Library Crate — Assembly & Testing ✅ **COMPLETE**
 
@@ -427,17 +547,36 @@ pub mod task_controller_ddi;
 
 **Completed steps**:
 1. ✅ Library crate skeleton exists (`Cargo.toml` with features).
-2. ✅ Generated `.rs` files produced by Phase 1 generator — `pgn.rs`, `isobus_params.rs`, `task_controller_ddi.rs` all present in `src/`.
-3. ✅ `lib.rs` updated with feature-gated module declarations (`#![no_std]`).
+2. ✅ Generated `.rs` files produced by Phase 1 generator — lookup tables in `src/strings/`, named constants in `src/constants/`.
+3. ✅ `lib.rs` updated with feature-gated module declarations and public re-exports for `strings::` and `constants::` submodules (`#![no_std]`).
 4. ✅ Compilation verified in `std` mode (default) — `cargo check` passes.
 5. ✅ Compilation verified in `no_std` mode (`--target thumbv7m-none-eabi`) — passes.
-6. ✅ Integration tests written and passing — 30 tests total:
+6. ✅ Integration tests written and passing — 53 tests total:
    - `tests/pgn_tests.rs` (8 tests): lookup, sorted order, list count, binary search efficiency
    - `tests/isobus_params_tests.rs` (7 tests): lookup, sorted order, list count
    - `tests/task_controller_ddi_tests.rs` (12 tests): lookup, to_physical, sorted order, list count, name validation
-7. ✅ Feature gating verified — compiles with individual features (`pgn`, `isobus_params`, `task_controller_ddi`) in both std and no_std modes.
+   - `tests/name_tests.rs` (26 tests): manufacturer IDs, industry groups, global functions, IG-specific functions, vehicle systems lookups
+7. ✅ Feature gating verified — compiles with individual features (`pgn`, `isobus_params`, `task_controller_ddi`, `name`) in both std and no_std modes.
 
-**Deliverable**: Library crate compiles, passes 30 tests, and is ready for use in `can_decoder`.
+**Deliverable**: Library crate compiles, passes 53 tests, and is ready for use in `can_decoder`.
+
+### Phase 2.5: NAME Module Extraction & Hierarchical Constants ✅ **COMPLETE**
+
+**Goal**: Extract NAME lookup data from Excel files and organize constants into a hierarchical module structure organized by industry group.
+
+**Completed steps**:
+1. ✅ NAME parsers implemented (`parsers/name_parsers.rs`, `parsers/name_parsers_ig.rs`) — parse 5 Excel sheets: Manufacturer IDs, Industry Groups, Global NAME Functions, IG Specific NAME Function, Vehicle Systems.
+2. ✅ Strings generation — single file with lookup tables and functions for all NAME data types (manufacturer_id_lookup, industry_group_lookup, global_function_lookup, ig_specific_function_lookup, vehicle_system_lookup).
+3. ✅ Constants hierarchical structure organized by industry group:
+   - `constants/name/mod.rs` — re-exports manufacturer_ids, global, and one submodule per industry group (IG > 0)
+   - `constants/name/manufacturer_ids.rs` — 256 manufacturer ID constants (u8)
+   - `constants/name/global.rs` — IG-specific function constants for Global (IG 0), grouped by vehicle system with comments
+   - `constants/name/<industry_group>/mod.rs` — industry group constant + vehicle system submodule declarations
+   - `constants/name/<industry_group>/<vehicle_system>.rs` — one file per vehicle system within that IG with IG-specific function constants (u32 packed keys)
+4. ✅ Duplicate constant name handling — appends numeric suffixes (e.g., `RESERVED_FOR_FUTURE_ASSIGNMENT_BY_SAE_2`).
+5. ✅ Vehicle system submodule filtering — only generates files for vehicle systems that have at least one IG-specific function entry.
+
+**Deliverable**: NAME module with 256 manufacturer IDs, 8 industry groups, 95 global functions, 284 IG-specific functions across ~70 vehicle systems (filtered to ~60 with entries). All accessible via `iso11783_data::strings::name` and `iso11783_data::constants::name`.
 
 ### Phase 3: Integration with `can_decoder`
 
@@ -467,7 +606,7 @@ https://www.isobus.net/isobus/exports/complete
 | Source | URL (Actual) | Target Module | Notes |
 |--------|-------------|---------------|-------|
 | PGN definitions | `https://www.isobus.net/isobus/attachments/isoExport_xlsx.zip` → `"SPNs and PGNs.xlsx"` inside zip | `pgn.rs` | Original plan (`ISOBUSStandardParts.xlsx`) is only a version catalog (19 rows) |
-| ISOBUS Parameters | `https://www.isobus.net/isobus/attachments/isoExport_xlsx.zip` → 13 xlsx files inside zip | `isobus_params.rs` | Target file within zip not yet identified |
+| ISOBUS Parameters / NAME data | `https://www.isobus.net/isobus/attachments/isoExport_xlsx.zip` → 13 xlsx files inside zip | `isobus_params.rs`, `name.rs` | `AEF Functionalities.xlsx` for params; Manufacturer IDs, Industry Groups, Global/IG Specific NAME Functions, Vehicle Systems sheets for NAME data |
 | Task Controller DDI | `https://www.isobus.net/isobus/exports/completeTXT` (TXT format) | `task_controller_ddi.rs` | Not an xlsx — uses "DD Entity:" block format |
 
 ---
@@ -475,5 +614,6 @@ https://www.isobus.net/isobus/exports/complete
 ## Open Questions
 
 1. **Sheet naming**: Sheet names are stable across revisions. The generator will lock onto specific sheet names once identified during Phase 0 investigation. No tolerance logic needed.
-2. ~~**SAE vs ASAM comments**~~ — **Resolved (Phase 0)**: Searched all 13 xlsx files; no explicit approval type column exists. "SAE" only appears as documentation URLs in `pgn_description`, zero "ASAM" mentions anywhere. Generated code omits such comments.
-3. **`to_physical()` placement**: Confirmed to stay inside `task_controller_ddi.rs`. Most DDI values are 32-bit signed integers; scaling factor and unit handle resolution needs without varying data sizes. No separate crate needed.
+2. ~~**SAE vs ASAM comments**~~ — **Resolved (Phase 0)**: Searched all 13 xlsx files; no explicit approval type column exists. "SAE" only appears as documentation URLs, zero "ASAM" mentions anywhere. Generated code omits such comments.
+3. ~~**ISOBUS Parameters target file**~~ — **Resolved (Phase 2.5)**: `AEF Functionalities.xlsx` identified as the source for parameter NAME values within the zip archive. Configurable via `--params-file` flag.
+4. **`to_physical()` placement**: Confirmed to stay inside `task_controller_ddi.rs`. Most DDI values are 32-bit signed integers; scaling factor and unit handle resolution needs without varying data sizes. No separate crate needed.

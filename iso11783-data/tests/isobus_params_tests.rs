@@ -1,6 +1,6 @@
 #[cfg(feature = "isobus_params")]
 mod params_tests {
-    use iso11783_data::isobus_params;
+    use iso11783_data::strings::isobus_params;
 
     #[test]
     fn test_minimum_control_function() {
@@ -35,7 +35,11 @@ mod params_tests {
     fn test_param_list_sorted() {
         let list = isobus_params::PARAM_NAME_LIST;
         for i in 1..list.len() {
-            assert!(list[i - 1].0 < list[i].0, "PARAM_NAME_LIST not sorted at index {}", i);
+            assert!(
+                list[i - 1].0 < list[i].0,
+                "PARAM_NAME_LIST not sorted at index {}",
+                i
+            );
         }
     }
 

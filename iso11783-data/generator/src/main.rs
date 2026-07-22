@@ -2,14 +2,17 @@ mod codegen;
 mod data;
 mod excel;
 mod parsers;
-use parsers::{isobus_params_parser, name_parsers, name_parsers_ig, pgn_parser, task_controller_ddi};
+use parsers::{
+    isobus_params_parser, name_parsers, name_parsers_ig, pgn_parser, task_controller_ddi,
+};
 
-
+use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
 
 const DOWNLOADS_DIR: &str = "downloads";
-const OUTPUT_DIR: &str = "src";
+const STRINGS_DIR: &str = "src/strings";
+const CONSTANTS_DIR: &str = "src/constants";
 const REVISION_FILE: &str = "generator/revision.json";
 
 const SOURCES: &[Source] = &[
@@ -173,7 +176,10 @@ fn download_and_extract(_args: &CliArgs) -> (Option<PathBuf>, Option<PathBuf>, O
             for entry in entries.flatten() {
                 let path = entry.path();
                 if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                    if name.contains("AEF") && name.contains("Functionalities") && !name.contains("Options") {
+                    if name.contains("AEF")
+                        && name.contains("Functionalities")
+                        && !name.contains("Options")
+                    {
                         params_path = Some(path);
                         break;
                     }
@@ -260,8 +266,18 @@ fn main() {
 fn cmd_generate(cli: &CliArgs) {
     println!("=== ISO 11783 Data — Generator ===\n");
 
-    let output_dir = cli.output_dir.clone().unwrap_or_else(|| PathBuf::from(OUTPUT_DIR));
-    fs::create_dir_all(&output_dir).expect("failed to create output dir");
+    let strings_dir = cli
+        .output_dir
+        .clone()
+        .unwrap_or_else(|| PathBuf::from(STRINGS_DIR));
+    fs::create_dir_all(&strings_dir).expect("failed to create strings dir");
+
+    let constants_dir = cli
+        .output_dir
+        .clone()
+        .map(|p| p.join("constants"))
+        .unwrap_or_else(|| PathBuf::from(CONSTANTS_DIR));
+    fs::create_dir_all(&constants_dir).expect("failed to create constants dir");
 
     // Download and extract source files
     let (downloaded_pgn, downloaded_params, downloaded_ddi) = download_and_extract(cli);
@@ -290,20 +306,43 @@ fn cmd_generate(cli: &CliArgs) {
 
     for module in &all_modules {
         match module.as_str() {
-            "pgn" => generate_pgn(&output_dir, &pgn_path, today.as_str(), &mut rev_data),
-            "isobus_params" => generate_isobus_params(&output_dir, &params_path, today.as_str(), &mut rev_data),
-            "task_controller_ddi" => generate_task_controller_ddi(&output_dir, &ddi_path, today.as_str(), &mut rev_data),
-            "name" => generate_name(&output_dir, today.as_str(), &mut rev_data),
+            "pgn" => generate_pgn(
+                &strings_dir,
+                &constants_dir,
+                &pgn_path,
+                today.as_str(),
+                &mut rev_data,
+            ),
+            "isobus_params" => generate_isobus_params(
+                &strings_dir,
+                &constants_dir,
+                &params_path,
+                today.as_str(),
+                &mut rev_data,
+            ),
+            "task_controller_ddi" => generate_task_controller_ddi(
+                &strings_dir,
+                &constants_dir,
+                &ddi_path,
+                today.as_str(),
+                &mut rev_data,
+            ),
+            "name" => generate_name(&strings_dir, &constants_dir, today.as_str(), &mut rev_data),
             _ => eprintln!("Unknown module: {}", module),
         }
     }
 
     save_revision(&rev_data);
-    println!("\nGeneration complete. Output directory: {}", output_dir.display());
+    println!(
+        "\nGeneration complete. Strings: {}, Constants: {}",
+        strings_dir.display(),
+        constants_dir.display()
+    );
 }
 
 fn generate_pgn(
-    output_dir: &PathBuf,
+    strings_dir: &PathBuf,
+    constants_dir: &PathBuf,
     file_path: &Option<PathBuf>,
     date: &str,
     rev_data: &mut serde_json::Value,
@@ -320,45 +359,31 @@ fn generate_pgn(
     let entries = pgn_parser::parse(path.to_str().unwrap());
     println!("  Found {} unique PGNs", entries.len());
 
-    // Check if content changed vs previous revision
     let source_name = "SPNs and PGNs.xlsx";
-    let current_content = codegen::generate_pgn(&entries, source_name, date);
 
-    let prev_rev = rev_data.get("pgn").and_then(|v| v.get("rev")).and_then(|v| v.as_u64()).unwrap_or(0);
-    let new_rev = if prev_rev == 0 {
-        1
-    } else {
-        // Simple check: if file exists and has same content, keep revision
-        let existing_path = output_dir.join("pgn.rs");
-        if existing_path.exists() {
-            if let Ok(existing) = fs::read_to_string(&existing_path) {
-                if existing == current_content {
-                    prev_rev
-                } else {
-                    prev_rev + 1
-                }
-            } else {
-                prev_rev + 1
-            }
-        } else {
-            prev_rev + 1
-        }
-    };
-
-    rev_data["pgn"]["source"] = serde_json::json!(source_name);
-    rev_data["pgn"]["rev"] = serde_json::json!(new_rev);
-    rev_data["pgn"]["date"] = serde_json::json!(date);
-
-    let content = codegen::generate_pgn(&entries, source_name, date);
-    if let Err(e) = codegen::write_output(output_dir, "pgn", &content) {
+    // Generate strings file
+    let strings_content = codegen::generate_pgn_strings(&entries, source_name, date);
+    if let Err(e) = codegen::write_output(strings_dir, "pgn", &strings_content) {
         eprintln!("ERROR writing pgn.rs: {}", e);
     } else {
-        println!("  Written pgn.rs (rev {})", new_rev);
+        println!("  Written strings/pgn.rs");
     }
+
+    // Generate constants file
+    let constants_content = codegen::generate_pgn_constants(&entries, source_name, date);
+    if let Err(e) = codegen::write_output(constants_dir, "pgn", &constants_content) {
+        eprintln!("ERROR writing pgn.rs: {}", e);
+    } else {
+        println!("  Written constants/pgn.rs");
+    }
+
+    rev_data["pgn"]["source"] = serde_json::json!(source_name);
+    rev_data["pgn"]["date"] = serde_json::json!(date);
 }
 
 fn generate_isobus_params(
-    output_dir: &PathBuf,
+    strings_dir: &PathBuf,
+    constants_dir: &PathBuf,
     file_path: &Option<PathBuf>,
     date: &str,
     rev_data: &mut serde_json::Value,
@@ -366,52 +391,45 @@ fn generate_isobus_params(
     let path = match file_path {
         Some(p) => p,
         None => {
-            eprintln!("WARNING: No ISOBUS params source file found. Skipping isobus_params module.");
+            eprintln!(
+                "WARNING: No ISOBUS params source file found. Skipping isobus_params module."
+            );
             return;
         }
     };
 
-    println!("Generating ISOBUS params lookup from {} ...", path.display());
+    println!(
+        "Generating ISOBUS params lookup from {} ...",
+        path.display()
+    );
     let entries = isobus_params_parser::parse(path.to_str().unwrap());
     println!("  Found {} unique parameter names", entries.len());
 
     let source_name = path.file_name().unwrap_or_default().to_string_lossy();
-    let current_content = codegen::generate_isobus_params(&entries, &source_name, date);
 
-    let prev_rev = rev_data.get("isobus_params").and_then(|v| v.get("rev")).and_then(|v| v.as_u64()).unwrap_or(0);
-    let new_rev = if prev_rev == 0 {
-        1
-    } else {
-        let existing_path = output_dir.join("isobus_params.rs");
-        if existing_path.exists() {
-            if let Ok(existing) = fs::read_to_string(&existing_path) {
-                if existing == current_content {
-                    prev_rev
-                } else {
-                    prev_rev + 1
-                }
-            } else {
-                prev_rev + 1
-            }
-        } else {
-            prev_rev + 1
-        }
-    };
-
-    rev_data["isobus_params"]["source"] = serde_json::json!(source_name);
-    rev_data["isobus_params"]["rev"] = serde_json::json!(new_rev);
-    rev_data["isobus_params"]["date"] = serde_json::json!(date);
-
-    let content = codegen::generate_isobus_params(&entries, &source_name, date);
-    if let Err(e) = codegen::write_output(output_dir, "isobus_params", &content) {
+    // Generate strings file
+    let strings_content = codegen::generate_isobus_params_strings(&entries, &source_name, date);
+    if let Err(e) = codegen::write_output(strings_dir, "isobus_params", &strings_content) {
         eprintln!("ERROR writing isobus_params.rs: {}", e);
     } else {
-        println!("  Written isobus_params.rs (rev {})", new_rev);
+        println!("  Written strings/isobus_params.rs");
     }
+
+    // Generate constants file (empty for now - no named constants for params)
+    let constants_content = codegen::generate_isobus_params_constants(&entries, &source_name, date);
+    if let Err(e) = codegen::write_output(constants_dir, "isobus_params", &constants_content) {
+        eprintln!("ERROR writing isobus_params.rs: {}", e);
+    } else {
+        println!("  Written constants/isobus_params.rs");
+    }
+
+    rev_data["isobus_params"]["source"] = serde_json::json!(source_name);
+    rev_data["isobus_params"]["date"] = serde_json::json!(date);
 }
 
 fn generate_task_controller_ddi(
-    output_dir: &PathBuf,
+    strings_dir: &PathBuf,
+    constants_dir: &PathBuf,
     file_path: &Option<PathBuf>,
     date: &str,
     rev_data: &mut serde_json::Value,
@@ -424,46 +442,41 @@ fn generate_task_controller_ddi(
         }
     };
 
-    println!("Generating Task Controller DDI lookup from {} ...", path.display());
+    println!(
+        "Generating Task Controller DDI lookup from {} ...",
+        path.display()
+    );
     let entries = task_controller_ddi::parse(path.to_str().unwrap());
     println!("  Found {} DDI entries", entries.len());
 
     let source_name = "TaskControllerDDI.txt";
-    let prev_rev = rev_data.get("task_controller_ddi").and_then(|v| v.get("rev")).and_then(|v| v.as_u64()).unwrap_or(0);
-    let new_rev = if prev_rev == 0 {
-        1
-    } else {
-        let existing_path = output_dir.join("task_controller_ddi.rs");
-        if existing_path.exists() {
-            if let Ok(existing) = fs::read_to_string(&existing_path) {
-                let current_content = codegen::generate_task_controller_ddi(&entries, source_name, date);
-                if existing == current_content {
-                    prev_rev
-                } else {
-                    prev_rev + 1
-                }
-            } else {
-                prev_rev + 1
-            }
-        } else {
-            prev_rev + 1
-        }
-    };
 
-    rev_data["task_controller_ddi"]["source"] = serde_json::json!(source_name);
-    rev_data["task_controller_ddi"]["rev"] = serde_json::json!(new_rev);
-    rev_data["task_controller_ddi"]["date"] = serde_json::json!(date);
-
-    let content = codegen::generate_task_controller_ddi(&entries, source_name, date);
-    if let Err(e) = codegen::write_output(output_dir, "task_controller_ddi", &content) {
+    // Generate strings file
+    let strings_content =
+        codegen::generate_task_controller_ddi_strings(&entries, source_name, date);
+    if let Err(e) = codegen::write_output(strings_dir, "task_controller_ddi", &strings_content) {
         eprintln!("ERROR writing task_controller_ddi.rs: {}", e);
     } else {
-        println!("  Written task_controller_ddi.rs (rev {})", new_rev);
+        println!("  Written strings/task_controller_ddi.rs");
     }
+
+    // Generate constants file
+    let constants_content =
+        codegen::generate_task_controller_ddi_constants(&entries, source_name, date);
+    if let Err(e) = codegen::write_output(constants_dir, "task_controller_ddi", &constants_content)
+    {
+        eprintln!("ERROR writing task_controller_ddi.rs: {}", e);
+    } else {
+        println!("  Written constants/task_controller_ddi.rs");
+    }
+
+    rev_data["task_controller_ddi"]["source"] = serde_json::json!(source_name);
+    rev_data["task_controller_ddi"]["date"] = serde_json::json!(date);
 }
 
 fn generate_name(
-    output_dir: &PathBuf,
+    strings_dir: &PathBuf,
+    constants_dir: &PathBuf,
     date: &str,
     rev_data: &mut serde_json::Value,
 ) {
@@ -474,32 +487,44 @@ fn generate_name(
     let global_functions_path = extract_dir.join("Global NAME Functions.xlsx");
     let ig_specific_path = extract_dir.join("IG Specific NAME Function.xlsx");
 
-    if !manufacturer_path.exists() || !industry_groups_path.exists() || !global_functions_path.exists() || !ig_specific_path.exists() {
+    if !manufacturer_path.exists()
+        || !industry_groups_path.exists()
+        || !global_functions_path.exists()
+        || !ig_specific_path.exists()
+    {
         eprintln!("WARNING: Required source files for 'name' module not found in downloads/extract/. Skipping name module.");
         return;
     }
 
     println!("Generating NAME lookup from extracted Excel files ...");
 
-    let manufacturer_ids = name_parsers::parse_manufacturer_ids(manufacturer_path.to_str().unwrap());
+    let manufacturer_ids =
+        name_parsers::parse_manufacturer_ids(manufacturer_path.to_str().unwrap());
     println!("  Found {} manufacturer IDs", manufacturer_ids.len());
 
-    let industry_groups = name_parsers::parse_industry_groups(industry_groups_path.to_str().unwrap());
+    let industry_groups =
+        name_parsers::parse_industry_groups(industry_groups_path.to_str().unwrap());
     println!("  Found {} industry groups", industry_groups.len());
 
-    let global_functions = name_parsers::parse_global_functions(global_functions_path.to_str().unwrap());
+    let global_functions =
+        name_parsers::parse_global_functions(global_functions_path.to_str().unwrap());
     println!("  Found {} global NAME functions", global_functions.len());
 
-    let ig_specific_functions = name_parsers_ig::parse_ig_specific_functions(ig_specific_path.to_str().unwrap());
-    println!("  Found {} IG-specific NAME function entries", ig_specific_functions.len());
+    let ig_specific_functions =
+        name_parsers_ig::parse_ig_specific_functions(ig_specific_path.to_str().unwrap());
+    println!(
+        "  Found {} IG-specific NAME function entries",
+        ig_specific_functions.len()
+    );
 
-    let vehicle_systems = name_parsers_ig::parse_vehicle_systems(ig_specific_path.to_str().unwrap());
+    let vehicle_systems =
+        name_parsers_ig::parse_vehicle_systems(ig_specific_path.to_str().unwrap());
     println!("  Found {} unique vehicle systems", vehicle_systems.len());
 
     let source_name = "NAME lookup tables (Manufacturer IDs, Industry Groups, Global NAME Functions, IG Specific NAME Function)";
-    let prev_rev = rev_data.get("name").and_then(|v| v.get("rev")).and_then(|v| v.as_u64()).unwrap_or(0);
 
-    let current_content = codegen::generate_name(
+    // Generate strings file
+    let strings_content = codegen::generate_name_strings(
         &manufacturer_ids,
         &industry_groups,
         &global_functions,
@@ -508,37 +533,163 @@ fn generate_name(
         source_name,
         date,
     );
-
-    let new_rev = if prev_rev == 0 {
-        1
-    } else {
-        let existing_path = output_dir.join("name.rs");
-        if existing_path.exists() {
-            if let Ok(existing) = fs::read_to_string(&existing_path) {
-                if existing == current_content {
-                    prev_rev
-                } else {
-                    prev_rev + 1
-                }
-            } else {
-                prev_rev + 1
-            }
-        } else {
-            prev_rev + 1
-        }
-    };
-
-    rev_data["name"]["source"] = serde_json::json!(source_name);
-    rev_data["name"]["rev"] = serde_json::json!(new_rev);
-    rev_data["name"]["date"] = serde_json::json!(date);
-
-    if let Err(e) = codegen::write_output(output_dir, "name", &current_content) {
+    if let Err(e) = codegen::write_output(strings_dir, "name", &strings_content) {
         eprintln!("ERROR writing name.rs: {}", e);
     } else {
-        println!("  Written name.rs (rev {})", new_rev);
+        println!("  Written strings/name.rs");
     }
-}
 
+    // Build a set of vehicle system keys that have at least one IG-specific function entry
+    let mut vs_with_entries: HashSet<(u8, u8)> = HashSet::new();
+    for entry in &ig_specific_functions {
+        vs_with_entries.insert((entry.industry_group_id, entry.vehicle_system_id));
+    }
+
+    // Generate constants content
+    let mod_content = codegen::generate_name_mod(source_name, date);
+    let manufacturer_ids_content =
+        codegen::generate_name_manufacturer_ids(&manufacturer_ids, source_name, date);
+
+    // Write name/mod.rs (re-exports manufacturer_ids and global)
+    if let Err(e) = codegen::write_mod_subdir(constants_dir, "name", &mod_content) {
+        eprintln!("ERROR writing constants/name/mod.rs: {}", e);
+    } else {
+        println!("  Written constants/name/");
+    }
+
+    // Write name/manufacturer_ids.rs
+    if let Err(e) = codegen::write_output_subdir(
+        constants_dir,
+        "name",
+        "manufacturer_ids",
+        &manufacturer_ids_content,
+    ) {
+        eprintln!("ERROR writing constants/name/manufacturer_ids.rs: {}", e);
+    } else {
+        println!("  Written constants/name/manufacturer_ids.rs");
+    }
+
+    // Write name/global.rs (industry group 0 - global functions for all vehicle systems)
+    let global_functions_filtered: Vec<_> = ig_specific_functions
+        .iter()
+        .filter(|e| e.industry_group_id == 0 && vs_with_entries.contains(&(0, e.vehicle_system_id)))
+        .cloned()
+        .collect();
+
+    if !global_functions_filtered.is_empty() {
+        let global_content =
+            codegen::generate_global_module(&global_functions_filtered, source_name, date);
+        if let Err(e) =
+            codegen::write_output_subdir(constants_dir, "name", "global", &global_content)
+        {
+            eprintln!("ERROR writing constants/name/global.rs: {}", e);
+        } else {
+            println!(
+                "  Written constants/name/global.rs ({} entries)",
+                global_functions_filtered.len()
+            );
+        }
+    }
+
+    // Clean up old per-industry-group directories (one .rs file per vehicle system approach)
+    let mut seen_mod_names = HashSet::new();
+    for ig_entry in &industry_groups {
+        if ig_entry.id == 0 {
+            continue;
+        }
+
+        let ig_mod_name = codegen::name_to_module(&ig_entry.description);
+
+        // Deduplicate reserved groups (IG6 and IG7 have the same description)
+        let dir_name = if !seen_mod_names.insert(ig_mod_name.clone()) {
+            format!("{}_{}", ig_mod_name, ig_entry.id)
+        } else {
+            ig_mod_name
+        };
+
+        let old_dir_path = constants_dir.join(format!("name/{}", dir_name));
+        if old_dir_path.exists() && old_dir_path.is_dir() {
+            fs::remove_dir_all(&old_dir_path).ok();
+        }
+    }
+
+    // Write per-industry-group .rs files with inline modules for each vehicle system (IG > 0)
+    let mut seen_mod_names = HashSet::new();
+    for ig_entry in &industry_groups {
+        if ig_entry.id == 0 {
+            continue;
+        }
+
+        let ig_mod_name = codegen::name_to_module(&ig_entry.description);
+
+        // Deduplicate reserved groups (IG6 and IG7 have the same description)
+        let file_name = if !seen_mod_names.insert(ig_mod_name.clone()) {
+            format!("{}_{}", ig_mod_name, ig_entry.id)
+        } else {
+            ig_mod_name
+        };
+
+        // Collect all IG-specific function entries for this industry group (only those with at least one entry)
+        let vs_for_ig: Vec<_> = ig_specific_functions
+            .iter()
+            .filter(|e| {
+                e.industry_group_id == ig_entry.id
+                    && vs_with_entries.contains(&(ig_entry.id, e.vehicle_system_id))
+            })
+            .cloned()
+            .collect();
+
+        if vs_for_ig.is_empty() {
+            continue;
+        }
+
+        let content = codegen::generate_industry_group_file(
+            ig_entry,
+            &vehicle_systems,
+            &vs_for_ig,
+            source_name,
+            date,
+        );
+        if let Err(e) = codegen::write_output_subdir(
+            constants_dir,
+            "name/industry_groups",
+            &file_name,
+            &content,
+        ) {
+            eprintln!(
+                "ERROR writing constants/name/industry_groups/{}.rs: {}",
+                file_name, e
+            );
+        } else {
+            println!(
+                "  Written constants/name/industry_groups/{} ({} entries)",
+                file_name,
+                vs_for_ig.len()
+            );
+        }
+    }
+
+    // Write industry_groups/mod.rs with submodule declarations and re-exports (only for IGs that have entries)
+    let ig_mod_content = codegen::generate_name_industry_groups_mod(
+        &industry_groups,
+        &vs_with_entries,
+        source_name,
+        date,
+    );
+    if let Err(e) = codegen::write_output_subdir(
+        constants_dir,
+        "name/industry_groups",
+        "mod",
+        &ig_mod_content,
+    ) {
+        eprintln!("ERROR writing constants/name/industry_groups/mod.rs: {}", e);
+    } else {
+        println!("  Written constants/name/industry_groups/mod.rs");
+    }
+
+    rev_data["name"]["source"] = serde_json::json!(source_name);
+    rev_data["name"]["date"] = serde_json::json!(date);
+}
 
 fn cmd_info(_cli: &CliArgs) {
     println!("=== ISO 11783 Data — Source Info ===\n");
@@ -590,11 +741,27 @@ fn cmd_info(_cli: &CliArgs) {
     }
 
     // Show generated files
-    let output_dir = PathBuf::from(OUTPUT_DIR);
-    if output_dir.exists() {
-        println!("\nGenerated files:");
+    let strings_dir = PathBuf::from(STRINGS_DIR);
+    let constants_dir = PathBuf::from(CONSTANTS_DIR);
+
+    if strings_dir.exists() {
+        println!("\nGenerated strings:");
         for fname in &["pgn.rs", "isobus_params.rs", "task_controller_ddi.rs"] {
-            let path = output_dir.join(fname);
+            let path = strings_dir.join(fname);
+            if path.exists() {
+                if let Ok(metadata) = fs::metadata(&path) {
+                    println!("  {} ({} bytes)", fname, metadata.len());
+                }
+            } else {
+                println!("  {} — not generated", fname);
+            }
+        }
+    }
+
+    if constants_dir.exists() {
+        println!("\nGenerated constants:");
+        for fname in &["pgn.rs", "isobus_params.rs", "task_controller_ddi.rs"] {
+            let path = constants_dir.join(fname);
             if path.exists() {
                 if let Ok(metadata) = fs::metadata(&path) {
                     println!("  {} ({} bytes)", fname, metadata.len());

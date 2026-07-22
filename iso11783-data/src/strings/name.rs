@@ -1,4 +1,4 @@
-/// Source: NAME lookup tables (Manufacturer IDs, Industry Groups, Global NAME Functions, IG Specific NAME Function) rev 1, downloaded 2026-07-20
+/// Source: NAME lookup tables (Manufacturer IDs, Industry Groups, Global NAME Functions, IG Specific NAME Function) rev 1, downloaded 2026-07-24
 pub const MANUFACTURER_ID_LIST: &[(u8, &str)] = &[
     (0, "For experimental or developmental use only."),
     (1, "Bendix Commercial Vehicle Systems LLC (formerly Allied Signal Inc.)"),

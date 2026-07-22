@@ -1,6 +1,6 @@
 #[cfg(feature = "task_controller_ddi")]
 mod ddi_tests {
-    use iso11783_data::task_controller_ddi;
+    use iso11783_data::strings::task_controller_ddi;
 
     #[test]
     fn test_ddi_0_lookup() {
@@ -63,7 +63,11 @@ mod ddi_tests {
     fn test_ddi_list_sorted() {
         let list = task_controller_ddi::DDI_LIST;
         for i in 1..list.len() {
-            assert!(list[i - 1].ddi < list[i].ddi, "DDI_LIST not sorted at index {}", i);
+            assert!(
+                list[i - 1].ddi < list[i].ddi,
+                "DDI_LIST not sorted at index {}",
+                i
+            );
         }
     }
 

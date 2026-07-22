@@ -5,11 +5,11 @@ use crate::types::{DecodeContext, DecodeError, DecodedField, DecodedMessage, Num
 /// J1939 ISO-11783-10 Task Controller Process Data PGN (51968 / 0xCB00).
 pub const PROCESS_DATA_PGN: u32 = 0x00cb00;
 
-use iso11783_data::task_controller_ddi::{lookup as ddi_lookup, to_physical};
+use iso11783_data::strings::task_controller_ddi::{lookup as ddi_lookup, to_physical};
 
 /// Represents a proprietary DDI handler with lookup and conversion functions.
 struct ProprietaryHandler {
-    lookup_fn: fn(u16) -> Option<&'static iso11783_data::task_controller_ddi::DdiInfo>,
+    lookup_fn: fn(u16) -> Option<&'static iso11783_data::strings::task_controller_ddi::DdiInfo>,
     to_physical_fn: fn(u16, i32) -> Option<f64>,
 }
 
@@ -203,7 +203,7 @@ impl TaskControllerDecoder {
     }
 
     /// Resolve DDI info from proprietary handlers first (if in proprietary range), then standard lookup.
-    fn resolve_ddi_info(ddi: u16, proprietary_handlers: &[ProprietaryHandler]) -> Option<&'static iso11783_data::task_controller_ddi::DdiInfo> {
+    fn resolve_ddi_info(ddi: u16, proprietary_handlers: &[ProprietaryHandler]) -> Option<&'static iso11783_data::strings::task_controller_ddi::DdiInfo> {
         if ddi >= 0xE000 && ddi <= 0xFFFE {
             for handler in proprietary_handlers {
                 if let Some(info) = (handler.lookup_fn)(ddi) {

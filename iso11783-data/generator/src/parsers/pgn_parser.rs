@@ -1,5 +1,5 @@
 use crate::data::PgnEntry;
-use calamine::{Reader, Xlsx, open_workbook};
+use calamine::{open_workbook, Reader, Xlsx};
 use std::collections::HashMap;
 
 /// Parse PGN entries from an Excel file (SPNs and PGNs.xlsx format).
@@ -37,7 +37,10 @@ pub fn parse(path: &str) -> Vec<PgnEntry> {
             };
 
             if pgn_value > MAX_24BIT {
-                eprintln!("WARNING: PGN {} exceeds 24-bit unsigned max ({}). Row {}", pgn_value, MAX_24BIT, row_idx);
+                eprintln!(
+                    "WARNING: PGN {} exceeds 24-bit unsigned max ({}). Row {}",
+                    pgn_value, MAX_24BIT, row_idx
+                );
                 warnings += 1;
             }
 
@@ -65,7 +68,10 @@ pub fn parse(path: &str) -> Vec<PgnEntry> {
             eprintln!("Total PGN warnings: {}\n", warnings);
         }
 
-        let mut sorted: Vec<_> = pgn_to_name.into_iter().map(|(pgn, name)| PgnEntry { pgn, name }).collect();
+        let mut sorted: Vec<_> = pgn_to_name
+            .into_iter()
+            .map(|(pgn, name)| PgnEntry { pgn, name })
+            .collect();
         sorted.sort_by_key(|e| e.pgn);
         return sorted;
     }

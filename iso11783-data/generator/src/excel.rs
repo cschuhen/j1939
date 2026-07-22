@@ -1,4 +1,4 @@
-use calamine::{Reader, Xlsx, open_workbook};
+use calamine::{open_workbook, Reader, Xlsx};
 use std::fs;
 use std::io::{Read, Write};
 use std::path::Path;
@@ -54,7 +54,10 @@ pub fn analyze(path: &Path) {
         if let Ok(data) = xlsx.worksheet_range(first_sheet) {
             let row_count = data.rows().count();
             let col_count = data.rows().next().map_or(0, |r| r.len());
-            println!("  First sheet '{}' — {} rows, {} cols:", first_sheet, row_count, col_count);
+            println!(
+                "  First sheet '{}' — {} rows, {} cols:",
+                first_sheet, row_count, col_count
+            );
 
             // Re-open to iterate (rows() consumed by count())
             if let Ok(data) = xlsx.worksheet_range(first_sheet) {
@@ -70,7 +73,9 @@ pub fn analyze(path: &Path) {
                 // Print first few data rows
                 let mut count = 0;
                 for row in data.rows().skip(1) {
-                    if count >= 5 { break; }
+                    if count >= 5 {
+                        break;
+                    }
                     print!("  Row {}: ", count + 1);
                     for cell in row {
                         print!("{:?} ", cell);
@@ -80,9 +85,17 @@ pub fn analyze(path: &Path) {
                 }
 
                 // Save full dump to file for detailed review
-                let dump_path = path.with_file_name(format!("{}_dump.txt", path.file_stem().unwrap_or_default().to_string_lossy()));
+                let dump_path = path.with_file_name(format!(
+                    "{}_dump.txt",
+                    path.file_stem().unwrap_or_default().to_string_lossy()
+                ));
                 let mut file = fs::File::create(&dump_path).expect("failed to create dump file");
-                writeln!(file, "=== {} ===", path.file_name().unwrap_or_default().to_string_lossy()).unwrap();
+                writeln!(
+                    file,
+                    "=== {} ===",
+                    path.file_name().unwrap_or_default().to_string_lossy()
+                )
+                .unwrap();
                 writeln!(file, "Sheets: {:?}", xlsx.sheet_names()).unwrap();
 
                 // Re-open for full dump (sheet_names consumed the workbook)
@@ -117,7 +130,10 @@ fn analyze_txt(path: &Path) {
     }
 
     // Save full dump to file for detailed review
-    let dump_path = path.with_file_name(format!("{}_dump.txt", path.file_stem().unwrap_or_default().to_string_lossy()));
+    let dump_path = path.with_file_name(format!(
+        "{}_dump.txt",
+        path.file_stem().unwrap_or_default().to_string_lossy()
+    ));
     fs::write(&dump_path, &content).expect("failed to write dump");
     println!("  Full dump saved to: {}", dump_path.display());
 }
