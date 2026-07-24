@@ -1,6 +1,7 @@
 use j1939_async::Id;
 
 use crate::types::{DecodedField, DecodedMessage};
+use iso11783_data::strings::pgn as pgn_titles;
 use owo_colors::OwoColorize;
 use std::collections::HashMap;
 use std::future::Future;
@@ -22,10 +23,14 @@ impl Renderer for ConsoleRenderer {
     ) -> Pin<Box<dyn Future<Output = Result<String, Box<dyn std::error::Error + Send + Sync>>> + Send + 'a>> {
         Box::pin(async move {
             let mut lines = Vec::new();
-            lines.push(format!(
+            let title_str = format!(
                 "MSG: --- {} ---",
                 message.title.clone().bold().cyan()
-            ));
+            );
+            lines.push(title_str);
+            if let Some(pgn_name) = pgn_titles::lookup(message.pgn()) {
+                lines.push(format!("  PGN: {:X} - {}", message.pgn(), pgn_name.bold().magenta()));
+            }
             for output in &message.outputs {
                 lines.push(format_output(output));
             }
@@ -132,6 +137,11 @@ impl Renderer for JsonRenderer {
                 assembled.insert("source_address".to_string(), serde_json::json!(message.assembled_message.source()));
                 assembled.insert("destination_address".to_string(), serde_json::json!(message.assembled_message.destination()));
             }
+            if let Some(pgn_name) = pgn_titles::lookup(message.pgn()) {
+                if let Some(obj) = json_value.as_object_mut() {
+                    obj.insert("pgn_title".to_string(), serde_json::json!(pgn_name));
+                }
+            }
             Ok(serde_json::to_string_pretty(&json_value).map_err(|e| e.to_string())?)
         })
     }
@@ -178,6 +188,7 @@ impl Renderer for CsvRenderer {
                 "CAN ID".to_string(),
                 "Priority".to_string(),
                 "PGN".to_string(),
+                "PGN Title".to_string(),
                 "Source address".to_string(),
                 "Destination address".to_string(),
                 "Source NAME".to_string(),
@@ -236,6 +247,8 @@ impl Renderer for CsvRenderer {
             values.push(format!("{:X}", assembled.id));
             values.push(format!("{}", assembled.priority()));
             values.push(format!("{:X}", pgn));
+            let pgn_title = pgn_titles::lookup(pgn).unwrap_or("").to_string();
+            values.push(format!("\"{}\"", pgn_title.replace('"', "\"\"")));
             values.push(format!("{:X}", assembled.source()));
             values.push(format!("{:X}", assembled.destination()));
 
@@ -449,14 +462,19 @@ impl Renderer for FullCondensedRenderer {
             parts.push(format!("{}", assembled.priority()));
             parts.push(format!("{}", message.pgn()));
             parts.push(format!("{:X}", message.pgn()));
+            if let Some(pgn_name) = pgn_titles::lookup(message.pgn()) {
+                parts.push(pgn_name.bold().magenta().to_string());
+            }
             parts.push(format!("{:X}->{:X}", assembled.source(), assembled.destination()));
 
             let src_name = assembled.source_name.map(|n| format!("{:X}", n)).unwrap_or_else(|| "N/A".to_string());
             let dst_name = assembled.dest_name.map(|n| format!("{:X}", n)).unwrap_or_else(|| "N/A".to_string());
             parts.push(format!("({} -> {})", src_name, dst_name));
 
-            let data_hex: String = assembled.data.iter().map(|b| format!("{:02X}", b)).collect();
+            let data_hex: String = assembled.data.iter().map(|b| format!("{:02X} ", b)).collect();
             parts.push(data_hex);
+
+            parts.push(message.title.clone());
 
             // Concatenate all StringMessages
             let string_msgs: Vec<String> = message.outputs.iter()
