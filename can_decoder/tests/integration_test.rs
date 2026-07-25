@@ -234,7 +234,7 @@ fn test_full_bam_decode_pipeline() {
     let mut decoder = J1939Decoder::new(false, 5000, false);
 
     // Feed all 4 frames from bam.log in order
-    let all_results: Vec<Vec<DecodedField>> = vec![
+    let all_results: Vec<DecodedMessage> = vec![
         (0x18ECFF22, vec![0x20, 0x0F, 0x00, 0x03, 0xFF, 0x80, 0xFF, 0x00]),
         (0x18EBFF22, vec![0x01, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47]),
         (0x18EBFF22, vec![0x02, 0x47, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E]),
@@ -248,23 +248,23 @@ fn test_full_bam_decode_pipeline() {
 
     // Collect all outputs from all frames
     let mut all_outputs = Vec::new();
-    for results in &all_results {
-        all_outputs.extend(results.clone());
+    for msg in &all_results {
+        all_outputs.extend(msg.outputs.clone());
     }
 
     // Find the Complete result (should be on frame 4)
     let complete_results: Vec<_> = all_results.iter().enumerate()
-        .filter(|(_, results)| !results.is_empty())
+        .filter(|(_, msg)| !msg.outputs.is_empty())
         .collect();
 
     assert!(complete_results.len() >= 1, "Expected at least one non-empty result set");
 
     // The last frame should produce a Complete assembly result
-    let last_results = &all_results[3];
-    assert!(!last_results.is_empty(), "Frame 4 should produce output (Complete assembly)");
+    let last_msg = &all_results[3];
+    assert!(!last_msg.outputs.is_empty(), "Frame 4 should produce output (Complete assembly)");
 
     // Verify the assembled message contains PGN=0xFF80 info
-    let has_pgn_info = last_results.iter().any(|field| {
+    let has_pgn_info = last_msg.outputs.iter().any(|field| {
         match field {
             DecodedField::StringMessage { text, .. } => {
                 text.contains("ff80") || text.contains("FF80")
@@ -274,11 +274,11 @@ fn test_full_bam_decode_pipeline() {
     });
 
     // PGN 0xFF80 is proprietary/unrecognized, so we expect a StringMessage with PGN info
-    assert!(has_pgn_info || last_results.iter().any(|f| matches!(f, DecodedField::StringMessage { .. })),
+    assert!(has_pgn_info || last_msg.outputs.iter().any(|f| matches!(f, DecodedField::StringMessage { .. })),
         "Expected PGN information in output for assembled message");
 
     // The assembled data should be 15 bytes: [41 42 43 44 45 46 47 47 49 4A 4B 4C 4D 4E 4F]
-    let has_data_length = last_results.iter().any(|field| {
+    let has_data_length = last_msg.outputs.iter().any(|field| {
         match field {
             DecodedField::StringMessage { text, .. } => {
                 text.contains("15 bytes") || text.contains("15")
@@ -296,7 +296,7 @@ fn test_full_rts_cts_decode_pipeline() {
     let mut decoder = J1939Decoder::new(false, 5000, false);
 
     // Feed all 9 frames from rts.log in order
-    let all_results: Vec<Vec<DecodedField>> = vec![
+    let all_results: Vec<DecodedMessage> = vec![
         (0x18ECEB26, vec![0x10, 0x24, 0x00, 0x06, 0xFF, 0x00, 0xE6, 0x00]), // RTS CM
         (0x18EC26EB, vec![0x11, 0x06, 0x01, 0xFF, 0xFF, 0x00, 0xE6, 0x00]), // CTS CM
         (0x18EBEB26, vec![0x01, 0x08, 0x8A, 0x07, 0x20, 0x41, 0x42, 0x43]), // DT pkt 1
@@ -315,20 +315,20 @@ fn test_full_rts_cts_decode_pipeline() {
 
     // Collect all outputs from all frames
     let mut all_outputs = Vec::new();
-    for results in &all_results {
-        all_outputs.extend(results.clone());
+    for msg in &all_results {
+        all_outputs.extend(msg.outputs.clone());
     }
 
     // Frame 8 (index 7) should produce the Complete assembly result
-    let dt6_results = &all_results[7];
-    assert!(!dt6_results.is_empty(), "Frame 8 (last DT packet) should produce output (Complete assembly)");
+    let dt6_msg = &all_results[7];
+    assert!(!dt6_msg.outputs.is_empty(), "Frame 8 (last DT packet) should produce output (Complete assembly)");
 
     // Frame 9 (EOM) should produce no output (assembly already complete)
-    let eom_results = &all_results[8];
-    assert!(eom_results.is_empty(), "EOM frame after completion should produce no output");
+    let eom_msg = &all_results[8];
+    assert!(eom_msg.outputs.is_empty(), "EOM frame after completion should produce no output");
 
     // Verify the assembled message contains PGN=0xE600 info
-    let has_pgn_e600 = dt6_results.iter().any(|field| {
+    let has_pgn_e600 = dt6_msg.outputs.iter().any(|field| {
         match field {
             DecodedField::StringMessage { text, .. } => {
                 text.contains("e600") || text.contains("E600")
@@ -338,11 +338,11 @@ fn test_full_rts_cts_decode_pipeline() {
     });
 
     // PGN 0xE600 is Virtual Terminal-to-Node (unrecognized in default config)
-    assert!(has_pgn_e600 || dt6_results.iter().any(|f| matches!(f, DecodedField::StringMessage { .. })),
+    assert!(has_pgn_e600 || dt6_msg.outputs.iter().any(|f| matches!(f, DecodedField::StringMessage { .. })),
         "Expected PGN information in output for assembled message");
 
     // The assembled data should be 36 bytes
-    let has_data_length_36 = dt6_results.iter().any(|field| {
+    let has_data_length_36 = dt6_msg.outputs.iter().any(|field| {
         match field {
             DecodedField::StringMessage { text, .. } => {
                 text.contains("36 bytes") || text.contains("36")
@@ -359,7 +359,7 @@ fn test_full_rts_cts_decode_pipeline() {
     // Frames 3-7 (DT packets 1-5) should produce Pending results (empty from decode_raw_frame perspective)
     
     // Count non-empty result frames (should be frame 8 only for Complete)
-    let non_empty_count = all_results.iter().filter(|r| !r.is_empty()).count();
+    let non_empty_count = all_results.iter().filter(|m| !m.outputs.is_empty()).count();
     assert_eq!(non_empty_count, 1, "Only the last DT packet should produce output");
 }
 
@@ -368,7 +368,7 @@ fn test_bam_assembled_data_content() {
     let mut decoder = J1939Decoder::new(false, 5000, false);
 
     // Feed bam.log frames and capture all outputs
-    let results: Vec<Vec<DecodedField>> = vec![
+    let results: Vec<DecodedMessage> = vec![
         (0x18ECFF22, vec![0x20, 0x0F, 0x00, 0x03, 0xFF, 0x80, 0xFF, 0x00]),
         (0x18EBFF22, vec![0x01, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47]),
         (0x18EBFF22, vec![0x02, 0x47, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E]),
@@ -381,13 +381,13 @@ fn test_bam_assembled_data_content() {
     .collect();
 
     // The Complete result should be on the last frame
-    let complete_outputs = &results[3];
+    let complete_msg = &results[3];
     
     // Verify we got output from the assembled message
-    assert!(!complete_outputs.is_empty(), "Should have decoded fields for assembled BAM message");
+    assert!(!complete_msg.outputs.is_empty(), "Should have decoded fields for assembled BAM message");
 
     // Check that at least one StringMessage contains PGN or source info
-    let has_message = complete_outputs.iter().any(|f| {
+    let has_message = complete_msg.outputs.iter().any(|f| {
         matches!(f, DecodedField::StringMessage { .. })
     });
     assert!(has_message, "Expected StringMessage for unrecognized proprietary PGN");
@@ -398,7 +398,7 @@ fn test_rts_cts_assembled_data_content() {
     let mut decoder = J1939Decoder::new(false, 5000, false);
 
     // Feed rts.log frames and capture all outputs
-    let results: Vec<Vec<DecodedField>> = vec![
+    let results: Vec<DecodedMessage> = vec![
         (0x18ECEB26, vec![0x10, 0x24, 0x00, 0x06, 0xFF, 0x00, 0xE6, 0x00]), // RTS
         (0x18EC26EB, vec![0x11, 0x06, 0x01, 0xFF, 0xFF, 0x00, 0xE6, 0x00]), // CTS
         (0x18EBEB26, vec![0x01, 0x08, 0x8A, 0x07, 0x20, 0x41, 0x42, 0x43]), // DT 1
@@ -416,17 +416,17 @@ fn test_rts_cts_assembled_data_content() {
     .collect();
 
     // The Complete result should be on frame 8 (index 7)
-    let complete_outputs = &results[7];
+    let complete_msg = &results[7];
     
     // Verify we got output from the assembled message
-    assert!(!complete_outputs.is_empty(), "Should have decoded fields for assembled RTS/CTS message");
+    assert!(!complete_msg.outputs.is_empty(), "Should have decoded fields for assembled RTS/CTS message");
 
     // EOM frame (index 8) should produce no output
-    let eom_outputs = &results[8];
-    assert!(eom_outputs.is_empty(), "EOM after completion should produce no output");
+    let eom_msg = &results[8];
+    assert!(eom_msg.outputs.is_empty(), "EOM after completion should produce no output");
 
     // Check that at least one StringMessage contains PGN or source info
-    let has_message = complete_outputs.iter().any(|f| {
+    let has_message = complete_msg.outputs.iter().any(|f| {
         matches!(f, DecodedField::StringMessage { .. })
     });
     assert!(has_message, "Expected StringMessage for unrecognized PGN 0xE600");

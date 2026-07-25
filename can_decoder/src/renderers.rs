@@ -1225,7 +1225,7 @@ mod tests {
             assembled_message: assembled,
         };
         let result = renderer.render(&message).await.unwrap();
-        assert!(result.contains("AABB"));
+        assert!(result.contains("AA BB "));
     }
 
     #[tokio::test]

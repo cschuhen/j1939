@@ -129,14 +129,8 @@ impl TaskControllerDecoder {
     fn decode_value_command(data: &TaskControllerData, proprietary_handlers: &[ProprietaryHandler]) -> DecodedMessage {
         let ddi_info = Self::resolve_ddi_info(data.ddi, proprietary_handlers);
 
-        let title = match &ddi_info {
-            Some(info) => format!("TaskController Element {} DDI {} ({})", data.element_id, data.ddi, info.name),
-            None if data.ddi >= 0xE000 && data.ddi <= 0xFFFE => format!("TaskController Element {} DDI {}", data.element_id, data.ddi),
-            None => format!("TaskController Element {} DDI {}", data.element_id, data.ddi),
-        };
-
         let mut msg = DecodedMessage::with_assembled(
-            title.clone(),
+            "TC Value".into(),
             crate::types::AssembledMessage::new(0, vec![]),
         );
 
@@ -423,7 +417,7 @@ mod tests {
         assert!(result.is_some());
         let msg = result.unwrap();
 
-        assert_eq!(msg.title, "TaskController Element 10 DDI 57344 (65534 Proprietary DDI Range)");
+        assert_eq!(msg.title, "TC Value");
         assert_eq!(msg.outputs.len(), 4);
 
         match &msg.outputs[0] {
