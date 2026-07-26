@@ -20,16 +20,23 @@ impl Renderer for ConsoleRenderer {
     fn render<'a>(
         &'a mut self,
         message: &'a DecodedMessage,
-    ) -> Pin<Box<dyn Future<Output = Result<String, Box<dyn std::error::Error + Send + Sync>>> + Send + 'a>> {
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<String, Box<dyn std::error::Error + Send + Sync>>>
+                + Send
+                + 'a,
+        >,
+    > {
         Box::pin(async move {
             let mut lines = Vec::new();
-            let title_str = format!(
-                "MSG: --- {} ---",
-                message.title.clone().bold().cyan()
-            );
+            let title_str = format!("MSG: --- {} ---", message.title.clone().bold().cyan());
             lines.push(title_str);
             if let Some(pgn_name) = pgn_titles::lookup(message.pgn()) {
-                lines.push(format!("  PGN: {:X} - {}", message.pgn(), pgn_name.bold().magenta()));
+                lines.push(format!(
+                    "  PGN: {:X} - {}",
+                    message.pgn(),
+                    pgn_name.bold().magenta()
+                ));
             }
             for output in &message.outputs {
                 lines.push(format_output(output));
@@ -129,13 +136,31 @@ impl Renderer for JsonRenderer {
     fn render<'a>(
         &'a mut self,
         message: &'a DecodedMessage,
-    ) -> Pin<Box<dyn Future<Output = Result<String, Box<dyn std::error::Error + Send + Sync>>> + Send + 'a>> {
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<String, Box<dyn std::error::Error + Send + Sync>>>
+                + Send
+                + 'a,
+        >,
+    > {
         Box::pin(async move {
             let mut json_value = serde_json::to_value(message).map_err(|e| e.to_string())?;
-            if let Some(assembled) = json_value.get_mut("assembled_message").and_then(|a| a.as_object_mut()) {
-                assembled.insert("priority".to_string(), serde_json::json!(message.assembled_message.priority()));
-                assembled.insert("source_address".to_string(), serde_json::json!(message.assembled_message.source()));
-                assembled.insert("destination_address".to_string(), serde_json::json!(message.assembled_message.destination()));
+            if let Some(assembled) = json_value
+                .get_mut("assembled_message")
+                .and_then(|a| a.as_object_mut())
+            {
+                assembled.insert(
+                    "priority".to_string(),
+                    serde_json::json!(message.assembled_message.priority()),
+                );
+                assembled.insert(
+                    "source_address".to_string(),
+                    serde_json::json!(message.assembled_message.source()),
+                );
+                assembled.insert(
+                    "destination_address".to_string(),
+                    serde_json::json!(message.assembled_message.destination()),
+                );
             }
             if let Some(pgn_name) = pgn_titles::lookup(message.pgn()) {
                 if let Some(obj) = json_value.as_object_mut() {
@@ -177,7 +202,13 @@ impl Renderer for CsvRenderer {
     fn render<'a>(
         &'a mut self,
         message: &'a DecodedMessage,
-    ) -> Pin<Box<dyn Future<Output = Result<String, Box<dyn std::error::Error + Send + Sync>>> + Send + 'a>> {
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<String, Box<dyn std::error::Error + Send + Sync>>>
+                + Send
+                + 'a,
+        >,
+    > {
         Box::pin(async move {
             let pgn = message.pgn();
             let assembled = &message.assembled_message;
@@ -234,7 +265,8 @@ impl Renderer for CsvRenderer {
             all_columns.extend(dynamic_columns.clone());
 
             // Escape and join header
-            let header_line = all_columns.iter()
+            let header_line = all_columns
+                .iter()
                 .map(|c| format!("\"{}\"", c.replace('"', "\"\"")))
                 .collect::<Vec<_>>()
                 .join(",");
@@ -252,17 +284,29 @@ impl Renderer for CsvRenderer {
             values.push(format!("{:X}", assembled.source()));
             values.push(format!("{:X}", assembled.destination()));
 
-            let src_name = assembled.source_name.map(|n| format!("{:X}", n)).unwrap_or_else(|| "".to_string());
+            let src_name = assembled
+                .source_name
+                .map(|n| format!("{:X}", n))
+                .unwrap_or_else(|| "".to_string());
             values.push(format!("\"{}\"", src_name.replace('"', "\"\"")));
 
-            let dst_name = assembled.dest_name.map(|n| format!("{:X}", n)).unwrap_or_else(|| "".to_string());
+            let dst_name = assembled
+                .dest_name
+                .map(|n| format!("{:X}", n))
+                .unwrap_or_else(|| "".to_string());
             values.push(format!("\"{}\"", dst_name.replace('"', "\"\"")));
 
-            let data_hex: String = assembled.data.iter().map(|b| format!("{:02X}", b)).collect();
+            let data_hex: String = assembled
+                .data
+                .iter()
+                .map(|b| format!("{:02X}", b))
+                .collect();
             values.push(data_hex);
 
             // Concatenate all StringMessages
-            let string_msgs: Vec<String> = message.outputs.iter()
+            let string_msgs: Vec<String> = message
+                .outputs
+                .iter()
                 .filter_map(|o| {
                     if let DecodedField::StringMessage { text, .. } = o {
                         Some(text.clone())
@@ -271,17 +315,25 @@ impl Renderer for CsvRenderer {
                     }
                 })
                 .collect();
-            values.push(format!("\"{}\"", string_msgs.join("; ").replace('"', "\"\"")));
+            values.push(format!(
+                "\"{}\"",
+                string_msgs.join("; ").replace('"', "\"\"")
+            ));
 
             // Dynamic column values - one row per output
             for output in &message.outputs {
                 match output {
-                    DecodedField::Value { title, value, unit, .. } => {
+                    DecodedField::Value {
+                        title, value, unit, ..
+                    } => {
                         let val = match value {
                             crate::types::Numeric::Int(v) => format!("{}", v),
                             crate::types::Numeric::Float(v) => format!("{}", v),
                             crate::types::Numeric::Hex(v) => {
-                                format!("0x{}", v.iter().map(|b| format!("{:02X}", b)).collect::<String>())
+                                format!(
+                                    "0x{}",
+                                    v.iter().map(|b| format!("{:02X}", b)).collect::<String>()
+                                )
                             }
                             crate::types::Numeric::Bool(v) => format!("{}", v),
                         };
@@ -335,7 +387,6 @@ impl Renderer for CsvRenderer {
     }
 }
 
-
 /// Condensed renderer that outputs a single-line summary per message.
 ///
 /// Fixed fields: Timestamp, CAN ID (hex, no 0x), Priority, PGN, PGN hex,
@@ -354,20 +405,36 @@ impl Renderer for CondensedRenderer {
     fn render<'a>(
         &'a mut self,
         message: &'a DecodedMessage,
-    ) -> Pin<Box<dyn Future<Output = Result<String, Box<dyn std::error::Error + Send + Sync>>> + Send + 'a>> {
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<String, Box<dyn std::error::Error + Send + Sync>>>
+                + Send
+                + 'a,
+        >,
+    > {
         Box::pin(async move {
             let assembled = &message.assembled_message;
             let mut parts = Vec::new();
 
             // Fixed fields: PGN hex, source->dest address, data bytes
             parts.push(format!("{:X}", message.pgn()));
-            parts.push(format!("{:X}->{:X}", assembled.source(), assembled.destination()));
+            parts.push(format!(
+                "{:X}->{:X}",
+                assembled.source(),
+                assembled.destination()
+            ));
 
-            let data_hex: String = assembled.data.iter().map(|b| format!("{:02X}", b)).collect();
+            let data_hex: String = assembled
+                .data
+                .iter()
+                .map(|b| format!("{:02X}", b))
+                .collect();
             parts.push(data_hex);
 
             // Concatenate non-empty StringMessages
-            let string_msgs: Vec<String> = message.outputs.iter()
+            let string_msgs: Vec<String> = message
+                .outputs
+                .iter()
                 .filter_map(|o| {
                     if let DecodedField::StringMessage { text, .. } = o {
                         if !text.is_empty() {
@@ -387,12 +454,17 @@ impl Renderer for CondensedRenderer {
             // Dynamic fields from Value and Flag outputs with bold headers
             for output in &message.outputs {
                 match output {
-                    DecodedField::Value { title, value, unit, .. } => {
+                    DecodedField::Value {
+                        title, value, unit, ..
+                    } => {
                         let val_str = match value {
                             crate::types::Numeric::Int(v) => format!("{}", v),
                             crate::types::Numeric::Float(v) => format!("{}", v),
                             crate::types::Numeric::Hex(v) => {
-                                format!("0x{}", v.iter().map(|b| format!("{:02X}", b)).collect::<String>())
+                                format!(
+                                    "0x{}",
+                                    v.iter().map(|b| format!("{:02X}", b)).collect::<String>()
+                                )
                             }
                             crate::types::Numeric::Bool(v) => format!("{}", v),
                         };
@@ -431,8 +503,6 @@ impl Renderer for CondensedRenderer {
     }
 }
 
-
-
 /// FullCondensed renderer that outputs a single-line summary per message.
 ///
 /// Fixed fields: Timestamp, CAN ID (hex, no 0x), Priority, PGN, PGN hex,
@@ -451,7 +521,13 @@ impl Renderer for FullCondensedRenderer {
     fn render<'a>(
         &'a mut self,
         message: &'a DecodedMessage,
-    ) -> Pin<Box<dyn Future<Output = Result<String, Box<dyn std::error::Error + Send + Sync>>> + Send + 'a>> {
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<String, Box<dyn std::error::Error + Send + Sync>>>
+                + Send
+                + 'a,
+        >,
+    > {
         Box::pin(async move {
             let assembled = &message.assembled_message;
             let mut parts = Vec::new();
@@ -465,19 +541,35 @@ impl Renderer for FullCondensedRenderer {
             if let Some(pgn_name) = pgn_titles::lookup(message.pgn()) {
                 parts.push(pgn_name.bold().magenta().to_string());
             }
-            parts.push(format!("{:X}->{:X}", assembled.source(), assembled.destination()));
+            parts.push(format!(
+                "{:X}->{:X}",
+                assembled.source(),
+                assembled.destination()
+            ));
 
-            let src_name = assembled.source_name.map(|n| format!("{:X}", n)).unwrap_or_else(|| "N/A".to_string());
-            let dst_name = assembled.dest_name.map(|n| format!("{:X}", n)).unwrap_or_else(|| "N/A".to_string());
+            let src_name = assembled
+                .source_name
+                .map(|n| format!("{:X}", n))
+                .unwrap_or_else(|| "N/A".to_string());
+            let dst_name = assembled
+                .dest_name
+                .map(|n| format!("{:X}", n))
+                .unwrap_or_else(|| "N/A".to_string());
             parts.push(format!("({} -> {})", src_name, dst_name));
 
-            let data_hex: String = assembled.data.iter().map(|b| format!("{:02X} ", b)).collect();
+            let data_hex: String = assembled
+                .data
+                .iter()
+                .map(|b| format!("{:02X} ", b))
+                .collect();
             parts.push(data_hex);
 
             parts.push(message.title.clone());
 
             // Concatenate all StringMessages
-            let string_msgs: Vec<String> = message.outputs.iter()
+            let string_msgs: Vec<String> = message
+                .outputs
+                .iter()
                 .filter_map(|o| {
                     if let DecodedField::StringMessage { text, .. } = o {
                         Some(text.clone())
@@ -491,12 +583,17 @@ impl Renderer for FullCondensedRenderer {
             // Dynamic fields from Value and Flag outputs with bold headers
             for output in &message.outputs {
                 match output {
-                    DecodedField::Value { title, value, unit, .. } => {
+                    DecodedField::Value {
+                        title, value, unit, ..
+                    } => {
                         let val_str = match value {
                             crate::types::Numeric::Int(v) => format!("{}", v),
                             crate::types::Numeric::Float(v) => format!("{}", v),
                             crate::types::Numeric::Hex(v) => {
-                                format!("0x{}", v.iter().map(|b| format!("{:02X}", b)).collect::<String>())
+                                format!(
+                                    "0x{}",
+                                    v.iter().map(|b| format!("{:02X}", b)).collect::<String>()
+                                )
                             }
                             crate::types::Numeric::Bool(v) => format!("{}", v),
                         };
@@ -777,7 +874,6 @@ mod tests {
         }
     }
 
-
     // ========================================================================
     // Condensed Renderer Tests
     // ========================================================================
@@ -872,7 +968,11 @@ mod tests {
             };
             let result = renderer.render(&message).await.unwrap();
             let stripped = strip_ansi_codes(&result);
-            assert!(stripped.contains(&format!("[{}] test", code)), "Failed for {:?}", severity);
+            assert!(
+                stripped.contains(&format!("[{}] test", code)),
+                "Failed for {:?}",
+                severity
+            );
         }
     }
 
@@ -1086,8 +1186,6 @@ mod tests {
         assert!(stripped.contains("Coolant=92.5 C"));
     }
 
-
-
     // ========================================================================
     // Full Condensed Renderer Tests
     // ========================================================================
@@ -1182,7 +1280,11 @@ mod tests {
             };
             let result = renderer.render(&message).await.unwrap();
             let stripped = strip_ansi_codes(&result);
-            assert!(stripped.contains(&format!("[{}] test", code)), "Failed for {:?}", severity);
+            assert!(
+                stripped.contains(&format!("[{}] test", code)),
+                "Failed for {:?}",
+                severity
+            );
         }
     }
 
@@ -1399,7 +1501,8 @@ mod tests {
 
     fn strip_ansi_codes(s: &str) -> String {
         use std::sync::LazyLock;
-        static ANSI_RE: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"\x1b\[[0-9;]*m").unwrap());
+        static ANSI_RE: LazyLock<regex::Regex> =
+            LazyLock::new(|| regex::Regex::new(r"\x1b\[[0-9;]*m").unwrap());
         ANSI_RE.replace_all(s, "").to_string()
     }
 }
@@ -1407,7 +1510,8 @@ mod tests {
 /// Strip ANSI escape sequences from a string.
 pub fn strip_ansi_codes(s: &str) -> String {
     use std::sync::LazyLock;
-    static ANSI_RE: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"\x1b\[[0-9;]*m").unwrap());
+    static ANSI_RE: LazyLock<regex::Regex> =
+        LazyLock::new(|| regex::Regex::new(r"\x1b\[[0-9;]*m").unwrap());
     ANSI_RE.replace_all(s, "").to_string()
 }
 

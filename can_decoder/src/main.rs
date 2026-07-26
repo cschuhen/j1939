@@ -3,7 +3,9 @@ use std::sync::Arc;
 use anyhow::Result;
 use can_decoder::device_manager::DeviceManager;
 use can_decoder::filters::{CompositeFilter, FilterParser};
-use can_decoder::pipeline::{CondensedRenderer, ConsoleRenderer, CsvRenderer, FullCondensedRenderer, JsonRenderer, Pipeline};
+use can_decoder::pipeline::{
+    CondensedRenderer, ConsoleRenderer, CsvRenderer, FullCondensedRenderer, JsonRenderer, Pipeline,
+};
 use can_decoder::sources::{CandumpFileSource, SocketCanSource};
 use can_decoder::traits::Source;
 use can_decoder::Cli;

@@ -31,7 +31,8 @@ impl RequestDecoder {
         }
 
         // Little-endian byte order (same as TP RTS PGN bytes)
-        let requested_pgn = ((payload[2] as u32) << 16) | ((payload[1] as u32) << 8) | (payload[0] as u32);
+        let requested_pgn =
+            ((payload[2] as u32) << 16) | ((payload[1] as u32) << 8) | (payload[0] as u32);
 
         Ok(requested_pgn)
     }
@@ -145,7 +146,10 @@ mod tests {
         let result = RequestDecoder::parse_payload(&payload);
         assert!(result.is_err());
         match result.unwrap_err() {
-            DecodeError::InvalidLength { expected: 3, found: 2 } => {}
+            DecodeError::InvalidLength {
+                expected: 3,
+                found: 2,
+            } => {}
             other => panic!("Expected InvalidLength(3,2), got {:?}", other),
         }
     }
@@ -156,7 +160,10 @@ mod tests {
         let result = RequestDecoder::parse_payload(&payload);
         assert!(result.is_err());
         match result.unwrap_err() {
-            DecodeError::InvalidLength { expected: 3, found: 0 } => {}
+            DecodeError::InvalidLength {
+                expected: 3,
+                found: 0,
+            } => {}
             other => panic!("Expected InvalidLength(3,0), got {:?}", other),
         }
     }
@@ -167,7 +174,10 @@ mod tests {
         let result = RequestDecoder::parse_payload(&payload);
         assert!(result.is_err());
         match result.unwrap_err() {
-            DecodeError::InvalidLength { expected: 3, found: 1 } => {}
+            DecodeError::InvalidLength {
+                expected: 3,
+                found: 1,
+            } => {}
             other => panic!("Expected InvalidLength(3,1), got {:?}", other),
         }
     }
@@ -190,7 +200,9 @@ mod tests {
         assert_eq!(msg.outputs.len(), 2);
 
         match &msg.outputs[0] {
-            DecodedField::Value { title, value, unit, .. } => {
+            DecodedField::Value {
+                title, value, unit, ..
+            } => {
                 assert_eq!(title, "Requested PGN");
                 assert_eq!(*value, Numeric::Int(0xEA00i64));
                 assert_eq!(unit.as_ref(), Some(&"PGN".to_string()));
@@ -235,7 +247,10 @@ mod tests {
         let result = decoder.decode(&context, &payload);
         assert!(result.is_err());
         match result.unwrap_err() {
-            DecodeError::InvalidLength { expected: 3, found: 2 } => {}
+            DecodeError::InvalidLength {
+                expected: 3,
+                found: 2,
+            } => {}
             other => panic!("Expected InvalidLength(3,2), got {:?}", other),
         }
     }

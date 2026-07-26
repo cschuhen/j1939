@@ -30,7 +30,8 @@ impl AddressClaimDecoder {
             });
         }
 
-        Name::from_bytes(payload).map_err(|_| DecodeError::MalformedData("Failed to parse NAME".into()))
+        Name::from_bytes(payload)
+            .map_err(|_| DecodeError::MalformedData("Failed to parse NAME".into()))
     }
 }
 
@@ -218,7 +219,10 @@ mod tests {
         let result = AddressClaimDecoder::parse_name(&payload);
         assert!(result.is_err());
         match result.unwrap_err() {
-            DecodeError::InvalidLength { expected: 8, found: 3 } => {}
+            DecodeError::InvalidLength {
+                expected: 8,
+                found: 3,
+            } => {}
             other => panic!("Expected InvalidLength(8,3), got {:?}", other),
         }
     }
@@ -229,7 +233,10 @@ mod tests {
         let result = AddressClaimDecoder::parse_name(&payload);
         assert!(result.is_err());
         match result.unwrap_err() {
-            DecodeError::InvalidLength { expected: 8, found: 0 } => {}
+            DecodeError::InvalidLength {
+                expected: 8,
+                found: 0,
+            } => {}
             other => panic!("Expected InvalidLength(8,0), got {:?}", other),
         }
     }
@@ -240,7 +247,10 @@ mod tests {
         let result = AddressClaimDecoder::parse_name(&payload);
         assert!(result.is_err());
         match result.unwrap_err() {
-            DecodeError::InvalidLength { expected: 8, found: 7 } => {}
+            DecodeError::InvalidLength {
+                expected: 8,
+                found: 7,
+            } => {}
             other => panic!("Expected InvalidLength(8,7), got {:?}", other),
         }
     }
@@ -310,7 +320,10 @@ mod tests {
         if let Some(idx) = raw_idx {
             match &msg.outputs[idx] {
                 DecodedField::Value { value, .. } => {
-                    assert_eq!(*value, Numeric::Hex(vec![0x6e, 0x83, 0x0d, 0x46, 0x00, 0x3e, 0x00, 0x80]));
+                    assert_eq!(
+                        *value,
+                        Numeric::Hex(vec![0x6e, 0x83, 0x0d, 0x46, 0x00, 0x3e, 0x00, 0x80])
+                    );
                 }
                 _ => panic!("Expected Raw NAME Value"),
             }
@@ -318,7 +331,9 @@ mod tests {
 
         // Check manufacturer lookup string message exists (MFR 560 = Danfoss)
         let mfr_str_idx = msg.outputs.iter().position(|o| match o {
-            DecodedField::StringMessage { text, .. } => text.contains("Danfoss") || text.contains("560"),
+            DecodedField::StringMessage { text, .. } => {
+                text.contains("Danfoss") || text.contains("560")
+            }
             _ => false,
         });
         // MFR ID 560 is beyond u8 range for lookup table, so string message may not exist
@@ -380,7 +395,9 @@ mod tests {
 
         // Check manufacturer lookup string message exists (MFR 560 = Danfoss)
         let mfr_str_idx = msg.outputs.iter().position(|o| match o {
-            DecodedField::StringMessage { text, .. } => text.contains("Danfoss") || text.contains("560"),
+            DecodedField::StringMessage { text, .. } => {
+                text.contains("Danfoss") || text.contains("560")
+            }
             _ => false,
         });
         // MFR ID 560 is beyond u8 range for lookup table, so string message may not exist
@@ -396,7 +413,10 @@ mod tests {
         let result = decoder.decode(&context, &payload);
         assert!(result.is_err());
         match result.unwrap_err() {
-            DecodeError::InvalidLength { expected: 8, found: 3 } => {}
+            DecodeError::InvalidLength {
+                expected: 8,
+                found: 3,
+            } => {}
             other => panic!("Expected InvalidLength(8,3), got {:?}", other),
         }
     }

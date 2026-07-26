@@ -165,12 +165,8 @@ impl Decoder for NullDecoder {
                     .collect::<Vec<_>>()
                     .join(" ")
             );
-            let synthetic_id = crate::tp_reassembler::build_assembled_can_id(
-                frame.pgn(),
-                0x20,
-                0xFF,
-                6,
-            );
+            let synthetic_id =
+                crate::tp_reassembler::build_assembled_can_id(frame.pgn(), 0x20, 0xFF, 6);
 
             let assembled = AssembledMessage {
                 id: synthetic_id,
@@ -442,7 +438,8 @@ mod tests {
     #[tokio::test]
     async fn test_json_renderer_data_bytes() {
         let mut renderer = JsonRenderer;
-        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![0xDE, 0xAD, 0xBE, 0xEF]);
+        let assembled =
+            AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![0xDE, 0xAD, 0xBE, 0xEF]);
         let message = DecodedMessage {
             title: "Data".to_string(),
             outputs: vec![],

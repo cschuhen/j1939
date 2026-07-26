@@ -126,7 +126,10 @@ impl TaskControllerDecoder {
     }
 
     /// Decode a TaskController Process Data message.
-    fn decode_value_command(data: &TaskControllerData, proprietary_handlers: &[ProprietaryHandler]) -> DecodedMessage {
+    fn decode_value_command(
+        data: &TaskControllerData,
+        proprietary_handlers: &[ProprietaryHandler],
+    ) -> DecodedMessage {
         let ddi_info = Self::resolve_ddi_info(data.ddi, proprietary_handlers);
 
         let mut msg = DecodedMessage::with_assembled(
@@ -160,7 +163,9 @@ impl TaskControllerDecoder {
 
         if let Some(info) = &ddi_info {
             // Field 4: DDI name (e.g., "Total Charge") = physical_value with unit
-            if let Some(physical) = Self::resolve_physical(data.ddi, data.value, proprietary_handlers) {
+            if let Some(physical) =
+                Self::resolve_physical(data.ddi, data.value, proprietary_handlers)
+            {
                 msg.outputs.push(DecodedField::Value {
                     title: info.name.to_string(),
                     value: Numeric::Float(physical),
@@ -197,7 +202,10 @@ impl TaskControllerDecoder {
     }
 
     /// Resolve DDI info from proprietary handlers first (if in proprietary range), then standard lookup.
-    fn resolve_ddi_info(ddi: u16, proprietary_handlers: &[ProprietaryHandler]) -> Option<&'static iso11783_data::strings::task_controller_ddi::DdiInfo> {
+    fn resolve_ddi_info(
+        ddi: u16,
+        proprietary_handlers: &[ProprietaryHandler],
+    ) -> Option<&'static iso11783_data::strings::task_controller_ddi::DdiInfo> {
         if ddi >= 0xE000 && ddi <= 0xFFFE {
             for handler in proprietary_handlers {
                 if let Some(info) = (handler.lookup_fn)(ddi) {
@@ -210,7 +218,11 @@ impl TaskControllerDecoder {
     }
 
     /// Resolve physical value using proprietary handlers first (if in proprietary range), then standard lookup.
-    fn resolve_physical(ddi: u16, raw_value: i32, proprietary_handlers: &[ProprietaryHandler]) -> Option<f64> {
+    fn resolve_physical(
+        ddi: u16,
+        raw_value: i32,
+        proprietary_handlers: &[ProprietaryHandler],
+    ) -> Option<f64> {
         if ddi >= 0xE000 && ddi <= 0xFFFE {
             for handler in proprietary_handlers {
                 if let Some(physical) = (handler.to_physical_fn)(ddi, raw_value) {
@@ -421,7 +433,9 @@ mod tests {
         assert_eq!(msg.outputs.len(), 4);
 
         match &msg.outputs[0] {
-            DecodedField::Value { title, value, unit, .. } => {
+            DecodedField::Value {
+                title, value, unit, ..
+            } => {
                 assert_eq!(title, "Element");
                 assert_eq!(*value, Numeric::Int(10));
                 assert!(unit.is_none());
@@ -589,10 +603,7 @@ mod tests {
     fn test_value_positive() {
         let payload = vec![
             0xA3, // element=10, command=3
-            0x00,
-            0x00,
-            0xE0,
-            0x64, 0x00, 0x00, 0x00, // value = 100 (little-endian)
+            0x00, 0x00, 0xE0, 0x64, 0x00, 0x00, 0x00, // value = 100 (little-endian)
         ];
 
         let data = TaskControllerDecoder::parse_payload(&payload).unwrap();
@@ -602,13 +613,7 @@ mod tests {
     #[test]
     fn test_value_negative() {
         // -1 in two's complement: 0xFFFFFFFF
-        let payload = vec![
-            0xA3,
-            0x00,
-            0x00,
-            0xE0,
-            0xFF, 0xFF, 0xFF, 0xFF,
-        ];
+        let payload = vec![0xA3, 0x00, 0x00, 0xE0, 0xFF, 0xFF, 0xFF, 0xFF];
 
         let data = TaskControllerDecoder::parse_payload(&payload).unwrap();
         assert_eq!(data.value, -1i32);
@@ -617,13 +622,7 @@ mod tests {
     #[test]
     fn test_value_max_i32() {
         // i32::MAX = 0x7FFFFFFF
-        let payload = vec![
-            0xA3,
-            0x00,
-            0x00,
-            0xE0,
-            0xFF, 0xFF, 0xFF, 0x7F,
-        ];
+        let payload = vec![0xA3, 0x00, 0x00, 0xE0, 0xFF, 0xFF, 0xFF, 0x7F];
 
         let data = TaskControllerDecoder::parse_payload(&payload).unwrap();
         assert_eq!(data.value, i32::MAX);
@@ -632,13 +631,7 @@ mod tests {
     #[test]
     fn test_value_min_i32() {
         // i32::MIN = 0x80000000
-        let payload = vec![
-            0xA3,
-            0x00,
-            0x00,
-            0xE0,
-            0x00, 0x00, 0x00, 0x80,
-        ];
+        let payload = vec![0xA3, 0x00, 0x00, 0xE0, 0x00, 0x00, 0x00, 0x80];
 
         let data = TaskControllerDecoder::parse_payload(&payload).unwrap();
         assert_eq!(data.value, i32::MIN);
@@ -669,7 +662,10 @@ mod tests {
         let result = decoder.decode(&context, &payload);
         assert!(result.is_err());
         match result.unwrap_err() {
-            DecodeError::InvalidLength { expected: 8, found: 2 } => {}
+            DecodeError::InvalidLength {
+                expected: 8,
+                found: 2,
+            } => {}
             other => panic!("Expected InvalidLength(8,2), got {:?}", other),
         }
     }

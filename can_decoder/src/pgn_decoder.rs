@@ -8,12 +8,14 @@ use serde::Deserialize;
 
 use crate::device_manager::DeviceManager;
 use crate::pgn_decoders::iso11783::task_controller::{TaskControllerDecoder, PROCESS_DATA_PGN};
-use crate::pgn_decoders::j1939::address_claim::{AddressClaimDecoder};
+use crate::pgn_decoders::j1939::address_claim::AddressClaimDecoder;
 use crate::pgn_decoders::j1939::request_decoder::{RequestDecoder, REQUEST_PGN};
 use crate::tp_reassembler::{TpReassembler, TpReassemblyResult};
 use crate::traits::{ComplexDecoder, Decoder};
+use crate::types::{
+    AssembledMessage, DecodeContext, DecodedField, DecodedMessage, Numeric, RawFrame, Severity,
+};
 use crate::DetailLevel;
-use crate::types::{AssembledMessage, DecodeContext, DecodedField, DecodedMessage, Numeric, RawFrame, Severity};
 
 /// YAML configuration for the PGN decoder engine.
 #[derive(Debug, Clone, Deserialize)]
@@ -289,7 +291,14 @@ pub struct J1939Decoder {
 impl J1939Decoder {
     /// Create a new J1939Decoder with default PGN definitions and TP reassembly.
     pub fn new(force_partial_tp: bool, timeout_ms: u64, debug: bool) -> Self {
-        Self::with_device_manager_detail(force_partial_tp, timeout_ms, debug, None, DetailLevel::Assembled, &[])
+        Self::with_device_manager_detail(
+            force_partial_tp,
+            timeout_ms,
+            debug,
+            None,
+            DetailLevel::Assembled,
+            &[],
+        )
     }
 
     /// Create a new J1939Decoder with default PGN definitions and an optional DeviceManager.
@@ -299,7 +308,14 @@ impl J1939Decoder {
         debug: bool,
         device_manager: Option<Arc<StdMutex<DeviceManager>>>,
     ) -> Self {
-        Self::with_device_manager_detail(force_partial_tp, timeout_ms, debug, device_manager, DetailLevel::Assembled, &[])
+        Self::with_device_manager_detail(
+            force_partial_tp,
+            timeout_ms,
+            debug,
+            device_manager,
+            DetailLevel::Assembled,
+            &[],
+        )
     }
 
     /// Create a new J1939Decoder with default PGN definitions, optional DeviceManager, detail level, and proprietary DDI handler names.
@@ -331,12 +347,21 @@ impl J1939Decoder {
         };
 
         if proprietary_handlers.is_empty() {
-            decoder.register_complex_decoder(PROCESS_DATA_PGN, Box::new(TaskControllerDecoder::new()));
+            decoder
+                .register_complex_decoder(PROCESS_DATA_PGN, Box::new(TaskControllerDecoder::new()));
         } else {
-            decoder.register_complex_decoder(PROCESS_DATA_PGN, Box::new(TaskControllerDecoder::with_proprietary_handlers(proprietary_handlers)));
+            decoder.register_complex_decoder(
+                PROCESS_DATA_PGN,
+                Box::new(TaskControllerDecoder::with_proprietary_handlers(
+                    proprietary_handlers,
+                )),
+            );
         }
 
-        decoder.register_complex_decoder(iso11783_data::constants::pgn::ADDRESS_CLAIMED, Box::new(AddressClaimDecoder::new()));
+        decoder.register_complex_decoder(
+            iso11783_data::constants::pgn::ADDRESS_CLAIMED,
+            Box::new(AddressClaimDecoder::new()),
+        );
 
         decoder.register_complex_decoder(REQUEST_PGN, Box::new(RequestDecoder::new()));
 
@@ -351,7 +376,14 @@ impl J1939Decoder {
         debug: bool,
         device_manager: Option<Arc<StdMutex<DeviceManager>>>,
     ) -> Self {
-        Self::with_config_detail(config, force_partial_tp, timeout_ms, debug, device_manager, DetailLevel::Assembled)
+        Self::with_config_detail(
+            config,
+            force_partial_tp,
+            timeout_ms,
+            debug,
+            device_manager,
+            DetailLevel::Assembled,
+        )
     }
 
     /// Create a J1939Decoder with explicit config, optional DeviceManager, and detail level.
@@ -373,7 +405,10 @@ impl J1939Decoder {
 
         decoder.register_complex_decoder(PROCESS_DATA_PGN, Box::new(TaskControllerDecoder::new()));
 
-        decoder.register_complex_decoder(iso11783_data::constants::pgn::ADDRESS_CLAIMED, Box::new(AddressClaimDecoder::new()));
+        decoder.register_complex_decoder(
+            iso11783_data::constants::pgn::ADDRESS_CLAIMED,
+            Box::new(AddressClaimDecoder::new()),
+        );
 
         decoder.register_complex_decoder(REQUEST_PGN, Box::new(RequestDecoder::new()));
 
@@ -439,7 +474,6 @@ impl J1939Decoder {
             };
         }
 
-
         let pgn_title: String = {
             let title = iso11783_data::strings::pgn::lookup(pgn_key);
             match title {
@@ -453,11 +487,7 @@ impl J1939Decoder {
             title: Self::make_title_from_pgn(msg.pgn()),
             outputs: vec![DecodedField::StringMessage {
                 severity: Severity::Info,
-                text: format!(
-                    "No decoding for '{}', {} bytes",
-                    pgn_title,
-                    msg.data.len()
-                ),
+                text: format!("No decoding for '{}', {} bytes", pgn_title, msg.data.len()),
             }],
             updates: vec![],
         }
@@ -474,21 +504,24 @@ impl J1939Decoder {
 
         // Enrich output with source device name if available in assembled message
         if let Some(src_name_u64) = msg.source_name {
-            decoded.outputs.insert(0, DecodedField::Value {
-                title: "Source Device".to_string(),
-                value: Numeric::Hex(vec![
-                    (src_name_u64 >> 56) as u8,
-                    (src_name_u64 >> 48) as u8,
-                    (src_name_u64 >> 40) as u8,
-                    (src_name_u64 >> 32) as u8,
-                    (src_name_u64 >> 24) as u8,
-                    (src_name_u64 >> 16) as u8,
-                    (src_name_u64 >> 8) as u8,
-                    src_name_u64 as u8,
-                ]),
-                unit: Some("NAME".to_string()),
-                decimal_places: None,
-            });
+            decoded.outputs.insert(
+                0,
+                DecodedField::Value {
+                    title: "Source Device".to_string(),
+                    value: Numeric::Hex(vec![
+                        (src_name_u64 >> 56) as u8,
+                        (src_name_u64 >> 48) as u8,
+                        (src_name_u64 >> 40) as u8,
+                        (src_name_u64 >> 32) as u8,
+                        (src_name_u64 >> 24) as u8,
+                        (src_name_u64 >> 16) as u8,
+                        (src_name_u64 >> 8) as u8,
+                        src_name_u64 as u8,
+                    ]),
+                    unit: Some("NAME".to_string()),
+                    decimal_places: None,
+                },
+            );
         }
 
         // Enrich output with destination device name if available and not broadcast
@@ -1297,7 +1330,6 @@ pgns:
         }
     }
 
-
     #[test]
     fn test_decode_pdu2_single_frame_without_config() {
         let mut decoder = J1939Decoder::new(false, 1000, false);
@@ -1477,12 +1509,17 @@ pgns:
 
         // First output should be the Source Device NAME enrichment
         match &msg.outputs[0] {
-            DecodedField::Value { title, value, unit, .. } => {
+            DecodedField::Value {
+                title, value, unit, ..
+            } => {
                 assert_eq!(title, "Source Device");
                 assert_eq!(unit.as_ref(), Some(&"NAME".to_string()));
                 if let Numeric::Hex(hex_bytes) = value {
                     assert_eq!(hex_bytes.len(), 8);
-                    assert_eq!(*hex_bytes, vec![0x80, 0x00, 0x3e, 0x00, 0x46, 0x0d, 0x83, 0x6e]);
+                    assert_eq!(
+                        *hex_bytes,
+                        vec![0x80, 0x00, 0x3e, 0x00, 0x46, 0x0d, 0x83, 0x6e]
+                    );
                 } else {
                     panic!("Expected Hex value for Source Device");
                 }
@@ -1533,7 +1570,10 @@ pgns:
                 assert_eq!(title, "Source Device");
                 if let Numeric::Hex(hex_bytes) = value {
                     assert_eq!(hex_bytes.len(), 8);
-                    assert_eq!(*hex_bytes, vec![0x80, 0x00, 0x3e, 0x00, 0x46, 0x0d, 0x83, 0x6e]);
+                    assert_eq!(
+                        *hex_bytes,
+                        vec![0x80, 0x00, 0x3e, 0x00, 0x46, 0x0d, 0x83, 0x6e]
+                    );
                 } else {
                     panic!("Expected Hex value for Source Device");
                 }
@@ -1649,7 +1689,8 @@ pgns:
         }
 
         fn reset_call_count(&self) {
-            self.call_count.store(0, std::sync::atomic::Ordering::SeqCst);
+            self.call_count
+                .store(0, std::sync::atomic::Ordering::SeqCst);
         }
     }
 
@@ -1659,7 +1700,8 @@ pgns:
             _context: &DecodeContext,
             _payload: &[u8],
         ) -> Result<Option<DecodedMessage>, crate::types::DecodeError> {
-            self.call_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            self.call_count
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             if self.should_return_none {
                 Ok(None)
             } else {
@@ -1713,10 +1755,8 @@ pgns:
     fn test_complex_decoder_falls_back_to_yaml_when_none() {
         let mut decoder = J1939Decoder::new(false, 1000, false);
 
-        let mock_output = DecodedMessage::with_assembled(
-            "Mock".to_string(),
-            AssembledMessage::new(0, vec![]),
-        );
+        let mock_output =
+            DecodedMessage::with_assembled("Mock".to_string(), AssembledMessage::new(0, vec![]));
         decoder.register_complex_decoder(
             0x0CF00,
             Box::new(MockComplexDecoder {
@@ -1745,10 +1785,8 @@ pgns:
     fn test_complex_decoder_ignores_unregistered_pgn() {
         let mut decoder = J1939Decoder::new(false, 1000, false);
 
-        let mock_output = DecodedMessage::with_assembled(
-            "Mock".to_string(),
-            AssembledMessage::new(0, vec![]),
-        );
+        let mock_output =
+            DecodedMessage::with_assembled("Mock".to_string(), AssembledMessage::new(0, vec![]));
         decoder.register_complex_decoder(
             0xDEAD,
             Box::new(MockComplexDecoder {
@@ -1782,19 +1820,15 @@ pgns:
         let call_count_b = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
 
         // Register two different mock decoders for two different PGNs
-        let mut mock_a_output = DecodedMessage::with_assembled(
-            "Mock A".to_string(),
-            AssembledMessage::new(0, vec![]),
-        );
+        let mut mock_a_output =
+            DecodedMessage::with_assembled("Mock A".to_string(), AssembledMessage::new(0, vec![]));
         mock_a_output.outputs.push(DecodedField::StringMessage {
             severity: Severity::Info,
             text: "Mock A".to_string(),
         });
 
-        let mut mock_b_output = DecodedMessage::with_assembled(
-            "Mock B".to_string(),
-            AssembledMessage::new(0, vec![]),
-        );
+        let mut mock_b_output =
+            DecodedMessage::with_assembled("Mock B".to_string(), AssembledMessage::new(0, vec![]));
         mock_b_output.outputs.push(DecodedField::StringMessage {
             severity: Severity::Info,
             text: "Mock B".to_string(),
@@ -1823,30 +1857,39 @@ pgns:
         // Decode PGN 0x1111 -> should use mock A
         let assembled_a = make_assembled(0x1111, 0x30, vec![0x01]);
         let msg_a = decoder.decode_assembled(&assembled_a);
-        assert_eq!(msg_a.outputs[0], DecodedField::StringMessage {
-            severity: Severity::Info,
-            text: "Mock A".to_string(),
-        });
+        assert_eq!(
+            msg_a.outputs[0],
+            DecodedField::StringMessage {
+                severity: Severity::Info,
+                text: "Mock A".to_string(),
+            }
+        );
         assert_eq!(call_count_a.load(std::sync::atomic::Ordering::SeqCst), 1);
         assert_eq!(call_count_b.load(std::sync::atomic::Ordering::SeqCst), 0);
 
         // Decode PGN 0x2222 -> should use mock B
         let assembled_b = make_assembled(0x2222, 0x40, vec![0x02]);
         let msg_b = decoder.decode_assembled(&assembled_b);
-        assert_eq!(msg_b.outputs[0], DecodedField::StringMessage {
-            severity: Severity::Info,
-            text: "Mock B".to_string(),
-        });
+        assert_eq!(
+            msg_b.outputs[0],
+            DecodedField::StringMessage {
+                severity: Severity::Info,
+                text: "Mock B".to_string(),
+            }
+        );
         assert_eq!(call_count_a.load(std::sync::atomic::Ordering::SeqCst), 1);
         assert_eq!(call_count_b.load(std::sync::atomic::Ordering::SeqCst), 1);
 
         // Decode unregistered PGN -> should fall back to YAML (or unrecognized)
         let assembled_c = make_assembled(0x3333, 0x50, vec![0x03]);
         let msg_c = decoder.decode_assembled(&assembled_c);
-        assert_eq!(msg_c.outputs[0], DecodedField::StringMessage {
-            severity: Severity::Info,
-            text: "No decoding for 'PGN 0x3333', 1 bytes".to_string(),
-        });
+        assert_eq!(
+            msg_c.outputs[0],
+            DecodedField::StringMessage {
+                severity: Severity::Info,
+                text: "No decoding for 'PGN 0x3333', 1 bytes".to_string(),
+            }
+        );
     }
 
     #[test]
@@ -1913,10 +1956,13 @@ pgns:
         let msg = decoder.decode_assembled(&assembled);
 
         // Should get mock output, not YAML-decoded RPM
-        assert_eq!(msg.outputs[0], DecodedField::StringMessage {
-            severity: Severity::Info,
-            text: "Overridden".to_string(),
-        });
+        assert_eq!(
+            msg.outputs[0],
+            DecodedField::StringMessage {
+                severity: Severity::Info,
+                text: "Overridden".to_string(),
+            }
+        );
     }
 
     // ========================================================================
@@ -2001,7 +2047,10 @@ pgns:
 
         for (byte_val, expected_elem, expected_value) in &elements {
             let data = vec![
-                *byte_val, 0x00, 0x00, 0xE0,
+                *byte_val,
+                0x00,
+                0x00,
+                0xE0,
                 ((expected_value % 256) as i32) as u8,
                 (((expected_value >> 8) % 256) as i32) as u8,
                 (((expected_value >> 16) % 256) as i32) as u8,
@@ -2011,7 +2060,12 @@ pgns:
             let assembled = make_assembled(PROCESS_DATA_PGN, 0x90, data);
             let msg = decoder.decode_assembled(&assembled);
 
-            assert_eq!(msg.outputs.len(), 4, "Expected 4 outputs for element {}", expected_elem);
+            assert_eq!(
+                msg.outputs.len(),
+                4,
+                "Expected 4 outputs for element {}",
+                expected_elem
+            );
 
             match &msg.outputs[0] {
                 DecodedField::Value { title, value, .. } => {
@@ -2050,13 +2104,14 @@ pgns:
         // Step 1: Send BAM to set up broadcast transfer for PGN 0x0CF00 (Vehicle Speed)
         let source = 0xF8u8;
         let dest = 0xFFu8;
-        let bam_can_id = (7u32 << 26) | ((0xEC as u32) << 16) | ((dest as u32) << 8) | source as u32;
+        let bam_can_id =
+            (7u32 << 26) | ((0xEC as u32) << 16) | ((dest as u32) << 8) | source as u32;
         // PGN 0x0CF00 in little-endian: low=0xF0, mid=0xCF, high=0x00
         let bam_data = [
-            0x20,           // control byte = BAM
-            0x0E, 0x00,     // total_size = 14 bytes
-            0x02,           // num_packets = 2
-            0xFF,           // reserved
+            0x20, // control byte = BAM
+            0x0E, 0x00, // total_size = 14 bytes
+            0x02, // num_packets = 2
+            0xFF, // reserved
             0xF0, 0xCF, 0x00, // PGN = 0x0CF00 (Vehicle Speed) - Little-Endian
         ];
         decoder.decode_raw_frame(make_frame(bam_can_id, &bam_data));
@@ -2067,26 +2122,40 @@ pgns:
         let outputs1 = decoder.decode_raw_frame(make_frame(dt_can_id, &packet1_data));
 
         // Individual DT packet should NOT be decoded - only Pending from reassembler
-        assert!(outputs1.outputs.is_empty(), "Individual TP packets should not produce output");
+        assert!(
+            outputs1.outputs.is_empty(),
+            "Individual TP packets should not produce output"
+        );
 
         // Step 3: Send second DT packet (completes the transfer) - should produce decoded output
         let packet2_data = [0x02, 0x48, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E];
         let outputs2 = decoder.decode_raw_frame(make_frame(dt_can_id, &packet2_data));
 
         // Assembled message should be decoded (regardless of PGN recognition)
-        assert!(!outputs2.outputs.is_empty(), "Assembled TP message should produce output");
+        assert!(
+            !outputs2.outputs.is_empty(),
+            "Assembled TP message should produce output"
+        );
     }
 
     #[test]
     fn test_assembled_tp_always_decoded_independent_of_detail_level() {
         // Test with detail_level = Assembled (default) - decode pre-built assembled message
         let mut decoder_assembled = J1939Decoder::with_device_manager_detail(
-            false, 5000, false, None, DetailLevel::Assembled, &[]
+            false,
+            5000,
+            false,
+            None,
+            DetailLevel::Assembled,
+            &[],
         );
 
         let assembled = make_assembled(0x0CF00, 0xF8, vec![0x3Cu8]); // Speed = 60 km/h
         let msg = decoder_assembled.decode_assembled(&assembled);
-        assert!(!msg.outputs.is_empty(), "Assembled message should be decoded with Assembled detail level");
+        assert!(
+            !msg.outputs.is_empty(),
+            "Assembled message should be decoded with Assembled detail level"
+        );
         match &msg.outputs[0] {
             DecodedField::Value { title, .. } => {
                 assert_eq!(title, "Speed", "Should decode as Vehicle Speed");
@@ -2096,19 +2165,35 @@ pgns:
 
         // Test with detail_level = Both - assembled message should still be decoded
         let mut decoder_both = J1939Decoder::with_device_manager_detail(
-            false, 5000, false, None, DetailLevel::Both, &[]
+            false,
+            5000,
+            false,
+            None,
+            DetailLevel::Both,
+            &[],
         );
 
         let msg_both = decoder_both.decode_assembled(&assembled);
-        assert!(!msg_both.outputs.is_empty(), "Assembled message should be decoded with Both detail level");
+        assert!(
+            !msg_both.outputs.is_empty(),
+            "Assembled message should be decoded with Both detail level"
+        );
 
         // Test with detail_level = Raw - assembled TP messages should still be decoded (task 2)
         let mut decoder_raw = J1939Decoder::with_device_manager_detail(
-            false, 5000, false, None, DetailLevel::Raw, &[]
+            false,
+            5000,
+            false,
+            None,
+            DetailLevel::Raw,
+            &[],
         );
 
         let msg_raw = decoder_raw.decode_assembled(&assembled);
-        assert!(!msg_raw.outputs.is_empty(), "Assembled TP message should always be decoded regardless of detail level");
+        assert!(
+            !msg_raw.outputs.is_empty(),
+            "Assembled TP message should always be decoded regardless of detail level"
+        );
     }
 
     #[test]
@@ -2119,7 +2204,10 @@ pgns:
         let can_id = (3u32 << 26) | (0x0CF00 << 8) | 0xF8;
         let msg = decoder.decode_raw_frame(make_frame(can_id, &[0x3Cu8])); // 60 km/h
 
-        assert!(!msg.outputs.is_empty(), "Non-TP frames should always be decoded");
+        assert!(
+            !msg.outputs.is_empty(),
+            "Non-TP frames should always be decoded"
+        );
         match &msg.outputs[0] {
             DecodedField::Value { title, value, .. } => {
                 assert_eq!(title, "Speed");
@@ -2135,7 +2223,12 @@ pgns:
         assert_eq!(*decoder.detail_level(), DetailLevel::Assembled);
 
         let mut decoder_both = J1939Decoder::with_device_manager_detail(
-            false, 5000, false, None, DetailLevel::Both, &[]
+            false,
+            5000,
+            false,
+            None,
+            DetailLevel::Both,
+            &[],
         );
         assert_eq!(*decoder_both.detail_level(), DetailLevel::Both);
 

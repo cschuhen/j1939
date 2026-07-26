@@ -1,7 +1,8 @@
 #[cfg(test)]
 mod tests {
     use can_decoder::types::{
-        AssembledMessage, DecodeContext, DecodeError, DecodedField, DecodedMessage, DeviceUpdate, Numeric,
+        AssembledMessage, DecodeContext, DecodeError, DecodedField, DecodedMessage, DeviceUpdate,
+        Numeric,
     };
     use j1939_async::can::Id;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -44,7 +45,12 @@ mod tests {
     }
 
     #[allow(dead_code)]
-    fn make_dummy_assembled_with_dest_data(pgn: u32, source: u8, dest: u8, data: Vec<u8>) -> AssembledMessage {
+    fn make_dummy_assembled_with_dest_data(
+        pgn: u32,
+        source: u8,
+        dest: u8,
+        data: Vec<u8>,
+    ) -> AssembledMessage {
         let can_id = (3u32 << 26) | (pgn << 16) | ((dest as u32) << 8) | source as u32;
         AssembledMessage {
             id: can_id,
@@ -137,7 +143,8 @@ mod tests {
 
         let large_pgn_id = j1939_async::can::IdImpl::new_unchecked(0x18ECFF22);
         let assembled_large = make_dummy_assembled_with_data(large_pgn_id.pgn(), 0x22, vec![0x01]);
-        let msg_large = DecodedMessage::with_assembled("Large PGN Test".to_string(), assembled_large);
+        let msg_large =
+            DecodedMessage::with_assembled("Large PGN Test".to_string(), assembled_large);
         assert_eq!(msg_large.pgn(), large_pgn_id.pgn());
 
         let msg_zero = DecodedMessage::new("Zero PGN Test".to_string());
@@ -152,7 +159,7 @@ mod tests {
     fn test_decoded_message_pgn_with_outputs() {
         let assembled = make_dummy_assembled(0xEF4, 0x20);
         let mut msg = DecodedMessage::with_assembled("Engine Parameters".to_string(), assembled);
-        
+
         msg.outputs.push(DecodedField::Value {
             title: "RPM".to_string(),
             value: Numeric::Int(1500),
@@ -184,7 +191,7 @@ mod tests {
 
         assert_eq!(msg.pgn(), 0xEF4);
         assert_eq!(msg.title, "Engine Speed");
-        
+
         assert_eq!(msg.assembled_message.id, assembled.id);
         assert_eq!(msg.assembled_message.pgn, 0xEF4);
         assert_eq!(msg.assembled_message.data, vec![0x01, 0x02, 0x03, 0x04]);
@@ -200,7 +207,7 @@ mod tests {
         // For PDU1 with ID format (3<<26)|(pgn<<8)|source, dest is in bits 8-15 which overlaps PGN lower byte
         assert_eq!(msg.dest_address(), 0xF4);
         assert_eq!(msg.timestamp(), 1_000_000);
-        
+
         let data = msg.data_bytes();
         assert_eq!(*data, vec![0xAA, 0xBB]);
     }
@@ -218,14 +225,18 @@ mod tests {
 
     #[test]
     fn test_decoded_message_clone_preserves_assembled() {
-        let assembled = make_dummy_assembled_with_data(0xEC00, 0x22, vec![0xFF, 0xFE, 0xFF, 0xFF, 0x03, 0x00, 0x0F, 0x20]);
+        let assembled = make_dummy_assembled_with_data(
+            0xEC00,
+            0x22,
+            vec![0xFF, 0xFE, 0xFF, 0xFF, 0x03, 0x00, 0x0F, 0x20],
+        );
 
         let msg = DecodedMessage::with_assembled("Address Claim".to_string(), assembled);
         let cloned = msg.clone();
 
         assert_eq!(cloned.pgn(), 0xEC00);
         assert_eq!(cloned.title, "Address Claim");
-        
+
         assert_eq!(cloned.assembled_message.id, msg.assembled_message.id);
         assert_eq!(cloned.assembled_message.data.len(), 8);
     }
@@ -235,7 +246,7 @@ mod tests {
         let assembled = make_dummy_assembled(0, 0x20);
 
         let msg = DecodedMessage::with_assembled("Empty Data".to_string(), assembled);
-        
+
         assert_eq!(msg.data_bytes().len(), 0);
     }
 
@@ -245,7 +256,7 @@ mod tests {
         let assembled = make_dummy_assembled_with_data(0xF000, 0x20, large_data);
 
         let msg = DecodedMessage::with_assembled("Large TP Message".to_string(), assembled);
-        
+
         assert_eq!(msg.data_bytes().len(), 250);
     }
 
@@ -255,7 +266,7 @@ mod tests {
         let assembled = make_dummy_assembled(0x0700, 0x40);
 
         let msg = DecodedMessage::with_assembled("PDU1 Unicast".to_string(), assembled);
-        
+
         assert_eq!(msg.source_address(), 0x40);
         assert_eq!(msg.dest_address(), 0x00);
     }
@@ -266,7 +277,7 @@ mod tests {
         assembled.timestamp = 9_876_543;
 
         let msg = DecodedMessage::with_assembled("Timestamp Test".to_string(), assembled);
-        
+
         assert_eq!(msg.timestamp(), 9_876_543);
     }
 
@@ -276,7 +287,7 @@ mod tests {
         assembled.timestamp = 7_777_777;
 
         let msg = DecodedMessage::with_assembled("All Accessors".to_string(), assembled);
-        
+
         assert_eq!(msg.pgn(), 0x1234);
         assert_eq!(msg.source_address(), 0x55);
         // PGN lower byte in bits 8-15 = 0x34
@@ -289,7 +300,7 @@ mod tests {
     fn test_decoded_message_source_name_none_by_default() {
         let assembled = make_dummy_assembled(0xEF4, 0x20);
         let msg = DecodedMessage::with_assembled("No Name".to_string(), assembled);
-        
+
         assert_eq!(msg.source_name(), None);
     }
 
@@ -297,7 +308,7 @@ mod tests {
     fn test_decoded_message_dest_name_none_by_default() {
         let assembled = make_dummy_assembled(0xEF4, 0x20);
         let msg = DecodedMessage::with_assembled("No Name".to_string(), assembled);
-        
+
         assert_eq!(msg.dest_name(), None);
     }
 
@@ -305,9 +316,9 @@ mod tests {
     fn test_decoded_message_source_name_with_value() {
         let mut assembled = make_dummy_assembled(0xEF4, 0x20);
         assembled.source_name = Some(0x8000_3e00_460d_836e);
-        
+
         let msg = DecodedMessage::with_assembled("With Source Name".to_string(), assembled);
-        
+
         assert_eq!(msg.source_name(), Some(0x8000_3e00_460d_836e));
     }
 
@@ -315,9 +326,9 @@ mod tests {
     fn test_decoded_message_dest_name_with_value() {
         let mut assembled = make_dummy_assembled(0xEF4, 0x20);
         assembled.dest_name = Some(0xDEAD_BEEF_CAFE_BABE);
-        
+
         let msg = DecodedMessage::with_assembled("With Dest Name".to_string(), assembled);
-        
+
         assert_eq!(msg.dest_name(), Some(0xDEAD_BEEF_CAFE_BABE));
     }
 
@@ -326,9 +337,9 @@ mod tests {
         let mut assembled = make_dummy_assembled(0xEF4, 0x20);
         assembled.source_name = Some(0x8000_3e00_460d_836e);
         assembled.dest_name = Some(0xDEAD_BEEF_CAFE_BABE);
-        
+
         let msg = DecodedMessage::with_assembled("Both Names".to_string(), assembled);
-        
+
         assert_eq!(msg.source_name(), Some(0x8000_3e00_460d_836e));
         assert_eq!(msg.dest_name(), Some(0xDEAD_BEEF_CAFE_BABE));
     }
@@ -338,10 +349,10 @@ mod tests {
         let mut assembled = make_dummy_assembled(0xEF4, 0x20);
         assembled.source_name = Some(0x8000_3e00_460d_836e);
         assembled.dest_name = Some(0xDEAD_BEEF_CAFE_BABE);
-        
+
         let msg = DecodedMessage::with_assembled("Clone Test".to_string(), assembled);
         let cloned = msg.clone();
-        
+
         assert_eq!(cloned.source_name(), Some(0x8000_3e00_460d_836e));
         assert_eq!(cloned.dest_name(), Some(0xDEAD_BEEF_CAFE_BABE));
     }
@@ -350,7 +361,7 @@ mod tests {
     fn test_assembled_message_names_in_data() {
         let mut assembled = make_dummy_assembled_with_data(0xEC00, 0x22, vec![0xFF, 0xFE]);
         assembled.source_name = Some(0x1111_2222_3333_4444);
-        
+
         assert_eq!(assembled.source_name, Some(0x1111_2222_3333_4444));
     }
 
@@ -359,9 +370,9 @@ mod tests {
         let mut assembled = make_dummy_assembled(0xEF4, 0x20);
         assembled.source_name = Some(0x8000_3e00_460d_836e);
         assembled.dest_name = Some(0xDEAD_BEEF_CAFE_BABE);
-        
+
         let cloned = assembled.clone();
-        
+
         assert_eq!(cloned.source_name, Some(0x8000_3e00_460d_836e));
         assert_eq!(cloned.dest_name, Some(0xDEAD_BEEF_CAFE_BABE));
     }
@@ -369,7 +380,7 @@ mod tests {
     #[test]
     fn test_new_decoded_message_has_no_names() {
         let msg = DecodedMessage::new("New Message".to_string());
-        
+
         assert_eq!(msg.source_name(), None);
         assert_eq!(msg.dest_name(), None);
     }

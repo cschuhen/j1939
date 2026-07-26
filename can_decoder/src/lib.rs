@@ -3,8 +3,12 @@ pub mod device_manager;
 pub mod filters;
 /// PGN decoder engine with YAML configuration support.
 pub mod pgn_decoder;
+/// J1939 PGN decoders submodules.
+pub mod pgn_decoders;
 /// Async channel-based pipeline wiring stages together.
 pub mod pipeline;
+/// Proprietary DDI definitions module.
+pub mod proprietary;
 /// Output renderers (Console, JSON).
 pub mod renderers;
 /// Input sources (SocketCAN, candump files).
@@ -15,10 +19,6 @@ pub mod tp_reassembler;
 pub mod traits;
 /// Data models for CAN frames, messages, and decoded output.
 pub mod types;
-/// Proprietary DDI definitions module.
-pub mod proprietary;
-/// J1939 PGN decoders submodules.
-pub mod pgn_decoders;
 
 use clap::Parser;
 use std::path::PathBuf;
