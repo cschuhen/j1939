@@ -266,6 +266,17 @@ pub fn manufacturer_id_lookup(id: u8) -> Option<&'static str> {
     }
 }
 
+/// Lookup manufacturer ID by numeric value (u16 variant for 11-bit NAME fields).
+pub fn manufacturer_id_lookup_u16(id: u16) -> Option<&'static str> {
+    if id > 255 {
+        return None;
+    }
+    match MANUFACTURER_ID_LIST.binary_search_by_key(&(id as u8), |(value, _)| *value) {
+        Ok(idx) => Some(MANUFACTURER_ID_LIST[idx].1),
+        Err(_) => None,
+    }
+}
+
 pub const INDUSTRY_GROUP_LIST: &[(u8, &str)] = &[
     (0, "Global, applies to all"),
     (1, "On-Highway Equipment"),

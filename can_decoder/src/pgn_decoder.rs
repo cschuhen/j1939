@@ -7,7 +7,9 @@ use std::sync::{Arc, Mutex as StdMutex};
 use serde::Deserialize;
 
 use crate::device_manager::DeviceManager;
-use crate::task_controller::{TaskControllerDecoder, PROCESS_DATA_PGN};
+use crate::pgn_decoders::iso11783::task_controller::{TaskControllerDecoder, PROCESS_DATA_PGN};
+use crate::pgn_decoders::j1939::address_claim::{AddressClaimDecoder};
+use crate::pgn_decoders::j1939::request_decoder::{RequestDecoder, REQUEST_PGN};
 use crate::tp_reassembler::{TpReassembler, TpReassemblyResult};
 use crate::traits::{ComplexDecoder, Decoder};
 use crate::DetailLevel;
@@ -334,6 +336,10 @@ impl J1939Decoder {
             decoder.register_complex_decoder(PROCESS_DATA_PGN, Box::new(TaskControllerDecoder::with_proprietary_handlers(proprietary_handlers)));
         }
 
+        decoder.register_complex_decoder(iso11783_data::constants::pgn::ADDRESS_CLAIMED, Box::new(AddressClaimDecoder::new()));
+
+        decoder.register_complex_decoder(REQUEST_PGN, Box::new(RequestDecoder::new()));
+
         decoder
     }
 
@@ -366,6 +372,10 @@ impl J1939Decoder {
         };
 
         decoder.register_complex_decoder(PROCESS_DATA_PGN, Box::new(TaskControllerDecoder::new()));
+
+        decoder.register_complex_decoder(iso11783_data::constants::pgn::ADDRESS_CLAIMED, Box::new(AddressClaimDecoder::new()));
+
+        decoder.register_complex_decoder(REQUEST_PGN, Box::new(RequestDecoder::new()));
 
         decoder
     }
@@ -429,6 +439,14 @@ impl J1939Decoder {
             };
         }
 
+
+        let pgn_title: String = {
+            let title = iso11783_data::strings::pgn::lookup(pgn_key);
+            match title {
+                None => Self::make_title_from_pgn(pgn_key),
+                Some(t) => t.to_string(),
+            }
+        };
         // No definition found - emit raw hex as info message
         DecodedMessage {
             assembled_message: msg.clone(),
@@ -436,9 +454,8 @@ impl J1939Decoder {
             outputs: vec![DecodedField::StringMessage {
                 severity: Severity::Info,
                 text: format!(
-                    "Unrecognized PGN={:#06X} source={:#04X}: {} bytes",
-                    pgn_key,
-                    msg.source(),
+                    "No decoding for '{}', {} bytes",
+                    pgn_title,
                     msg.data.len()
                 ),
             }],
@@ -447,7 +464,7 @@ impl J1939Decoder {
     }
 
     fn make_title_from_pgn(pgn: u32) -> String {
-        format!("PGN {:X}", pgn)
+        format!("PGN 0x{:X}", pgn)
     }
 
     /// Decode an assembled message with device name enrichment from DeviceManager.
@@ -1212,7 +1229,10 @@ pgns:
         assert!(!msg.outputs.is_empty());
 
         match &msg.outputs[0] {
-            DecodedField::StringMessage { text, .. } => assert!(text.contains("Unrecognized PGN")),
+            DecodedField::StringMessage { text, .. } => {
+                println!("text: {}", text);
+                assert!(text.contains("No decoding for 'PGN 0x1BEEF'"));
+            }
             _ => panic!("Expected StringMessage for unrecognized PGN"),
         }
     }
@@ -1271,7 +1291,7 @@ pgns:
         match &msg.outputs[0] {
             DecodedField::StringMessage { text, .. } => {
                 println!("text: {}", text);
-                assert!(text.contains("PGN=0x1200"));
+                assert!(text.contains("High Voltage Energy Storage Pack 14 Control 1"));
             }
             _ => panic!("Expected StringMessage"),
         }
@@ -1292,7 +1312,7 @@ pgns:
         match &msg.outputs[0] {
             DecodedField::StringMessage { text, .. } => {
                 println!("text: {}", text);
-                assert!(text.contains("PGN=0xF034"));
+                assert!(text.contains("Aftertreatment 2 SCR Ammonia Information 2"));
             }
             _ => panic!("Expected StringMessage"),
         }
@@ -1825,14 +1845,14 @@ pgns:
         let msg_c = decoder.decode_assembled(&assembled_c);
         assert_eq!(msg_c.outputs[0], DecodedField::StringMessage {
             severity: Severity::Info,
-            text: "Unrecognized PGN=0x3333 source=0x50: 1 bytes".to_string(),
+            text: "No decoding for 'PGN 0x3333', 1 bytes".to_string(),
         });
     }
 
     #[test]
     fn test_complex_decoder_registry_count() {
         let mut decoder = J1939Decoder::new(false, 1000, false);
-        assert_eq!(decoder.complex_decoder_count(), 1);
+        assert_eq!(decoder.complex_decoder_count(), 3);
 
         decoder.register_complex_decoder(
             0xAAAA,
@@ -1846,7 +1866,7 @@ pgns:
                 call_count: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             }),
         );
-        assert_eq!(decoder.complex_decoder_count(), 2);
+        assert_eq!(decoder.complex_decoder_count(), 4);
 
         decoder.register_complex_decoder(
             0xBBBB,
@@ -1860,7 +1880,7 @@ pgns:
                 call_count: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             }),
         );
-        assert_eq!(decoder.complex_decoder_count(), 3);
+        assert_eq!(decoder.complex_decoder_count(), 5);
     }
 
     #[test]
@@ -1906,12 +1926,12 @@ pgns:
     #[test]
     fn test_taskcontroller_decoder_registered_by_default() {
         let decoder = J1939Decoder::new(false, 1000, false);
-        assert_eq!(decoder.complex_decoder_count(), 1);
+        assert_eq!(decoder.complex_decoder_count(), 3);
     }
 
     #[test]
     fn test_pgn_51968_decoded_by_taskcontroller() {
-        use crate::task_controller::PROCESS_DATA_PGN;
+        use crate::pgn_decoders::iso11783::task_controller::PROCESS_DATA_PGN;
 
         let mut decoder = J1939Decoder::new(false, 1000, false);
 
@@ -1968,7 +1988,7 @@ pgns:
 
     #[test]
     fn test_pgn_51968_all_elements_round_robin() {
-        use crate::task_controller::PROCESS_DATA_PGN;
+        use crate::pgn_decoders::iso11783::task_controller::PROCESS_DATA_PGN;
 
         let mut decoder = J1939Decoder::new(false, 1000, false);
 
