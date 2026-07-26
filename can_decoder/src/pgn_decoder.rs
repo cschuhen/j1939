@@ -717,9 +717,7 @@ impl J1939Decoder {
         }
 
         // Multi-frame TP - feed to reassembler
-        let results = self.reassembler.process_frame(&frame);
-
-        for result in results {
+        if let Some(result) = self.reassembler.process_frame(&frame) {
             match result {
                 TpReassemblyResult::Complete(assembled) => {
                     // Task 2: Always pass assembled TP messages to PGN decoder, independent of detail level

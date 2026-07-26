@@ -189,13 +189,12 @@ impl TpReassembler {
     }
 
     /// Process a single RawFrame and return reassembly results.
-    pub fn process_frame(&mut self, frame: &RawFrame) -> Vec<TpReassemblyResult> {
+    pub fn process_frame(&mut self, frame: &RawFrame) -> Option<TpReassemblyResult> {
         self.cleanup_expired(frame.timestamp / 1000);
-        let results = self.process_frame_internal(frame);
-        results
+        self.process_frame_internal(frame)
     }
 
-    fn process_frame_internal(&mut self, frame: &RawFrame) -> Vec<TpReassemblyResult> {
+    fn process_frame_internal(&mut self, frame: &RawFrame) -> Option<TpReassemblyResult> {
         let msg_type = self.detect_message_type(frame);
 
         match msg_type {
@@ -204,7 +203,7 @@ impl TpReassembler {
             TpMessageType::NotTp => {
                 let assembled =
                     AssembledMessage::with_pgn(frame.can_id, frame.pgn(), frame.data.clone());
-                vec![TpReassemblyResult::SingleFrame(assembled)]
+                Some(TpReassemblyResult::SingleFrame(assembled))
             }
         }
     }
@@ -223,10 +222,10 @@ impl TpReassembler {
         TpMessageType::NotTp
     }
 
-    fn handle_connection_management(&mut self, frame: &RawFrame) -> Vec<TpReassemblyResult> {
+    fn handle_connection_management(&mut self, frame: &RawFrame) -> Option<TpReassemblyResult> {
         let data = &frame.data;
         if data.is_empty() {
-            return vec![];
+            return None;
         }
 
         let control_byte = data[0];
@@ -245,14 +244,14 @@ impl TpReassembler {
                         frame.source_address()
                     );
                 }
-                vec![]
+                None
             }
         }
     }
 
-    fn handle_rts(&mut self, frame: &RawFrame, data: &[u8]) -> Vec<TpReassemblyResult> {
+    fn handle_rts(&mut self, frame: &RawFrame, data: &[u8]) -> Option<TpReassemblyResult> {
         if data.len() < 5 {
-            return vec![];
+            return None;
         }
 
         // RTS format (J1939): [control=0x10, total_size(LE 2B), num_packets, max_burst, dest_addr, PGN(LE 3B)]
@@ -264,7 +263,7 @@ impl TpReassembler {
 
         // Only accept RTS from a new transmitter (avoid re-RTS confusion)
         if self.rts_pending_sources.contains(&transmitter) {
-            return vec![];
+            return None;
         }
 
         let key = (transmitter, frame.destination_address());
@@ -298,12 +297,12 @@ impl TpReassembler {
             );
         }
 
-        vec![]
+        None
     }
 
-    fn handle_bam_cm(&mut self, frame: &RawFrame, data: &[u8]) -> Vec<TpReassemblyResult> {
+    fn handle_bam_cm(&mut self, frame: &RawFrame, data: &[u8]) -> Option<TpReassemblyResult> {
         if data.len() < 5 {
-            return vec![];
+            return None;
         }
 
         // BAM format (J1939): [control=0x20, total_size(LE), num_packets, reserved(0xFF), PGN(LE)]
@@ -344,12 +343,12 @@ impl TpReassembler {
             },
         );
 
-        vec![]
+        None
     }
 
-    fn handle_cts(&mut self, frame: &RawFrame, data: &[u8]) -> Vec<TpReassemblyResult> {
+    fn handle_cts(&mut self, frame: &RawFrame, data: &[u8]) -> Option<TpReassemblyResult> {
         if data.len() < 4 {
-            return vec![];
+            return None;
         }
 
         let transmitter = frame.source_address();
@@ -380,10 +379,10 @@ impl TpReassembler {
             }
         }
 
-        vec![]
+        None
     }
 
-    fn handle_eom(&mut self, frame: &RawFrame, _data: &[u8]) -> Vec<TpReassemblyResult> {
+    fn handle_eom(&mut self, frame: &RawFrame, _data: &[u8]) -> Option<TpReassemblyResult> {
         let transmitter = frame.source_address();
         let receiver = frame.destination_address();
 
@@ -398,10 +397,10 @@ impl TpReassembler {
             }
         }
 
-        vec![]
+        None
     }
 
-    fn handle_abort(&mut self, frame: &RawFrame, _data: &[u8]) -> Vec<TpReassemblyResult> {
+    fn handle_abort(&mut self, frame: &RawFrame, _data: &[u8]) -> Option<TpReassemblyResult> {
         let transmitter = frame.source_address();
         let receiver = frame.destination_address();
 
@@ -421,10 +420,10 @@ impl TpReassembler {
         self.rts_pending_sources.remove(&transmitter);
         self.rts_pending_sources.remove(&receiver);
 
-        vec![]
+        None
     }
 
-    fn handle_data_packet(&mut self, frame: &RawFrame) -> Vec<TpReassemblyResult> {
+    fn handle_data_packet(&mut self, frame: &RawFrame) -> Option<TpReassemblyResult> {
         let data = &frame.data;
 
         if data.len() < 2 {
@@ -436,7 +435,7 @@ impl TpReassembler {
                     frame.destination_address()
                 );
             }
-            return vec![];
+            return None;
         }
 
         let packet_num = data[0];
@@ -448,7 +447,7 @@ impl TpReassembler {
                     frame.destination_address()
                 );
             }
-            return vec![];
+            return None;
         }
 
         let payload = data[1..].to_vec();
@@ -461,7 +460,7 @@ impl TpReassembler {
                     frame.destination_address()
                 );
             }
-            return vec![];
+            return None;
         }
 
         let source_address = frame.source_address();
@@ -493,7 +492,7 @@ impl TpReassembler {
                     source_address, dest_from_frame
                 );
             }
-            return vec![];
+            return None;
         };
 
         // Check for duplicate packet number
@@ -508,7 +507,7 @@ impl TpReassembler {
                     packet_num, assembly.pgn, source_address, assembly.destination_address
                 );
             }
-            return vec![];
+            return None;
         }
 
         // Check if out of order (packet number less than next expected)
@@ -520,7 +519,7 @@ impl TpReassembler {
                     packet_num, next_expected, assembly.pgn, source_address
                 );
             }
-            return vec![];
+            return None;
         }
 
         // Check if packet number exceeds total expected packets
@@ -532,7 +531,7 @@ impl TpReassembler {
                     packet_num, max_packets, assembly.pgn, source_address
                 );
             }
-            return vec![];
+            return None;
         }
 
         // Update assembly state
@@ -578,11 +577,11 @@ impl TpReassembler {
             };
 
             self.assemblies.remove(&key);
-            return vec![TpReassemblyResult::Complete(assembled)];
+            Some(TpReassemblyResult::Complete(assembled))
         } else {
             // Still waiting for more packets
             self.assemblies.insert(key, updated);
-            return vec![TpReassemblyResult::Pending];
+            Some(TpReassemblyResult::Pending)
         }
     }
 
@@ -680,10 +679,10 @@ mod tests {
         ];
         let frame = make_frame(can_id, &bam_data);
 
-        let results = reassembler.process_frame(&frame);
+        let result = reassembler.process_frame(&frame);
 
         // BAM itself does not return assembled data - it sets up state for DT packets
-        assert!(results.is_empty());
+        assert!(result.is_none());
 
         // Verify assembly state was created
         assert!(reassembler.assemblies.contains_key(&(source, dest)));
@@ -700,8 +699,8 @@ mod tests {
         let can_id = (7u32 << 26) | ((0xEC as u32) << 16) | ((0xFF as u32) << 8) | 0xF8;
         let frame = make_frame(can_id, &[0x20]);
 
-        let results = reassembler.process_frame(&frame);
-        assert!(results.is_empty());
+        let result = reassembler.process_frame(&frame);
+        assert!(result.is_none());
     }
 
     #[test]
@@ -727,20 +726,15 @@ mod tests {
 
         // Packet 1: sequence=1, 7 bytes of data
         let packet1_data = [0x01, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47];
-        let results1 = reassembler.process_frame(&make_frame(dt_can_id, &packet1_data));
-        assert_eq!(results1.len(), 1); // Pending result
-        match &results1[0] {
-            TpReassemblyResult::Pending => {}
-            other => panic!("Expected Pending, got {:?}", other),
-        }
+        let result1 = reassembler.process_frame(&make_frame(dt_can_id, &packet1_data));
+        assert!(matches!(result1, Some(TpReassemblyResult::Pending)));
 
         // Packet 2: sequence=2, 7 bytes of data (completes the transfer)
         let packet2_data = [0x02, 0x48, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E];
-        let results2 = reassembler.process_frame(&make_frame(dt_can_id, &packet2_data));
+        let result2 = reassembler.process_frame(&make_frame(dt_can_id, &packet2_data));
 
-        assert_eq!(results2.len(), 1);
-        match &results2[0] {
-            TpReassemblyResult::Complete(msg) => {
+        match result2 {
+            Some(TpReassemblyResult::Complete(msg)) => {
                 assert_eq!(msg.pgn(), 0x1000);
                 assert_eq!(msg.source(), source);
                 assert_eq!(msg.destination(), dest);
@@ -773,8 +767,7 @@ mod tests {
         let _ = dest; // Keep dest in scope to avoid warning
         let frame = make_frame(can_id, &[0x01, 0x41, 0x42]);
 
-        let results = reassembler.process_frame(&frame);
-        assert!(results.is_empty());
+        assert!(reassembler.process_frame(&frame).is_none());
     }
 
     #[test]
@@ -787,8 +780,7 @@ mod tests {
         let can_id = (7u32 << 26) | ((0xEB as u32) << 16) | ((dest as u32) << 8) | source as u32;
         let frame = make_frame(can_id, &[0x00, 0x41]);
 
-        let results = reassembler.process_frame(&frame);
-        assert!(results.is_empty());
+        assert!(reassembler.process_frame(&frame).is_none());
     }
 
     #[test]
@@ -801,8 +793,7 @@ mod tests {
         let can_id = (7u32 << 26) | ((0xEB as u32) << 16) | ((dest as u32) << 8) | source as u32;
         let frame = make_frame(can_id, &[0x01]);
 
-        let results = reassembler.process_frame(&frame);
-        assert!(results.is_empty());
+        assert!(reassembler.process_frame(&frame).is_none());
     }
 
     #[test]
@@ -818,8 +809,7 @@ mod tests {
             &[0x01, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48],
         );
 
-        let results = reassembler.process_frame(&frame);
-        assert!(results.is_empty());
+        assert!(reassembler.process_frame(&frame).is_none());
     }
 
     // ========================================================================
@@ -858,11 +848,8 @@ mod tests {
             (7u32 << 26) | ((0xEB as u32) << 16) | ((receiver as u32) << 8) | transmitter as u32;
         let frame = make_frame(dt_can_id, &[0x01, 0x10, 0x20, 0x30, 0x40, 0x50]);
 
-        let results = reassembler.process_frame(&frame);
-
-        assert_eq!(results.len(), 1);
-        match &results[0] {
-            TpReassemblyResult::Complete(msg) => {
+        match reassembler.process_frame(&frame) {
+            Some(TpReassemblyResult::Complete(msg)) => {
                 assert_eq!(msg.pgn(), pgn_val);
                 assert_eq!(msg.source(), transmitter);
                 assert_eq!(msg.destination(), receiver);
@@ -900,31 +887,21 @@ mod tests {
             },
         );
 
-        let mut results = Vec::new();
-
         let frame1 = make_frame(
             can_id_base,
             &[0x01, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x01],
         );
-        results.extend(reassembler.process_frame(&frame1));
+        assert!(matches!(reassembler.process_frame(&frame1), Some(TpReassemblyResult::Pending)));
 
         let frame2 = make_frame(
             can_id_base,
             &[0x02, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77],
         );
-        results.extend(reassembler.process_frame(&frame2));
+        assert!(matches!(reassembler.process_frame(&frame2), Some(TpReassemblyResult::Pending)));
 
         let frame3 = make_frame(can_id_base, &[0x03, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC]);
-        results.extend(reassembler.process_frame(&frame3));
-
-        let complete_results: Vec<_> = results
-            .iter()
-            .filter(|r| matches!(r, TpReassemblyResult::Complete(_)))
-            .collect();
-
-        assert_eq!(complete_results.len(), 1);
-        match &complete_results[0] {
-            TpReassemblyResult::Complete(msg) => {
+        match reassembler.process_frame(&frame3) {
+            Some(TpReassemblyResult::Complete(msg)) => {
                 assert_eq!(msg.pgn(), pgn_val);
                 assert_eq!(msg.source(), source);
                 assert_eq!(msg.data.len(), 20);
@@ -973,13 +950,8 @@ mod tests {
             can_id_base,
             &[0x01, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x01],
         );
-        let results = reassembler.process_frame(&frame1);
 
-        assert_eq!(results.len(), 1);
-        match &results[0] {
-            TpReassemblyResult::Pending => {}
-            other => panic!("Expected Pending, got {:?}", other),
-        }
+        assert!(matches!(reassembler.process_frame(&frame1), Some(TpReassemblyResult::Pending)));
 
         assert!(reassembler.assemblies.contains_key(&key));
     }
@@ -1014,13 +986,8 @@ mod tests {
             can_id_base,
             &[0x01, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x01],
         );
-        let results = reassembler.process_frame(&frame);
 
-        assert_eq!(results.len(), 1);
-        match &results[0] {
-            TpReassemblyResult::Pending => {}
-            _other => panic!("Expected Pending for incomplete assembly"),
-        }
+        assert!(matches!(reassembler.process_frame(&frame), Some(TpReassemblyResult::Pending)));
     }
 
     // ========================================================================
@@ -1197,9 +1164,7 @@ mod tests {
             can_id_base,
             &[0x01, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22],
         );
-        let results = reassembler.process_frame(&frame);
-
-        assert!(results.is_empty());
+        assert!(reassembler.process_frame(&frame).is_none());
 
         let assembly = reassembler.assemblies.get(&(source, dest)).unwrap();
         assert_eq!(assembly.packets_received.len(), 1);
@@ -1236,9 +1201,7 @@ mod tests {
             can_id_base,
             &[0x02, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22, 0x33],
         );
-        let results = reassembler.process_frame(&frame);
-
-        assert!(results.is_empty());
+        assert!(reassembler.process_frame(&frame).is_none());
     }
 
     // ========================================================================
@@ -1275,11 +1238,8 @@ mod tests {
             can_id_base,
             &[0x01, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x01],
         );
-        let results = reassembler.process_frame(&frame);
-
-        assert_eq!(results.len(), 1);
-        match &results[0] {
-            TpReassemblyResult::Complete(msg) => {
+        match reassembler.process_frame(&frame) {
+            Some(TpReassemblyResult::Complete(msg)) => {
                 assert_eq!(msg.data.len(), 5);
                 assert_eq!(msg.data, vec![0xAA, 0xBB, 0xCC, 0xDD, 0xEE]);
             }
@@ -1433,10 +1393,7 @@ mod tests {
         ];
         let frame = make_frame(can_id, &bam_data);
 
-        let results = reassembler.process_frame(&frame);
-
-        // BAM sets up state but doesn't return data directly
-        assert!(results.is_empty());
+        assert!(reassembler.process_frame(&frame).is_none());
 
         // Verify the assembly state preserves PGN and size correctly
         let state = reassembler.assemblies.get(&(source, dest)).unwrap();
@@ -1474,11 +1431,8 @@ mod tests {
             can_id_base,
             &[0x01, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x01],
         );
-        let results = reassembler.process_frame(&frame);
-
-        assert_eq!(results.len(), 1);
-        match &results[0] {
-            TpReassemblyResult::Complete(msg) => {
+        match reassembler.process_frame(&frame) {
+            Some(TpReassemblyResult::Complete(msg)) => {
                 assert_eq!(msg.timestamp, 1_000_000);
             }
             _ => panic!("Expected Complete result"),
@@ -1511,22 +1465,20 @@ mod tests {
             },
         );
 
-        let mut results = Vec::new();
+        let mut complete_count = 0;
 
         for (i, payload_byte) in [b'A', b'B', b'C', b'D'].iter().enumerate() {
             let frame_data: Vec<u8> = std::iter::once((i + 1) as u8)
                 .chain(std::iter::repeat(*payload_byte).take(7))
                 .collect();
 
-            results.extend(reassembler.process_frame(&make_frame(can_id_base, &frame_data)));
+            match reassembler.process_frame(&make_frame(can_id_base, &frame_data)) {
+                Some(TpReassemblyResult::Complete(_)) => complete_count += 1,
+                _ => {}
+            }
         }
 
-        let complete: Vec<_> = results
-            .iter()
-            .filter(|r| matches!(r, TpReassemblyResult::Complete(_)))
-            .collect();
-
-        assert_eq!(complete.len(), 1);
+        assert_eq!(complete_count, 1);
     }
 
     #[test]
@@ -1626,11 +1578,8 @@ mod tests {
             can_id_base,
             &[0x01, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x01],
         );
-        let results = reassembler.process_frame(&frame);
-
-        assert_eq!(results.len(), 1);
-        match &results[0] {
-            TpReassemblyResult::Complete(msg) => {
+        match reassembler.process_frame(&frame) {
+            Some(TpReassemblyResult::Complete(msg)) => {
                 assert_eq!(msg.data.len(), 7);
                 assert_eq!(msg.data, vec![0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x01]);
             }
@@ -1664,7 +1613,7 @@ mod tests {
             },
         );
 
-        let mut results = Vec::new();
+        let mut complete_count = 0;
 
         for i in 1..=8 {
             let payload_start = (i - 1) as u8 * 7;
@@ -1677,15 +1626,13 @@ mod tests {
                 data.push(0x00);
             }
 
-            results.extend(reassembler.process_frame(&make_frame(can_id_base, &data)));
+            match reassembler.process_frame(&make_frame(can_id_base, &data)) {
+                Some(TpReassemblyResult::Complete(_)) => complete_count += 1,
+                _ => {}
+            }
         }
 
-        let complete: Vec<_> = results
-            .iter()
-            .filter(|r| matches!(r, TpReassemblyResult::Complete(_)))
-            .collect();
-
-        assert_eq!(complete.len(), 1);
+        assert_eq!(complete_count, 1);
     }
 
     // ========================================================================
@@ -1701,18 +1648,15 @@ mod tests {
             0x18ECFF22,
             &[0x20, 0x0F, 0x00, 0x03, 0xFF, 0x80, 0xFF, 0x00],
         );
-        let results = reassembler.process_frame(&bam_cm);
-        assert!(results.is_empty());
+        assert!(reassembler.process_frame(&bam_cm).is_none());
 
         // Frame 2: DT pkt 1 with can_id=0x18EBFF22, data=[01 41 42 43 44 45 46 47]
         let dt1 = make_frame(
             0x18EBFF22,
             &[0x01, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47],
         );
-        let results = reassembler.process_frame(&dt1);
-        assert_eq!(results.len(), 1);
-        match &results[0] {
-            TpReassemblyResult::Pending => {}
+        match reassembler.process_frame(&dt1) {
+            Some(TpReassemblyResult::Pending) => {}
             other => panic!("Expected Pending for DT pkt 1, got {:?}", other),
         }
 
@@ -1721,10 +1665,8 @@ mod tests {
             0x18EBFF22,
             &[0x02, 0x47, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E],
         );
-        let results = reassembler.process_frame(&dt2);
-        assert_eq!(results.len(), 1);
-        match &results[0] {
-            TpReassemblyResult::Pending => {}
+        match reassembler.process_frame(&dt2) {
+            Some(TpReassemblyResult::Pending) => {}
             other => panic!("Expected Pending for DT pkt 2, got {:?}", other),
         }
 
@@ -1733,12 +1675,10 @@ mod tests {
             0x18EBFF22,
             &[0x03, 0x4F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF],
         );
-        let results = reassembler.process_frame(&dt3);
-        assert_eq!(results.len(), 1);
 
         // Verify: TpReassemblyResult::Complete is returned on frame 4
-        match &results[0] {
-            TpReassemblyResult::Complete(msg) => {
+        match reassembler.process_frame(&dt3) {
+            Some(TpReassemblyResult::Complete(msg)) => {
                 // Verify assembled data = [41 42 43 44 45 46 47 47 49 4A 4B 4C 4D 4E 4F] (15 bytes)
                 assert_eq!(msg.data.len(), 15);
                 assert_eq!(
@@ -1772,14 +1712,11 @@ mod tests {
             0x18EBFF22,
             &[0x02, 0x47, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E],
         ));
-        let results = reassembler.process_frame(&make_frame(
+        match reassembler.process_frame(&make_frame(
             0x18EBFF22,
             &[0x03, 0x4F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF],
-        ));
-
-        // Reference shows: 41 42 43 44 45 46 47 47 49 4A 4B 4C 4D 4E 4F
-        match &results[0] {
-            TpReassemblyResult::Complete(msg) => {
+        )) {
+            Some(TpReassemblyResult::Complete(msg)) => {
                 let expected = vec![
                     0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x47, 0x49, 0x4A, 0x4B, 0x4C, 0x4D,
                     0x4E, 0x4F,
@@ -1807,15 +1744,11 @@ mod tests {
             0x18EBFF22,
             &[0x02, 0x47, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E],
         ));
-        let results = reassembler.process_frame(&make_frame(
+        match reassembler.process_frame(&make_frame(
             0x18EBFF22,
             &[0x03, 0x4F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF],
-        ));
-
-        // Verify the assembled message's CAN ID is correctly constructed as PDU2 format
-        // Expected can_id = (6<<26) | (0xFF80<<8) | 0x22 = 0x18FF8022
-        match &results[0] {
-            TpReassemblyResult::Complete(msg) => {
+        )) {
+            Some(TpReassemblyResult::Complete(msg)) => {
                 let expected_can_id = (6u32 << 26) | (0xFF80u32 << 8) | 0x22;
                 assert_eq!(msg.id, expected_can_id);
                 // Verify source and destination from assembled message
@@ -1834,12 +1767,11 @@ mod tests {
             0x18ECFF22,
             &[0x20, 0x07, 0x00, 0x01, 0xFF, 0x10, 0x00, 0x00],
         ));
-        let results = reassembler.process_frame(&make_frame(
+        match reassembler.process_frame(&make_frame(
             0x18EBFF22,
             &[0x01, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47],
-        ));
-        match &results[0] {
-            TpReassemblyResult::Complete(msg) => assert_eq!(msg.data.len(), 7),
+        )) {
+            Some(TpReassemblyResult::Complete(msg)) => assert_eq!(msg.data.len(), 7),
             other => panic!("Expected Complete for single-packet BAM, got {:?}", other),
         }
 
@@ -1853,12 +1785,11 @@ mod tests {
             0x18EBFF22,
             &[0x01, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47],
         ));
-        let results = reassembler.process_frame(&make_frame(
+        match reassembler.process_frame(&make_frame(
             0x18EBFF22,
             &[0x02, 0x48, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E],
-        ));
-        match &results[0] {
-            TpReassemblyResult::Complete(msg) => assert_eq!(msg.data.len(), 14),
+        )) {
+            Some(TpReassemblyResult::Complete(msg)) => assert_eq!(msg.data.len(), 14),
             other => panic!("Expected Complete for two-packet BAM, got {:?}", other),
         }
 
@@ -1876,12 +1807,11 @@ mod tests {
             0x18EBFF22,
             &[0x02, 0x48, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E],
         ));
-        let results = reassembler.process_frame(&make_frame(
+        match reassembler.process_frame(&make_frame(
             0x18EBFF22,
             &[0x03, 0x4F, 0x50, 0x51, 0x52, 0x53, 0x54, 0x55],
-        ));
-        match &results[0] {
-            TpReassemblyResult::Complete(msg) => assert_eq!(msg.data.len(), 21),
+        )) {
+            Some(TpReassemblyResult::Complete(msg)) => assert_eq!(msg.data.len(), 21),
             other => panic!("Expected Complete for three-packet BAM, got {:?}", other),
         }
     }
@@ -1899,26 +1829,22 @@ mod tests {
             0x18ECEB26,
             &[0x10, 0x24, 0x00, 0x06, 0xFF, 0x00, 0xE6, 0x00],
         );
-        let results = reassembler.process_frame(&rts);
-        assert!(results.is_empty());
+        assert!(reassembler.process_frame(&rts).is_none());
 
         // Frame 2: CTS CM with can_id=0x18EC26EB, data=[11 06 01 FF FF 00 E6 00]
         let cts = make_frame(
             0x18EC26EB,
             &[0x11, 0x06, 0x01, 0xFF, 0xFF, 0x00, 0xE6, 0x00],
         );
-        let results = reassembler.process_frame(&cts);
-        assert!(results.is_empty());
+        assert!(reassembler.process_frame(&cts).is_none());
 
         // Frames 3-8: DT packets (can_id=0x18EBEB26) with sequence numbers 1-6
         let dt1 = make_frame(
             0x18EBEB26,
             &[0x01, 0x08, 0x8A, 0x07, 0x20, 0x41, 0x42, 0x43],
         );
-        let results = reassembler.process_frame(&dt1);
-        assert_eq!(results.len(), 1);
-        match &results[0] {
-            TpReassemblyResult::Pending => {}
+        match reassembler.process_frame(&dt1) {
+            Some(TpReassemblyResult::Pending) => {}
             _ => panic!("Expected Pending"),
         }
 
@@ -1926,10 +1852,8 @@ mod tests {
             0x18EBEB26,
             &[0x02, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4A],
         );
-        let results = reassembler.process_frame(&dt2);
-        assert_eq!(results.len(), 1);
-        match &results[0] {
-            TpReassemblyResult::Pending => {}
+        match reassembler.process_frame(&dt2) {
+            Some(TpReassemblyResult::Pending) => {}
             _ => panic!("Expected Pending"),
         }
 
@@ -1937,10 +1861,8 @@ mod tests {
             0x18EBEB26,
             &[0x03, 0x4B, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20],
         );
-        let results = reassembler.process_frame(&dt3);
-        assert_eq!(results.len(), 1);
-        match &results[0] {
-            TpReassemblyResult::Pending => {}
+        match reassembler.process_frame(&dt3) {
+            Some(TpReassemblyResult::Pending) => {}
             _ => panic!("Expected Pending"),
         }
 
@@ -1948,10 +1870,8 @@ mod tests {
             0x18EBEB26,
             &[0x04, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20],
         );
-        let results = reassembler.process_frame(&dt4);
-        assert_eq!(results.len(), 1);
-        match &results[0] {
-            TpReassemblyResult::Pending => {}
+        match reassembler.process_frame(&dt4) {
+            Some(TpReassemblyResult::Pending) => {}
             _ => panic!("Expected Pending"),
         }
 
@@ -1959,10 +1879,8 @@ mod tests {
             0x18EBEB26,
             &[0x05, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20],
         );
-        let results = reassembler.process_frame(&dt5);
-        assert_eq!(results.len(), 1);
-        match &results[0] {
-            TpReassemblyResult::Pending => {}
+        match reassembler.process_frame(&dt5) {
+            Some(TpReassemblyResult::Pending) => {}
             _ => panic!("Expected Pending"),
         }
 
@@ -1971,12 +1889,10 @@ mod tests {
             0x18EBEB26,
             &[0x06, 0x20, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF],
         );
-        let results = reassembler.process_frame(&dt6);
-        assert_eq!(results.len(), 1);
 
         // Verify: TpReassemblyResult::Complete is returned on frame 8 (last DT)
-        match &results[0] {
-            TpReassemblyResult::Complete(msg) => {
+        match reassembler.process_frame(&dt6) {
+            Some(TpReassemblyResult::Complete(msg)) => {
                 // Verify assembled data = [08 8A 07 20 41 42 43 44 45 46 47 48 49 4A 4B 20 ...] truncated to 36 bytes
                 assert_eq!(msg.data.len(), 36);
                 // Verify PGN = 0xE600, source = 0x26, dest = 0xEB
@@ -1990,8 +1906,7 @@ mod tests {
             0x18EC26EB,
             &[0x13, 0x24, 0x00, 0x06, 0xFF, 0x00, 0xE6, 0x00],
         );
-        let results = reassembler.process_frame(&eom);
-        assert!(results.is_empty());
+        assert!(reassembler.process_frame(&eom).is_none());
     }
 
     #[test]
@@ -2027,14 +1942,11 @@ mod tests {
             0x18EBEB26,
             &[0x05, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20],
         ));
-        let results = reassembler.process_frame(&make_frame(
+        match reassembler.process_frame(&make_frame(
             0x18EBEB26,
             &[0x06, 0x20, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF],
-        ));
-
-        // Reference shows final frame data starting with: 08 8a 07 20 41 42 43 44 45 46 47 48 49 4A 4B 20
-        match &results[0] {
-            TpReassemblyResult::Complete(msg) => {
+        )) {
+            Some(TpReassemblyResult::Complete(msg)) => {
                 let expected_start = vec![
                     0x08, 0x8A, 0x07, 0x20, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49,
                     0x4A, 0x4B, 0x20,
@@ -2079,18 +1991,11 @@ mod tests {
             0x18EBEB26,
             &[0x05, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20],
         ));
-        let results = reassembler.process_frame(&make_frame(
+        match reassembler.process_frame(&make_frame(
             0x18EBEB26,
             &[0x06, 0x20, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF],
-        ));
-
-        // Verify the assembled message's CAN ID is correctly constructed as PDU1 format
-        // Expected can_id = (6<<26) | ((0xE600 & 0x3FF00) | 0xEB)<<8 | 0x26
-        // = (6<<26) | (0xE600>>8 & 0x3FF)<<16 | 0xEB<<8 | 0x26
-        // PGN=0xE600: pgn_high = (0xE600 >> 8) & 0x3FF = 0xE6
-        // can_id = (6<<26) | (0xE6<<16) | (0xEB<<8) | 0x26 = 0x18E6EB26
-        match &results[0] {
-            TpReassemblyResult::Complete(msg) => {
+        )) {
+            Some(TpReassemblyResult::Complete(msg)) => {
                 let expected_can_id =
                     (6u32 << 26) | ((0xE600 >> 8) as u32 & 0x3FF) << 16 | (0xEB as u32) << 8 | 0x26;
                 assert_eq!(msg.id, expected_can_id);
@@ -2160,23 +2065,20 @@ mod tests {
             dt_can_id,
             &[0x01, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x01],
         ));
-        let results = reassembler.process_frame(&make_frame(
+        match reassembler.process_frame(&make_frame(
             dt_can_id,
             &[0x02, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77],
-        ));
-
-        match &results[0] {
-            TpReassemblyResult::Complete(_) => {}
+        )) {
+            Some(TpReassemblyResult::Complete(_)) => {}
             _other => panic!("Expected Complete"),
         }
 
         // EOM should be processed after assembly completes without interfering
         let eom_can_id = (7u32 << 26) | ((0xEC as u32) << 16) | ((0x20 as u32) << 8) | 0x21;
-        let results = reassembler.process_frame(&make_frame(
+        assert!(reassembler.process_frame(&make_frame(
             eom_can_id,
             &[0x13, 0x0A, 0x00, 0x02, 0xFF, 0x00, 0x10, 0x00],
-        ));
-        assert!(results.is_empty());
+        )).is_none());
 
         // Assembly should be cleaned up by EOM
         assert!(!reassembler.assemblies.contains_key(&(0x20, 0x21)));
@@ -2190,8 +2092,7 @@ mod tests {
         let dt_can_id = (7u32 << 26) | ((0xEB as u32) << 16) | ((0xFF as u32) << 8) | 0x20;
         let frame = make_frame(dt_can_id, &[0x01, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47]);
 
-        let results = reassembler.process_frame(&frame);
-        assert!(results.is_empty());
+        assert!(reassembler.process_frame(&frame).is_none());
     }
 
     #[test]
@@ -2244,13 +2145,11 @@ mod tests {
             0x18EBFF22,
             &[0x02, 0x47, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E],
         ));
-        let results = reassembler.process_frame(&make_frame(
+        match reassembler.process_frame(&make_frame(
             0x18EBFF22,
             &[0x03, 0x4F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF],
-        ));
-
-        match &results[0] {
-            TpReassemblyResult::Complete(msg) => {
+        )) {
+            Some(TpReassemblyResult::Complete(msg)) => {
                 assert_eq!(msg.source(), 0x22);
                 assert_eq!(msg.destination(), 0xFF);
                 assert_eq!(msg.pgn(), 0xFF80);
@@ -2292,13 +2191,11 @@ mod tests {
             0x18EBEB26,
             &[0x05, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20],
         ));
-        let results = reassembler.process_frame(&make_frame(
+        match reassembler.process_frame(&make_frame(
             0x18EBEB26,
             &[0x06, 0x20, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF],
-        ));
-
-        match &results[0] {
-            TpReassemblyResult::Complete(msg) => {
+        )) {
+            Some(TpReassemblyResult::Complete(msg)) => {
                 assert_eq!(msg.source(), 0x26);
                 assert_eq!(msg.destination(), 0xEB);
                 assert_eq!(msg.pgn(), 0xE600);
@@ -2328,13 +2225,11 @@ mod tests {
 
         // Single DT packet (7 bytes)
         let dt_can_id = (7u32 << 26) | ((0xEB as u32) << 16) | ((0x21 as u32) << 8) | 0x20;
-        let results = reassembler.process_frame(&make_frame(
+        match reassembler.process_frame(&make_frame(
             dt_can_id,
             &[0x01, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x01],
-        ));
-
-        match &results[0] {
-            TpReassemblyResult::Complete(msg) => {
+        )) {
+            Some(TpReassemblyResult::Complete(msg)) => {
                 assert_eq!(msg.data.len(), 7);
                 assert_eq!(msg.data, vec![0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x01]);
                 // PGN extracted from RTS payload bytes [50 00 00] = 0x50 = 80
@@ -2360,13 +2255,11 @@ mod tests {
         ));
 
         let dt_can_id = (7u32 << 26) | ((0xEB as u32) << 16) | ((0xFF as u32) << 8) | 0xF8;
-        let results = reassembler.process_frame(&make_frame(
+        match reassembler.process_frame(&make_frame(
             dt_can_id,
             &[0x01, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x01],
-        ));
-
-        match &results[0] {
-            TpReassemblyResult::Complete(msg) => {
+        )) {
+            Some(TpReassemblyResult::Complete(msg)) => {
                 assert_eq!(msg.data.len(), 7);
                 // PGN extracted from BAM payload bytes [40 00 00] = 0x40 = 64
                 assert_eq!(msg.pgn(), 0x40);
@@ -2388,9 +2281,7 @@ mod tests {
 
         // Abort instead of CTS
         let abort_can_id = (7u32 << 26) | ((0xEC as u32) << 16) | ((0x20 as u32) << 8) | 0x21;
-        let results = reassembler.process_frame(&make_frame(abort_can_id, &[0x1C, 0x00]));
-
-        assert!(results.is_empty());
+        assert!(reassembler.process_frame(&make_frame(abort_can_id, &[0x1C, 0x00])).is_none());
     }
 
     #[test]
@@ -2406,13 +2297,11 @@ mod tests {
         ));
 
         let dt_can_id = (7u32 << 26) | ((0xEB as u32) << 16) | ((0xFF as u32) << 8) | 0x10;
-        let results = reassembler.process_frame(&make_frame(
+        match reassembler.process_frame(&make_frame(
             dt_can_id,
             &[0x01, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x01],
-        ));
-
-        match &results[0] {
-            TpReassemblyResult::Complete(msg) => {
+        )) {
+            Some(TpReassemblyResult::Complete(msg)) => {
                 assert_eq!(msg.data.len(), 7);
                 assert_eq!(msg.pgn(), 0xF000);
             }
@@ -2433,13 +2322,11 @@ mod tests {
         ));
 
         let dt_can_id = (7u32 << 26) | ((0xEB as u32) << 16) | ((0xFF as u32) << 8) | 0x20;
-        let results = reassembler.process_frame(&make_frame(
+        match reassembler.process_frame(&make_frame(
             dt_can_id,
             &[0x01, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x01],
-        ));
-
-        match &results[0] {
-            TpReassemblyResult::Complete(msg) => {
+        )) {
+            Some(TpReassemblyResult::Complete(msg)) => {
                 assert_eq!(msg.data.len(), 7);
                 assert_eq!(msg.pgn(), 0xF5FF);
             }
@@ -2460,13 +2347,11 @@ mod tests {
         ));
 
         let dt_can_id = (7u32 << 26) | ((0xEB as u32) << 16) | ((0xFF as u32) << 8) | 0x30;
-        let results = reassembler.process_frame(&make_frame(
+        match reassembler.process_frame(&make_frame(
             dt_can_id,
             &[0x01, 0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0x01],
-        ));
-
-        match &results[0] {
-            TpReassemblyResult::Complete(msg) => {
+        )) {
+            Some(TpReassemblyResult::Complete(msg)) => {
                 assert_eq!(msg.data.len(), 7);
                 assert_eq!(msg.pgn(), 0xFDFF);
             }
@@ -2496,13 +2381,11 @@ mod tests {
 
         // DT packet (same CAN ID direction)
         let dt_can_id = (7u32 << 26) | ((0xEB as u32) << 16) | ((0x20 as u32) << 8) | 0x21;
-        let results = reassembler.process_frame(&make_frame(
+        match reassembler.process_frame(&make_frame(
             dt_can_id,
             &[0x01, 0xAB, 0xCD, 0xEF, 0x12, 0x34, 0x56, 0x01],
-        ));
-
-        match &results[0] {
-            TpReassemblyResult::Complete(msg) => {
+        )) {
+            Some(TpReassemblyResult::Complete(msg)) => {
                 assert_eq!(msg.data.len(), 7);
                 assert_eq!(msg.pgn(), 0xF800);
             }
@@ -2539,13 +2422,11 @@ mod tests {
 
         // DT packet 2 (same CAN ID direction)
         let dt_can_id = (7u32 << 26) | ((0xEB as u32) << 16) | ((0x40 as u32) << 8) | 0x30;
-        let results = reassembler.process_frame(&make_frame(
+        match reassembler.process_frame(&make_frame(
             dt_can_id,
             &[0x02, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x01],
-        ));
-
-        match &results[0] {
-            TpReassemblyResult::Complete(msg) => {
+        )) {
+            Some(TpReassemblyResult::Complete(msg)) => {
                 assert_eq!(msg.data.len(), 14);
                 assert_eq!(msg.pgn(), 0xF900);
                 assert_eq!(
@@ -2620,9 +2501,8 @@ mod tests {
                 0x01,
             ];
             if packet_num == 255 {
-                let results = reassembler.process_frame(&make_frame(dt_base_can_id, &data));
-                match &results[0] {
-                    TpReassemblyResult::Complete(msg) => {
+                match reassembler.process_frame(&make_frame(dt_base_can_id, &data)) {
+                    Some(TpReassemblyResult::Complete(msg)) => {
                         assert_eq!(msg.data.len(), 1785);
                         assert_eq!(msg.pgn(), 0xF000);
                         // Verify first few bytes
@@ -2675,9 +2555,8 @@ mod tests {
                 0x01,
             ];
             if packet_num == 143 {
-                let results = reassembler.process_frame(&make_frame(dt_base_can_id, &data));
-                match &results[0] {
-                    TpReassemblyResult::Complete(msg) => {
+                match reassembler.process_frame(&make_frame(dt_base_can_id, &data)) {
+                    Some(TpReassemblyResult::Complete(msg)) => {
                         assert_eq!(msg.data.len(), 1000);
                         assert_eq!(msg.pgn(), 0xF800);
                         // Verify first byte and last byte
@@ -2721,9 +2600,8 @@ mod tests {
                 0x01,
             ];
             if packet_num == 255 {
-                let results = reassembler.process_frame(&make_frame(dt_base_can_id, &data));
-                match &results[0] {
-                    TpReassemblyResult::Complete(msg) => {
+                match reassembler.process_frame(&make_frame(dt_base_can_id, &data)) {
+                    Some(TpReassemblyResult::Complete(msg)) => {
                         assert_eq!(msg.data.len(), 1785);
                         assert_eq!(msg.pgn(), 0xFF80);
                         // Verify first few bytes
