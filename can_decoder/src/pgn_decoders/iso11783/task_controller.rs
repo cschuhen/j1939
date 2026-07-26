@@ -1,6 +1,6 @@
 use crate::proprietary::ddi::canot;
 use crate::traits::ComplexDecoder;
-use crate::types::{DecodeContext, DecodeError, DecodedField, DecodedMessage, Numeric, Severity};
+use crate::types::{DecodeContext, DecodeError, DecodedField, DecodedInfo, Numeric, Severity};
 
 /// J1939 ISO-11783-10 Task Controller Process Data PGN (51968 / 0xCB00).
 pub const PROCESS_DATA_PGN: u32 = 0x00cb00;
@@ -129,13 +129,10 @@ impl TaskControllerDecoder {
     fn decode_value_command(
         data: &TaskControllerData,
         proprietary_handlers: &[ProprietaryHandler],
-    ) -> DecodedMessage {
+    ) -> DecodedInfo {
         let ddi_info = Self::resolve_ddi_info(data.ddi, proprietary_handlers);
 
-        let mut msg = DecodedMessage::with_assembled(
-            "TC Value".into(),
-            crate::types::AssembledMessage::new(0, vec![]),
-        );
+        let mut msg = DecodedInfo::new("TC Value".into());
 
         // Field 1: Element = element_id (no unit)
         msg.outputs.push(DecodedField::Value {
@@ -235,13 +232,10 @@ impl TaskControllerDecoder {
     }
 
     /// Decode an unrecognized command into a warning message.
-    fn decode_unknown_command(command: u8) -> DecodedMessage {
+    fn decode_unknown_command(command: u8) -> DecodedInfo {
         let title = format!("TaskController Unknown Command 0x{:X}", command);
 
-        DecodedMessage::with_assembled(
-            title.clone(),
-            crate::types::AssembledMessage::new(0, vec![]),
-        )
+        DecodedInfo::new(title.clone())
     }
 }
 
@@ -256,7 +250,7 @@ impl ComplexDecoder for TaskControllerDecoder {
         &mut self,
         _context: &DecodeContext,
         payload: &[u8],
-    ) -> Result<Option<DecodedMessage>, DecodeError> {
+    ) -> Result<Option<DecodedInfo>, DecodeError> {
         let data = Self::parse_payload(payload)?;
 
         match &data.command {

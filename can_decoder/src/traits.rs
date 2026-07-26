@@ -1,4 +1,4 @@
-use crate::types::{DecodeContext, DecodeError, DecodedMessage, RawFrame};
+use crate::types::{DecodeContext, DecodeError, DecodedInfo, DecodedMessage, RawFrame};
 use std::error::Error;
 use std::future::Future;
 use std::pin::Pin;
@@ -47,7 +47,7 @@ pub trait ComplexDecoder: Send {
         &mut self,
         context: &DecodeContext,
         payload: &[u8],
-    ) -> Result<Option<DecodedMessage>, DecodeError>;
+    ) -> Result<Option<DecodedInfo>, DecodeError>;
 }
 
 /// Renders DecodedMessage items to a human-readable string format.

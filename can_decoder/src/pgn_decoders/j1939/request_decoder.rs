@@ -1,5 +1,5 @@
 use crate::traits::ComplexDecoder;
-use crate::types::{DecodeContext, DecodeError, DecodedField, DecodedMessage, Numeric};
+use crate::types::{DecodeContext, DecodeError, DecodedField, DecodedInfo, Numeric};
 use iso11783_data::constants::pgn::REQUEST;
 
 /// J1939 PGN for Request messages (PGN 0xEA00 / 59904).
@@ -49,7 +49,7 @@ impl ComplexDecoder for RequestDecoder {
         &mut self,
         _context: &DecodeContext,
         payload: &[u8],
-    ) -> Result<Option<DecodedMessage>, DecodeError> {
+    ) -> Result<Option<DecodedInfo>, DecodeError> {
         let requested_pgn = Self::parse_payload(payload)?;
 
         self.last_requests.push(requested_pgn);
@@ -62,10 +62,7 @@ impl ComplexDecoder for RequestDecoder {
             }
         };
 
-        let mut msg = DecodedMessage::with_assembled(
-            "Request".into(),
-            crate::types::AssembledMessage::new(0, vec![]),
-        );
+        let mut msg = DecodedInfo::new("Request".into());
 
         msg.outputs.push(DecodedField::Value {
             title: "Requested PGN".to_string(),

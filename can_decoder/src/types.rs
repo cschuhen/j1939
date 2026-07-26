@@ -232,6 +232,24 @@ pub struct DeviceUpdate {
 
 /// The final result of a decoding operation.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DecodedInfo {
+    pub title: String,
+    pub outputs: Vec<DecodedField>,
+    pub updates: Vec<DeviceUpdate>,
+}
+
+impl DecodedInfo {
+    pub fn new(title: String) -> Self {
+        DecodedInfo {
+            title,
+            outputs: Vec::new(),
+            updates: Vec::new(),
+        }
+    }
+}
+
+/// The final result of a decoding operation.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DecodedMessage {
     /// Assembled message containing raw data, timestamp, source/dest addresses, and PGN.
     pub assembled_message: AssembledMessage,
@@ -247,6 +265,15 @@ impl DecodedMessage {
             outputs: Vec::new(),
             updates: Vec::new(),
             assembled_message: AssembledMessage::new(0, vec![]),
+        }
+    }
+
+    pub fn create(msg: AssembledMessage, info: DecodedInfo) -> Self {
+        DecodedMessage {
+            title: info.title,
+            outputs: info.outputs,
+            updates: info.updates,
+            assembled_message: msg,
         }
     }
 

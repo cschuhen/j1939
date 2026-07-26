@@ -13,7 +13,8 @@ use crate::pgn_decoders::j1939::request_decoder::{RequestDecoder, REQUEST_PGN};
 use crate::tp_reassembler::{TpReassembler, TpReassemblyResult};
 use crate::traits::{ComplexDecoder, Decoder};
 use crate::types::{
-    AssembledMessage, DecodeContext, DecodedField, DecodedMessage, Numeric, RawFrame, Severity,
+    AssembledMessage, DecodeContext, DecodedField, DecodedInfo, DecodedMessage, Numeric, RawFrame,
+    Severity,
 };
 use crate::DetailLevel;
 
@@ -443,11 +444,11 @@ impl J1939Decoder {
     }
 
     /// Decode an assembled message into DecodedField items using config definitions.
-    pub fn decode_assembled(&mut self, msg: &AssembledMessage) -> DecodedMessage {
+    pub fn decode_assembled(&mut self, msg: &AssembledMessage) -> DecodedInfo {
         self.decode_assembled_with_context_inner(msg)
     }
 
-    fn decode_assembled_with_context_inner(&mut self, msg: &AssembledMessage) -> DecodedMessage {
+    fn decode_assembled_with_context_inner(&mut self, msg: &AssembledMessage) -> DecodedInfo {
         let pgn_key = msg.pgn();
 
         if let Some(decoder) = self.complex_decoders.get_mut(&pgn_key) {
@@ -466,8 +467,7 @@ impl J1939Decoder {
         }
 
         if let Some(pgn_def) = self.config.pgns.get(&pgn_key) {
-            return DecodedMessage {
-                assembled_message: msg.clone(),
+            return DecodedInfo {
                 title: Self::make_title_from_pgn(msg.pgn()),
                 outputs: self.decode_components(msg, pgn_def),
                 updates: vec![],
@@ -482,8 +482,7 @@ impl J1939Decoder {
             }
         };
         // No definition found - emit raw hex as info message
-        DecodedMessage {
-            assembled_message: msg.clone(),
+        DecodedInfo {
             title: Self::make_title_from_pgn(msg.pgn()),
             outputs: vec![DecodedField::StringMessage {
                 severity: Severity::Info,
@@ -499,7 +498,7 @@ impl J1939Decoder {
 
     /// Decode an assembled message with device name enrichment from DeviceManager.
     #[allow(unused_mut)]
-    fn decode_assembled_with_context(&mut self, msg: &AssembledMessage) -> DecodedMessage {
+    fn decode_assembled_with_context(&mut self, msg: &AssembledMessage) -> DecodedInfo {
         let mut decoded = self.decode_assembled_with_context_inner(msg);
 
         // Enrich output with source device name if available in assembled message
@@ -719,17 +718,24 @@ impl J1939Decoder {
 
         // Multi-frame TP - feed to reassembler
         let results = self.reassembler.process_frame(&frame);
-        let mut last_message: Option<DecodedMessage> = None;
 
         for result in results {
             match result {
                 TpReassemblyResult::Complete(assembled) => {
                     // Task 2: Always pass assembled TP messages to PGN decoder, independent of detail level
-                    last_message = Some(self.decode_assembled_with_context(&assembled));
+                    let last_message = Some(self.decode_assembled_with_context(&assembled));
+                    match last_message {
+                        Some(message) => return DecodedMessage::create(assembled, message),
+                        None => {}
+                    }
                 }
                 TpReassemblyResult::SingleFrame(assembled) => {
                     // Non-TP frames are always decoded (they're not part of a TP session)
-                    last_message = Some(self.decode_assembled_with_context(&assembled));
+                    let last_message = Some(self.decode_assembled_with_context(&assembled));
+                    match last_message {
+                        Some(message) => return DecodedMessage::create(assembled, message),
+                        None => {}
+                    }
                 }
                 TpReassemblyResult::Pending => {
                     // Task 1: Individual TP packets during assembly are NOT passed to PGN decoder
@@ -739,15 +745,15 @@ impl J1939Decoder {
                     let synthetic_id = crate::tp_reassembler::build_assembled_can_id(
                         partial.pgn,
                         partial.source_address,
-                        0xFF,
+                        partial.destination_address,
                         0x1C,
                     );
-                    last_message = Some(DecodedMessage {
+                    return DecodedMessage {
                         assembled_message: AssembledMessage {
                             id: synthetic_id,
                             pgn: partial.pgn,
-                            data: partial.data.clone(),
-                            timestamp: 0,
+                            data: Vec::new(),
+                            timestamp: partial.timestamp,
                             source_name: None,
                             dest_name: None,
                         },
@@ -763,12 +769,12 @@ impl J1939Decoder {
                             ),
                         }],
                         updates: vec![],
-                    });
+                    };
                 }
             }
         }
 
-        last_message.unwrap_or_else(|| DecodedMessage {
+        DecodedMessage {
             assembled_message: AssembledMessage {
                 id: 0,
                 pgn: 0,
@@ -780,7 +786,7 @@ impl J1939Decoder {
             title: String::new(),
             outputs: Vec::new(),
             updates: Vec::new(),
-        })
+        }
     }
 
     /// Get the number of active TP assemblies.
@@ -1654,14 +1660,14 @@ pgns:
     #[allow(dead_code)]
     struct MockComplexDecoder {
         handled_pgns: Vec<u32>,
-        output: DecodedMessage,
+        output: DecodedInfo,
         should_return_none: bool,
         call_count: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     }
 
     #[allow(dead_code)]
     impl MockComplexDecoder {
-        fn new(handled_pgn: u32, output: DecodedMessage) -> Self {
+        fn new(handled_pgn: u32, output: DecodedInfo) -> Self {
             MockComplexDecoder {
                 handled_pgns: vec![handled_pgn],
                 output,
@@ -1670,7 +1676,7 @@ pgns:
             }
         }
 
-        fn with_multiple(handled_pgns: Vec<u32>, output: DecodedMessage) -> Self {
+        fn with_multiple(handled_pgns: Vec<u32>, output: DecodedInfo) -> Self {
             MockComplexDecoder {
                 handled_pgns,
                 output,
@@ -1699,7 +1705,7 @@ pgns:
             &mut self,
             _context: &DecodeContext,
             _payload: &[u8],
-        ) -> Result<Option<DecodedMessage>, crate::types::DecodeError> {
+        ) -> Result<Option<DecodedInfo>, crate::types::DecodeError> {
             self.call_count
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             if self.should_return_none {
@@ -1714,10 +1720,7 @@ pgns:
     fn test_complex_decoder_dispatch_routes_to_mock() {
         let mut decoder = J1939Decoder::new(false, 1000, false);
 
-        let mut mock_output = DecodedMessage::with_assembled(
-            "Mock Decoded".to_string(),
-            AssembledMessage::new(0, vec![]),
-        );
+        let mut mock_output = DecodedInfo::new("Mock Decoded".to_string());
         mock_output.outputs.push(DecodedField::Value {
             title: "Custom Field".to_string(),
             value: Numeric::Int(999),
@@ -1755,8 +1758,7 @@ pgns:
     fn test_complex_decoder_falls_back_to_yaml_when_none() {
         let mut decoder = J1939Decoder::new(false, 1000, false);
 
-        let mock_output =
-            DecodedMessage::with_assembled("Mock".to_string(), AssembledMessage::new(0, vec![]));
+        let mock_output = DecodedInfo::new("Mock".to_string());
         decoder.register_complex_decoder(
             0x0CF00,
             Box::new(MockComplexDecoder {
@@ -1785,8 +1787,7 @@ pgns:
     fn test_complex_decoder_ignores_unregistered_pgn() {
         let mut decoder = J1939Decoder::new(false, 1000, false);
 
-        let mock_output =
-            DecodedMessage::with_assembled("Mock".to_string(), AssembledMessage::new(0, vec![]));
+        let mock_output = DecodedInfo::new("Mock".to_string());
         decoder.register_complex_decoder(
             0xDEAD,
             Box::new(MockComplexDecoder {
@@ -1820,15 +1821,13 @@ pgns:
         let call_count_b = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
 
         // Register two different mock decoders for two different PGNs
-        let mut mock_a_output =
-            DecodedMessage::with_assembled("Mock A".to_string(), AssembledMessage::new(0, vec![]));
+        let mut mock_a_output = DecodedInfo::new("Mock A".to_string());
         mock_a_output.outputs.push(DecodedField::StringMessage {
             severity: Severity::Info,
             text: "Mock A".to_string(),
         });
 
-        let mut mock_b_output =
-            DecodedMessage::with_assembled("Mock B".to_string(), AssembledMessage::new(0, vec![]));
+        let mut mock_b_output = DecodedInfo::new("Mock B".to_string());
         mock_b_output.outputs.push(DecodedField::StringMessage {
             severity: Severity::Info,
             text: "Mock B".to_string(),
@@ -1901,10 +1900,7 @@ pgns:
             0xAAAA,
             Box::new(MockComplexDecoder {
                 handled_pgns: vec![0xAAAA],
-                output: DecodedMessage::with_assembled(
-                    "Mock".to_string(),
-                    AssembledMessage::new(0, vec![]),
-                ),
+                output: DecodedInfo::new("Mock".to_string()),
                 should_return_none: false,
                 call_count: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             }),
@@ -1915,10 +1911,7 @@ pgns:
             0xBBBB,
             Box::new(MockComplexDecoder {
                 handled_pgns: vec![0xBBBB],
-                output: DecodedMessage::with_assembled(
-                    "Mock2".to_string(),
-                    AssembledMessage::new(0, vec![]),
-                ),
+                output: DecodedInfo::new("Mock2".to_string()),
                 should_return_none: false,
                 call_count: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             }),
@@ -1932,10 +1925,7 @@ pgns:
 
         // PGN 0x0FEF4 (Engine Speed) is in the built-in YAML config
         // Register a mock for it - should override YAML decoding
-        let mut overridden_output = DecodedMessage::with_assembled(
-            "Overridden".to_string(),
-            AssembledMessage::new(0, vec![]),
-        );
+        let mut overridden_output = DecodedInfo::new("Overridden".to_string());
         overridden_output.outputs.push(DecodedField::StringMessage {
             severity: Severity::Info,
             text: "Overridden".to_string(),
