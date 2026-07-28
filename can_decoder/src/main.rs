@@ -63,6 +63,18 @@ fn build_filters(
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
+    // Validate filters early - help or invalid types should exit before pipeline setup
+    for expr in &cli.filter {
+        if expr == "help" {
+            FilterParser::print_help();
+            std::process::exit(0);
+        }
+        if let Err(e) = FilterParser::parse(expr) {
+            eprintln!("{}", e);
+            std::process::exit(1);
+        }
+    }
+
     println!("can_decoder starting...");
     println!("Source: {:?}", cli.source);
 
