@@ -705,8 +705,8 @@ impl J1939Decoder {
     pub fn decode_raw_frame_with_updates(&mut self, frame: RawFrame) -> DecodedMessage {
         let pgn = frame.pgn();
 
-        // Handle Address Claim PGN (0xEC00) - extract and store NAME for source address
-        if pgn == 0xEC00 && frame.data.len() >= 8 {
+        // Handle Address Claim PGN (0xEE00) - extract and store NAME for source address
+        if pgn == 0xEE00 && frame.data.len() >= 8 {
             if let Some(ref dm) = self.device_manager {
                 let name_bytes = &frame.data[0..8];
                 if let Ok(name_u64) = DeviceManager::parse_name_from_bytes(name_bytes) {
