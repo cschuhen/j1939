@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::Result;
+use can_decoder::config::validate_proprietary_definitions;
 use can_decoder::device_manager::DeviceManager;
 use can_decoder::filters::{CompositeFilter, FilterParser};
 use can_decoder::pipeline::{
@@ -12,37 +13,11 @@ use can_decoder::Cli;
 use can_decoder::SourceType;
 use clap::Parser;
 
-/// Validate proprietary DDI definition names and print available options if invalid.
-fn validate_proprietary_definitions(names: &[String]) -> Vec<String> {
-    let available = vec![("canot", "CANoT proprietary DDI definitions")];
-
-    let mut valid_names = Vec::new();
-    for name in names {
-        match available.iter().find(|(n, _)| *n == name.as_str()) {
-            Some((_, desc)) => {
-                println!("Proprietary DDI: {} ({})", name, desc);
-                valid_names.push(name.clone());
-            }
-            None => {
-                eprintln!("Error: Unknown proprietary DDI definition '{}'", name);
-                eprintln!("Available definitions:");
-                for (n, desc) in &available {
-                    eprintln!("  {} - {}", n, desc);
-                }
-                std::process::exit(1);
-            }
-        }
-    }
-
-    valid_names
-}
-
 /// Parse CLI filter expressions into a CompositeFilter.
 fn build_filters(
     cli_filters: &[String],
 ) -> Result<Arc<tokio::sync::Mutex<dyn can_decoder::traits::Filter>>> {
     if cli_filters.is_empty() {
-        // No filters specified - use pass-through (match all)
         let empty = Arc::new(tokio::sync::Mutex::new(CompositeFilter::new(vec![])));
         return Ok(empty);
     }
@@ -62,6 +37,7 @@ fn build_filters(
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+    let config = &cli.shared;
 
     // Validate filters early - help or invalid types should exit before pipeline setup
     for expr in &cli.filter {
@@ -76,34 +52,34 @@ async fn main() -> Result<()> {
     }
 
     println!("can_decoder starting...");
-    println!("Source: {:?}", cli.source);
+    println!("Source: {:?}", config.source);
 
-    if let Some(ref iface) = cli.interface {
+    if let Some(ref iface) = config.interface {
         println!("Interface: {}", iface);
     }
 
-    if let Some(ref file) = cli.input_file {
+    if let Some(ref file) = config.input_file {
         println!("Input file: {}", file.display());
     }
 
-    if let Some(ref config) = cli.config {
-        println!("Config: {}", config.display());
+    if let Some(ref cfg) = config.config {
+        println!("Config: {}", cfg.display());
     }
 
-    println!("Detail level: {:?}", cli.detail_level);
-    println!("Force partial TP: {}", cli.force_output_partial_tp);
-    println!("Debug mode: {}", cli.debug);
+    println!("Detail level: {:?}", config.detail_level);
+    println!("Force partial TP: {}", config.force_output_partial_tp);
+    println!("Debug mode: {}", config.debug);
     println!("Filters: {}", cli.filter.len());
     println!("Output format: {:?}", cli.output_format);
 
-    let proprietary_defs = validate_proprietary_definitions(&cli.use_proprietary_ddi_definitions);
+    let proprietary_defs = validate_proprietary_definitions(&config.use_proprietary_ddi_definitions);
 
     let mut pipeline = Pipeline::new();
 
     // Wire up the Source based on --source and available options
-    match cli.source {
+    match config.source {
         SourceType::Socketcan => {
-            if let Some(ref iface) = cli.interface {
+            if let Some(ref iface) = config.interface {
                 let source = Arc::new(SocketCanSource::new(iface));
                 println!("[{}] Starting live source...", source.name());
                 pipeline.spawn_source(source);
@@ -113,7 +89,7 @@ async fn main() -> Result<()> {
             }
         }
         SourceType::Candump => {
-            if let Some(ref file) = cli.input_file {
+            if let Some(ref file) = config.input_file {
                 let source = Arc::new(CandumpFileSource::new(file));
                 println!("[{}] Starting candump source...", source.name());
                 pipeline.spawn_source(source);
@@ -124,14 +100,14 @@ async fn main() -> Result<()> {
         }
     }
 
-    // Wire up Decoder → Filter → Renderer
+    // Wire up Decoder -> Filter -> Renderer
     let device_manager = Arc::new(std::sync::Mutex::new(DeviceManager::new(60)));
     let decoder = can_decoder::pgn_decoder::J1939Decoder::with_device_manager_detail(
-        cli.force_output_partial_tp,
+        config.force_output_partial_tp,
         5000,
-        cli.debug,
+        config.debug,
         Some(device_manager),
-        cli.detail_level.clone(),
+        config.detail_level.clone(),
         &proprietary_defs,
     );
     pipeline.spawn_decoder(Box::new(decoder));
@@ -150,13 +126,11 @@ async fn main() -> Result<()> {
 
     println!("Pipeline ready. Press Ctrl+C to stop.");
 
-    if cli.source == SourceType::Candump {
-        // Batch mode: wait for the renderer to finish
+    if config.source == SourceType::Candump {
         drop(pipeline);
         let _ = renderer_handle.await;
         println!("\nShutting down...");
     } else {
-        // Live mode: wait for Ctrl+C
         tokio::signal::ctrl_c().await.unwrap();
         println!("\nShutting down...");
     }

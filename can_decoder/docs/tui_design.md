@@ -1,0 +1,235 @@
+# Design Document: TUI CAN Decoder (Final Refinement)
+
+## 1. Overview
+A high-performance terminal user interface (TUI) for real-time J1939 CAN message monitoring, featuring a three-pane layout with specialized navigation modes for rapid filtering and data inspection.
+
+**Build**: `cargo build --bin can_decoder_tui`
+**Run**: `./target/release/can_decoder_tui [options]`
+
+## 2. UI Layout & Interaction
+
+### 2.1 Main Central Viewport (Message List)
+*   **Function**: Displays a condensed, scrollable list of `DecodedMessage` entries.
+*   **Scrolling Modes**:
+    *   **Live Stream Mode (Default)**: The view is "locked" to the bottom; as new messages arrive, the list scrolls up automatically.
+    *   **Manual Scroll Mode**: Triggered by Space; allows scrolling up through message history without auto-scroll.
+*   **Performance**: Virtualized rendering — only visible messages are drawn within viewport height.
+*   **Navigation**:
+    *   `Up` / `Down` Arrows: Incremental scroll through the message list.
+    *   `Shift` + `Up` / `Down`: Page Up / Page Down jumps (3x viewport).
+
+### 2.2 Left-Hand Side (LHS) Panel: Filter Stack
+*   **Function**: A vertical stack of "Filter Widgets" (Title, PGN, Severity, Source, Dest, RPM/Speed Numeric, Engine Flag).
+*   **Layout**:
+    *   **Expanded**: Shows full input controls (text boxes, option lists for severity/flag).
+    *   **Minimized**: Single-line summary — `* name` if enabled, `  name` if disabled.
+*   **Navigation & Input**:
+    *   `Tab`: Move focus from LHS to Main panel.
+    *   `Shift` + `Up` / `Down`: Move focus between filter widgets in the stack.
+    *   `Arrows` (without Shift): Navigate items within a widget (e.g., severity options).
+    *   `Space`: Toggle enabled/disabled on active widget; toggle stream mode when focused on Main.
+    *   `Enter`: Enter text input mode for text-based filters.
+
+### 2.3 Right-Hand Side (RHS) Panel: Detail Inspector
+*   **Function**: "Deep Inspection" of the message currently selected in the Main Viewport.
+*   **Content**: Every `DecodedField` in full detail including Numeric Values (precision, units, raw hex), String Messages (severity color-coding), Flags (On/Off/Error/Unavailable states), Metadata (timestamp, source/dest address, DeviceName from DeviceManager), and raw data bytes.
+*   **Navigation**:
+    *   `Tab` (from Main): Move focus to RHS panel when LHS is hidden; otherwise cycles LHS → Main → RHS.
+
+### 2.4 Status Bar & Overlays
+*   **Status Bar**: Fixed bar at bottom showing: focus panel, input mode, stream mode, active filter count, message count, connection status.
+*   **Error Log Popup**: F3 overlay showing recent filtered-out messages and warnings (max 100 entries).
+
+## 3. Keyboard Navigation
+
+| Key Combination | Action |
+| :--- | :--- |
+| **LHS Panel** | |
+| `Shift` + `Up` / `Down` | Move focus between filter widgets |
+| `Arrows` (no Shift) | Navigate items within a widget |
+| `Space` | Toggle enabled/disabled on active widget |
+| `Enter` | Enter text input mode |
+| **Main Viewport** | |
+| `Up` / `Down` | Incremental scroll |
+| `Shift` + `Up` / `Down` | Page Up / Page Down (3x viewport) |
+| `Space` | Toggle Live Stream / Manual Scroll |
+| **Global Panel Cycling** | |
+| `Tab` | Cycle focus: LHS → Main → RHS → LHS (loops; skips hidden panels) |
+| `Shift` + `Tab` | Reverse cycle: RHS → Main → LHS → RHS (loops; skips hidden panels) |
+| **Panel Visibility** | |
+| `F1` | Toggle LHS Panel visibility |
+| `F2` | Toggle RHS Panel visibility |
+| **Overlays & Exit** | |
+| `F3` | Open/Close Error Log Popup |
+| `Esc` | Close popup / exit text mode / return to Main focus |
+| `Ctrl+C` | Graceful shutdown (SIGINT handler) |
+| `q` | Quit TUI |
+
+## 4. Layout Orientation
+
+### 4.1 Horizontal Layout (Default)
+```
+┌──────────┬──────────────────────┬──────────────────┐
+│ Filters  │   Messages           │  Details         │
+│ (LHS)    │   (Main)             │  (RHS)           │
+│          │                      │                  │
+├──────────┴──────────────────────┴──────────────────┤
+│ Status Bar                                          │
+└─────────────────────────────────────────────────────┘
+```
+
+### 4.2 Vertical Layout (`--layout vertical`)
+```
+┌─────────────────────────────────────────────────────┐
+│ Filters (LHS)                                       │
+│ ┌──────────┬──────────┬──────────────────┐          │
+│ │ Messages │ Details  │                  │          │
+│ │ (Main)   │ (RHS)    │                  │          │
+│ ├──────────┴──────────┴──────────────────┤          │
+│ │ Status Bar                              │          │
+│ └─────────────────────────────────────────┘          │
+└─────────────────────────────────────────────────────┘
+```
+
+### 4.3 Toggle at Runtime
+*   `F4`: Toggle between horizontal and vertical layout without restarting.
+*   In vertical mode, panel cycling (`Tab`/`Shift+Tab`) cycles: Top → Bottom-Left → Bottom-Right → Top.
+
+## 5. Technical Implementation Details
+
+### 5.1 Shared CLI Configuration Module
+A new `config.rs` module provides shared types and argument parsing used by **both** the CLI app (`main.rs`) and TUI app (`tui_main.rs`). This eliminates duplication and ensures consistency.
+
+```rust
+// src/config.rs — shared between CLI and TUI
+
+#[derive(Parser, Debug, Clone)]
+pub struct SharedConfig {
+    /// SocketCAN interface for live mode (e.g., can0)
+    #[arg(short, long)]
+    pub interface: Option<String>,
+
+    /// Input source type (socketcan, candump)
+    #[arg(short, long, default_value = "socketcan")]
+    pub source: SourceType,
+
+    /// Path to candump-style input file (used with --source candump)
+    #[arg(long)]
+    pub input_file: Option<PathBuf>,
+
+    /// Path to YAML configuration file defining PGN interpretations
+    #[arg(short, long)]
+    pub config: Option<PathBuf>,
+
+    /// Output detail level (raw frame bytes vs assembled/decoded output)
+    #[arg(long, default_value = "assembled")]
+    pub detail_level: DetailLevel,
+
+    /// Emit partially reassembled Transport Protocol messages on timeout
+    #[arg(long)]
+    pub force_output_partial_tp: bool,
+
+    /// Enable extra debugging information
+    #[arg(short, long, default_value_t = false)]
+    pub debug: bool,
+
+    /// Use proprietary DDI definitions by name (repeatable)
+    #[arg(long)]
+    pub use_proprietary_ddi_definitions: Vec<String>,
+}
+
+// TUI-specific CLI args (extends SharedConfig)
+#[derive(Parser, Debug, Clone)]
+pub struct TuiCli {
+    #[command(flatten)]
+    pub shared: SharedConfig,
+
+    /// Layout orientation: horizontal | vertical
+    #[arg(long, default_value = "horizontal")]
+    pub layout: LayoutOrientation,
+}
+```
+
+**SourceType**, **DetailLevel**, and **OutputFormat** enums move from `lib.rs` to `config.rs`. The CLI app (`main.rs`) uses `SharedConfig`; the TUI app uses `TuiCli`. Both construct a `J1939Decoder` with identical parameters.
+
+### 5.2 Pipeline Construction Helper
+A shared function in `config.rs` or `lib.rs` builds the full pipeline (Source → Decoder → Filter → Renderer) from config, used by both CLI and TUI:
+
+```rust
+pub fn build_pipeline(
+    config: &SharedConfig,
+    proprietary_defs: &[String],
+) -> Result<(Pipeline, Arc<tokio::sync::Mutex<dyn Filter>>), anyhow::Error>
+```
+
+The TUI replaces the final Renderer stage with its own `mpsc` channel — messages flow through Decoder → Filter → channel → TUI event loop.
+
+### 5.3 TUI Component Architecture
+*   **Widget-Based LHS**: The LHS is a `List<FilterWidget>` where each widget manages its own internal state (enabled, input_text, cursor_pos, expanded).
+*   **Focus Management**: A global `FocusManager` tracks the current active window and interaction mode (Navigation vs. Text Input). Panel cycling via `Tab`/`Shift+Tab` loops: LHS → Main → RHS → LHS, skipping hidden panels.
+*   **Data Buffering**: Messages stored in an unbounded `VecDeque<DecodedMessage>` with configurable max size (default 10,000). Passed to the UI via `mpsc` channel from pipeline.
+
+### 5.4 Data Flow
+1.  **Input**: `RawFrame` → `TpReassembler` → `PgnDecoder` → `DecodedMessage`.
+2.  **Filtering**: The `DecodedMessage` is passed through the `Filter` logic defined by active LHS widgets (sync-evaluated via a shared tokio runtime).
+3.  **Display**: Filtered messages pushed into the `Main Viewport` buffer for rendering.
+
+### 5.5 Signal Handling
+*   `Ctrl+C` (SIGINT): Caught via `tokio::signal::ctrl_c()`. Sets a shutdown flag, drains remaining messages, restores terminal state (raw mode off, alternate screen off, cursor visible), then exits cleanly.
+*   `q` key: Immediate quit without draining — same cleanup sequence.
+
+## 6. Implementation Plan
+
+### Phase 1: TUI Skeleton & Layout ✅ COMPLETE
+*   [x] **Add Dependencies**: Added `ratatui` and `crossterm` to `Cargo.toml`.
+*   [x] **Define App State**: Created `TuiApp` struct with focus, panel visibility, scroll offset.
+*   [x] **Basic Layout**: Three-column horizontal layout (LHS | Main | RHS) + status bar using `ratatui::Layout`.
+*   [x] **Event Loop**: Basic crossterm event loop handling terminal input and UI rendering at ~60fps.
+
+### Phase 2: Data Plumbing & Main Message List ✅ COMPLETE
+*   [x] **Async/Sync Bridge**: `mpsc` channel in `tui_main.rs` receives `DecodedMessage` from pipeline to TUI event loop.
+*   [x] **TuiRenderer Implementation**: Full renderer with all three panels + status bar via `ratatui`.
+*   [x] **Main Viewport Widget**: Virtualized list rendering only visible messages within viewport height.
+*   [x] **Scrolling Logic**: "Live Stream" (auto-scroll to bottom) and "Manual Scroll" modes toggled with Space.
+*   [x] **Main Navigation**: `Up`/`Down` (incremental), `Shift`+`Up`/`Down` (page jump), `PageUp`/`PageDown`.
+
+### Phase 3: Detail Inspector (RHS) ✅ COMPLETE
+*   [x] **Detail Widget**: Displays all `DecodedField`s with Value (precision, units, raw hex), StringMessage (severity colors), Flag (On/Off/Error/Unavailable).
+*   [x] **Metadata Integration**: Timestamp, PGN, CAN ID, source/dest addresses, DeviceName from `DeviceManager`, raw data bytes.
+*   [x] **RHS Navigation**: Panel cycling via `Tab`/`Shift+Tab`.
+
+### Phase 4: Filter Stack (LHS) ✅ COMPLETE
+*   [x] **Filter Widget Stack**: Vertical stack of 8 filter widgets (Title, PGN, Severity, Source, Dest, RPM/Speed Numeric, Engine Flag).
+*   [x] **Widget States**: Expanded view shows input controls and options; Minimized shows `* name` or `  name`.
+*   [x] **Input Modes**: "Navigation Mode" (Space toggles enabled) and "Text Input Mode".
+*   [x] **Filter Engine Integration**: Each widget builds a `Box<dyn Filter>` via `build_filter()`; `passes_all_filters()` sync-evaluates all active filters.
+
+### Phase 5: Polish & Extras ✅ COMPLETE
+*   [x] **Status Bar**: Real-time display of focus panel, input mode, stream mode, active filter count, message count.
+*   [x] **Error Log Popup**: F3 overlay showing recent filtered-out messages and warnings (max 100 entries).
+*   [x] **Focus Management**: Keyboard handling: arrows, Space, Enter, Esc, h/l for panel switching, q to quit.
+*   [x] **Styling**: Colorization across all panels — Cyan borders for active focus, Yellow highlights, Green/Red/Yellow/Magenta/Gray for field values and severities.
+
+### Phase 6: Navigation & Layout Refinements ✅ COMPLETE
+*   [x] **Tab/Shift+Tab Panel Cycling**: Replaced `Shift`+`Left`/`Right` with `Tab` (forward) and `Shift`+`Tab` (reverse). Loops on overflow/underflow. Skips hidden panels. Added `Tab` and `ShiftTab` variants to `TuiKey` enum.
+*   [x] **Ctrl+C Exit Handler**: Added `tokio::signal::ctrl_c()` in `tui_main.rs`. On SIGINT: sets shutdown flag, restores terminal state (disable raw mode, leave alternate screen, show cursor), then exits cleanly.
+*   [x] **Vertical Layout Support**: Added `--layout horizontal|vertical` CLI option. In vertical mode: split content area into top (LHS full-width) and bottom row (Main | RHS side-by-side). Toggle at runtime with F4 key.
+
+### Phase 7: Shared CLI Configuration ✅ COMPLETE
+*   [x] **Create `src/config.rs`**: Defined `SharedConfig` struct with all common CLI args (`--interface`, `--source`, `--input-file`, `--config`, `--detail-level`, `--force-output-partial-tp`, `--debug`, `--use-proprietary-ddi-definitions`).
+*   [x] **Define `TuiCli`**: Extends `SharedConfig` with TUI-specific args (`--layout horizontal|vertical`).
+*   [x] **Move Enums to `config.rs`**: Moved `SourceType`, `DetailLevel`, `OutputFormat` from `lib.rs` to shared module. Re-exported from `lib.rs`. Updated imports in `lib.rs`, `main.rs`.
+*   [x] **Refactor CLI `main.rs`**: Uses `Cli` struct that flattens `SharedConfig` and adds CLI-only args (`--filter`, `--output-format`).
+*   [x] **Refactor TUI `tui_main.rs`**: Parses `TuiCli`, extracts `SharedConfig`, builds source (SocketCanSource or CandumpFileSource), creates J1939Decoder with matching parameters, wires into mpsc channel for TUI consumption.
+
+## 7. Current File Inventory
+
+| File | Status | Description |
+|---|---|---|
+| `src/config.rs` | ✅ Complete | Shared CLI config: SharedConfig, TuiCli, SourceType, DetailLevel, OutputFormat, LayoutOrientation enums |
+| `src/lib.rs` | ✅ Updated | Re-exports from config module; Cli struct extends SharedConfig with filter + output_format |
+| `src/main.rs` | ✅ Updated | Uses SharedConfig via Cli; identical decoder/pipeline construction as TUI path |
+| `src/tui/mod.rs` | ✅ Complete | Module re-export |
+| `src/tui/app.rs` | ✅ Complete | TuiApp state, FilterWidget, Tab/Shift+Tab cycling, vertical layout toggle, scroll logic, filter evaluation |
+| `src/tui/renderer.rs` | ✅ Complete | Full 3-panel renderer with detail inspector, error log popup, colorization, horizontal + vertical layouts |
+| `src/tui_main.rs` | ✅ Complete | TuiCli parsing, Tab navigation, Ctrl+C handler, layout option, pipeline wiring from shared config |

@@ -1,3 +1,4 @@
+pub mod config;
 pub mod device_manager;
 /// Filter implementations and filter expression parsing.
 pub mod filters;
@@ -20,40 +21,20 @@ pub mod traits;
 /// Data models for CAN frames, messages, and decoded output.
 pub mod types;
 
-use clap::Parser;
-use std::path::PathBuf;
+// TUI modules
+pub mod tui;
 
-/// CLI argument parser. Defines all options from the requirements plan.
+// Re-export shared config types for convenience
+pub use config::{LayoutOrientation, SharedConfig, SourceType, DetailLevel, OutputFormat};
+
+use clap::Parser;
+
+/// CLI-only argument parser (extends SharedConfig with filter + output_format).
 #[derive(Parser, Debug)]
 #[command(name = "can_decoder", about = "J1939 CAN Frame Decoder")]
 pub struct Cli {
-    /// SocketCAN interface for live mode (e.g., can0)
-    #[arg(short, long)]
-    pub interface: Option<String>,
-
-    /// Input source type (socketcan, candump)
-    #[arg(short, long, default_value = "socketcan")]
-    pub source: SourceType,
-
-    /// Path to candump-style input file (used with --source candump)
-    #[arg(long)]
-    pub input_file: Option<PathBuf>,
-
-    /// Path to YAML configuration file defining PGN interpretations
-    #[arg(short, long)]
-    pub config: Option<PathBuf>,
-
-    /// Output detail level (raw frame bytes vs assembled/decoded output)
-    #[arg(long, default_value = "assembled")]
-    pub detail_level: DetailLevel,
-
-    /// Emit partially reassembled Transport Protocol messages on timeout
-    #[arg(long)]
-    pub force_output_partial_tp: bool,
-
-    /// Enable extra debugging information
-    #[arg(short, long, default_value_t = false)]
-    pub debug: bool,
+    #[command(flatten)]
+    pub shared: SharedConfig,
 
     /// Add a filter rule (repeatable; applied to decoded DecodedField)
     #[arg(long)]
@@ -62,33 +43,4 @@ pub struct Cli {
     /// Output format (console colorized, JSON, CSV)
     #[arg(long, default_value = "console")]
     pub output_format: OutputFormat,
-
-    /// Use proprietary DDI definitions by name (repeatable; checked in order specified). Available: canot
-    #[arg(long)]
-    pub use_proprietary_ddi_definitions: Vec<String>,
-}
-
-/// Input source type selection.
-#[derive(clap::ValueEnum, Debug, Clone, PartialEq)]
-pub enum SourceType {
-    Socketcan,
-    Candump,
-}
-
-/// Detail level for output visibility.
-#[derive(clap::ValueEnum, Debug, Clone, PartialEq, Eq)]
-pub enum DetailLevel {
-    Raw,
-    Assembled,
-    Both,
-}
-
-/// Output format selection.
-#[derive(clap::ValueEnum, Debug, Clone)]
-pub enum OutputFormat {
-    Console,
-    Json,
-    Csv,
-    Condensed,
-    FullCondensed,
 }
