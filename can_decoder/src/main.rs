@@ -72,7 +72,8 @@ async fn main() -> Result<()> {
     println!("Filters: {}", cli.filter.len());
     println!("Output format: {:?}", cli.output_format);
 
-    let proprietary_defs = validate_proprietary_definitions(&config.use_proprietary_ddi_definitions);
+    let proprietary_defs =
+        validate_proprietary_definitions(&config.use_proprietary_ddi_definitions);
 
     let mut pipeline = Pipeline::new();
 

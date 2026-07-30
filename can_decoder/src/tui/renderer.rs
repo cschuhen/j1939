@@ -1,6 +1,6 @@
+use crate::tui::app::{FilterType, Focus, InputMode, TuiApp};
+use crate::types::{DecodedField, DecodedMessage, FlagValue, Numeric, Severity};
 use ratatui::{prelude::*, widgets::*};
-use crate::tui::app::{TuiApp, Focus, FilterType, InputMode};
-use crate::types::{DecodedField, DecodedMessage, Numeric, Severity, FlagValue};
 
 pub struct TuiRenderer {}
 
@@ -15,7 +15,7 @@ impl TuiRenderer {
         Self {}
     }
 
-    pub fn render(&self, frame: &mut Frame, app: &TuiApp) {
+    pub fn render(&self, frame: &mut Frame, app: &mut TuiApp) {
         let area = frame.area();
 
         // Handle error log overlay
@@ -37,7 +37,7 @@ impl TuiRenderer {
             self.render_vertical(content_area, frame, app);
         } else {
             self.render_horizontal(frame, content_area, app);
-            
+
             // Status bar (horizontal mode)
             let status_text = app.status_text();
             let block = Paragraph::new(status_text)
@@ -47,13 +47,13 @@ impl TuiRenderer {
         }
     }
 
-    fn render_horizontal(&self, frame: &mut Frame, content_area: Rect, app: &TuiApp) {
+    fn render_horizontal(&self, frame: &mut Frame, content_area: Rect, app: &mut TuiApp) {
         let lhs_width = if app.lhs_visible { 30 } else { 0 };
         let rhs_width = if app.rhs_visible { 45 } else { 0 };
-        
+
         let total_side = lhs_width + rhs_width;
         let _available = content_area.width.saturating_sub(total_side);
-        
+
         // Use ratio-based constraints so main panel gets most space
         let (lhs_ratio, main_ratio, rhs_ratio) = if app.lhs_visible && app.rhs_visible {
             (3, 5, 2)
@@ -77,7 +77,7 @@ impl TuiRenderer {
         if app.lhs_visible {
             self.render_lhs(frame, areas[0], app);
         }
-        
+
         self.render_main(frame, areas[1], app);
 
         if app.rhs_visible {
@@ -85,7 +85,7 @@ impl TuiRenderer {
         }
     }
 
-    fn render_vertical(&self, content_area: Rect, frame: &mut Frame, app: &TuiApp) {
+    fn render_vertical(&self, content_area: Rect, frame: &mut Frame, app: &mut TuiApp) {
         // Reserve space for status bar at bottom
         let status_height = 1u16;
         let main_content_area = Rect::new(
@@ -149,7 +149,7 @@ impl TuiRenderer {
 
     fn render_lhs(&self, frame: &mut Frame, area: Rect, app: &TuiApp) {
         let is_active = app.focus == Focus::Lhs;
-        
+
         let block_style = if is_active {
             Style::default().fg(Color::Cyan)
         } else {
@@ -163,142 +163,161 @@ impl TuiRenderer {
         frame.render_widget(block.clone(), area);
 
         // Build list of filter widget entries
-        let items: Vec<Line> = app.lhs_widgets.iter().enumerate().map(|(i, widget)| {
-            let is_selected = i == app.active_lhs_widget && is_active;
-            
-            if widget.enabled || widget.expanded {
-                // Expanded view - build as string with spans
-                let mut spans = vec![Span::styled(
-                    format!("{} ", widget.name),
-                    Style::default().fg(Color::Green).bold()
-                )];
+        let items: Vec<Line> = app
+            .lhs_widgets
+            .iter()
+            .enumerate()
+            .map(|(i, widget)| {
+                let is_selected = i == app.active_lhs_widget && is_active;
 
-                match widget.filter_type {
-                    FilterType::Title => {
-                        if is_selected && app.input_mode == InputMode::TextInput {
-                            let before_cursor = &widget.input_text[..widget.cursor_pos.min(widget.input_text.len())];
-                            let after_cursor = &widget.input_text[widget.cursor_pos.min(widget.input_text.len())..];
-                            spans.push(Span::styled(
-                                format!("{}{}", before_cursor, "█"),
-                                Style::default().fg(Color::White).bg(Color::DarkGray)
-                            ));
-                            spans.push(Span::raw(after_cursor.to_string()));
-                        } else {
-                            spans.push(Span::raw(format!("input: {}", widget.input_text)));
-                            if is_selected && !widget.enabled {
+                if widget.enabled || widget.expanded {
+                    // Expanded view - build as string with spans
+                    let mut spans = vec![Span::styled(
+                        format!("{} ", widget.name),
+                        Style::default().fg(Color::Green).bold(),
+                    )];
+
+                    match widget.filter_type {
+                        FilterType::Title => {
+                            if is_selected && app.input_mode == InputMode::TextInput {
+                                let before_cursor = &widget.input_text
+                                    [..widget.cursor_pos.min(widget.input_text.len())];
+                                let after_cursor = &widget.input_text
+                                    [widget.cursor_pos.min(widget.input_text.len())..];
                                 spans.push(Span::styled(
-                                    " [Enter to edit]",
-                                    Style::default().fg(Color::Yellow)
+                                    format!("{}{}", before_cursor, "█"),
+                                    Style::default().fg(Color::White).bg(Color::DarkGray),
                                 ));
-                            }
-                        }
-                    }
-                    FilterType::Pgn => {
-                        if is_selected && app.input_mode == InputMode::TextInput {
-                            let before_cursor = &widget.input_text[..widget.cursor_pos.min(widget.input_text.len())];
-                            let after_cursor = &widget.input_text[widget.cursor_pos.min(widget.input_text.len())..];
-                            spans.push(Span::styled(
-                                format!("{}{}", before_cursor, "█"),
-                                Style::default().fg(Color::White).bg(Color::DarkGray)
-                            ));
-                            spans.push(Span::raw(after_cursor.to_string()));
-                        } else {
-                            spans.push(Span::raw(format!("pgn: {}", widget.input_text)));
-                            if is_selected && !widget.enabled {
-                                spans.push(Span::styled(
-                                    " [Enter to edit]",
-                                    Style::default().fg(Color::Yellow)
-                                ));
-                            }
-                        }
-                    }
-                    FilterType::Severity => {
-                        let options = ["info", "warning", "error"];
-                        for opt in &options {
-                            if widget.enabled && widget.input_text == *opt {
-                                spans.push(Span::styled(
-                                    format!("  {:>10} <-selected", opt),
-                                    Style::default().fg(Color::Yellow)
-                                ));
+                                spans.push(Span::raw(after_cursor.to_string()));
                             } else {
-                                spans.push(Span::raw(format!("  {:>10}", opt)));
+                                spans.push(Span::raw(format!("input: {}", widget.input_text)));
+                                if is_selected && !widget.enabled {
+                                    spans.push(Span::styled(
+                                        " [Enter to edit]",
+                                        Style::default().fg(Color::Yellow),
+                                    ));
+                                }
                             }
                         }
-                    }
-                    FilterType::Source | FilterType::Dest => {
-                        if is_selected && app.input_mode == InputMode::TextInput {
-                            let before_cursor = &widget.input_text[..widget.cursor_pos.min(widget.input_text.len())];
-                            let after_cursor = &widget.input_text[widget.cursor_pos.min(widget.input_text.len())..];
-                            spans.push(Span::styled(
-                                format!("{}{}", before_cursor, "█"),
-                                Style::default().fg(Color::White).bg(Color::DarkGray)
-                            ));
-                            spans.push(Span::raw(after_cursor.to_string()));
-                        } else {
-                            spans.push(Span::raw(format!("addr: {}", widget.input_text)));
-                            if is_selected && !widget.enabled {
+                        FilterType::Pgn => {
+                            if is_selected && app.input_mode == InputMode::TextInput {
+                                let before_cursor = &widget.input_text
+                                    [..widget.cursor_pos.min(widget.input_text.len())];
+                                let after_cursor = &widget.input_text
+                                    [widget.cursor_pos.min(widget.input_text.len())..];
                                 spans.push(Span::styled(
-                                    " [Enter to edit]",
-                                    Style::default().fg(Color::Yellow)
+                                    format!("{}{}", before_cursor, "█"),
+                                    Style::default().fg(Color::White).bg(Color::DarkGray),
                                 ));
-                            }
-                        }
-                    }
-                    FilterType::Numeric => {
-                        if is_selected && app.input_mode == InputMode::TextInput {
-                            let before_cursor = &widget.input_text[..widget.cursor_pos.min(widget.input_text.len())];
-                            let after_cursor = &widget.input_text[widget.cursor_pos.min(widget.input_text.len())..];
-                            spans.push(Span::styled(
-                                format!("{}{}", before_cursor, "█"),
-                                Style::default().fg(Color::White).bg(Color::DarkGray)
-                            ));
-                            spans.push(Span::raw(after_cursor.to_string()));
-                        } else {
-                            spans.push(Span::raw(format!("range: {}", widget.input_text)));
-                            if is_selected && !widget.enabled {
-                                spans.push(Span::styled(
-                                    " [Enter to edit]",
-                                    Style::default().fg(Color::Yellow)
-                                ));
-                            }
-                        }
-                    }
-                    FilterType::Flag => {
-                        let options = ["on", "off", "error", "unavailable"];
-                        for opt in &options {
-                            if widget.enabled && widget.input_text == *opt {
-                                spans.push(Span::styled(
-                                    format!("  {:>12} <-selected", opt),
-                                    Style::default().fg(Color::Yellow)
-                                ));
+                                spans.push(Span::raw(after_cursor.to_string()));
                             } else {
-                                spans.push(Span::raw(format!("  {:>12}", opt)));
+                                spans.push(Span::raw(format!("pgn: {}", widget.input_text)));
+                                if is_selected && !widget.enabled {
+                                    spans.push(Span::styled(
+                                        " [Enter to edit]",
+                                        Style::default().fg(Color::Yellow),
+                                    ));
+                                }
+                            }
+                        }
+                        FilterType::Severity => {
+                            let options = ["info", "warning", "error"];
+                            for opt in &options {
+                                if widget.enabled && widget.input_text == *opt {
+                                    spans.push(Span::styled(
+                                        format!("  {:>10} <-selected", opt),
+                                        Style::default().fg(Color::Yellow),
+                                    ));
+                                } else {
+                                    spans.push(Span::raw(format!("  {:>10}", opt)));
+                                }
+                            }
+                        }
+                        FilterType::Source | FilterType::Dest => {
+                            if is_selected && app.input_mode == InputMode::TextInput {
+                                let before_cursor = &widget.input_text
+                                    [..widget.cursor_pos.min(widget.input_text.len())];
+                                let after_cursor = &widget.input_text
+                                    [widget.cursor_pos.min(widget.input_text.len())..];
+                                spans.push(Span::styled(
+                                    format!("{}{}", before_cursor, "█"),
+                                    Style::default().fg(Color::White).bg(Color::DarkGray),
+                                ));
+                                spans.push(Span::raw(after_cursor.to_string()));
+                            } else {
+                                spans.push(Span::raw(format!("addr: {}", widget.input_text)));
+                                if is_selected && !widget.enabled {
+                                    spans.push(Span::styled(
+                                        " [Enter to edit]",
+                                        Style::default().fg(Color::Yellow),
+                                    ));
+                                }
+                            }
+                        }
+                        FilterType::Numeric => {
+                            if is_selected && app.input_mode == InputMode::TextInput {
+                                let before_cursor = &widget.input_text
+                                    [..widget.cursor_pos.min(widget.input_text.len())];
+                                let after_cursor = &widget.input_text
+                                    [widget.cursor_pos.min(widget.input_text.len())..];
+                                spans.push(Span::styled(
+                                    format!("{}{}", before_cursor, "█"),
+                                    Style::default().fg(Color::White).bg(Color::DarkGray),
+                                ));
+                                spans.push(Span::raw(after_cursor.to_string()));
+                            } else {
+                                spans.push(Span::raw(format!("range: {}", widget.input_text)));
+                                if is_selected && !widget.enabled {
+                                    spans.push(Span::styled(
+                                        " [Enter to edit]",
+                                        Style::default().fg(Color::Yellow),
+                                    ));
+                                }
+                            }
+                        }
+                        FilterType::Flag => {
+                            let options = ["on", "off", "error", "unavailable"];
+                            for opt in &options {
+                                if widget.enabled && widget.input_text == *opt {
+                                    spans.push(Span::styled(
+                                        format!("  {:>12} <-selected", opt),
+                                        Style::default().fg(Color::Yellow),
+                                    ));
+                                } else {
+                                    spans.push(Span::raw(format!("  {:>12}", opt)));
+                                }
                             }
                         }
                     }
-                }
-                
-                Line::from(spans)
-            } else {
-                // Minimized - just show name with enabled indicator
-                let indicator = if widget.enabled { "*" } else { " " };
-                let text = format!("  {} {}", indicator, widget.name);
-                if is_selected {
-                    Line::from(text).style(Style::default().bg(Color::DarkGray))
+
+                    Line::from(spans)
                 } else {
-                    Line::from(text)
+                    // Minimized - just show name with enabled indicator
+                    let indicator = if widget.enabled { "*" } else { " " };
+                    let text = format!("  {} {}", indicator, widget.name);
+                    if is_selected {
+                        Line::from(text).style(Style::default().bg(Color::DarkGray))
+                    } else {
+                        Line::from(text)
+                    }
                 }
-            }
-        }).collect();
+            })
+            .collect();
 
         let list = List::new(items)
             .block(Block::default().borders(Borders::NONE))
             .highlight_style(Style::default().bg(Color::DarkGray).fg(Color::White));
 
-        frame.render_widget(list, area.inner(Margin { vertical: 1, horizontal: 1 }));
+        frame.render_widget(
+            list,
+            area.inner(Margin {
+                vertical: 1,
+                horizontal: 1,
+            }),
+        );
     }
 
-    fn render_main(&self, frame: &mut Frame, area: Rect, app: &TuiApp) {
+    fn render_main(&self, frame: &mut Frame, area: Rect, app: &mut TuiApp) {
         let is_active = app.focus == Focus::Main;
 
         let block_style = if is_active {
@@ -313,8 +332,11 @@ impl TuiRenderer {
             .style(block_style);
         frame.render_widget(block.clone(), area);
 
-        let inner = area.inner(Margin { vertical: 1, horizontal: 1 });
-        let viewport_height = inner.height as usize;
+        let inner = area.inner(Margin {
+            vertical: 1,
+            horizontal: 1,
+        });
+        let viewport_height = inner.height.saturating_sub(1) as usize;
 
         if app.messages.is_empty() {
             let msg = Paragraph::new("No messages received yet.")
@@ -323,6 +345,12 @@ impl TuiRenderer {
             frame.render_widget(msg, inner);
             return;
         }
+
+        let selected_local = if is_active {
+            app.scroll_manager.get_selected_viewport_index()
+        } else {
+            None
+        };
 
         let visible_msgs = app.get_visible_messages(viewport_height);
 
@@ -347,46 +375,43 @@ impl TuiRenderer {
             Constraint::Ratio(1, 7),
         ];
 
-        let selected_local = if is_active && app.selected_index >= app.scroll_offset
-            && app.selected_index < app.scroll_offset + visible_msgs.len() {
-            Some(app.selected_index - app.scroll_offset)
-        } else {
-            None
-        };
+        let rows: Vec<Row> = visible_msgs
+            .iter()
+            .enumerate()
+            .map(|(i, msg)| {
+                let is_selected = selected_local == Some(i);
 
-        let rows: Vec<Row> = visible_msgs.iter().enumerate().map(|(i, msg)| {
-            let is_selected = selected_local == Some(i);
+                let timestamp_str = format_timestamp(msg.timestamp());
+                let src_hex = format!("{:02X}", msg.source_address());
+                let dst_hex = format!("{:02X}", msg.dest_address());
+                let pgn_hex = format!("{:X}", msg.pgn());
+                let title = &msg.title;
 
-            let timestamp_str = format_timestamp(msg.timestamp());
-            let src_hex = format!("{:02X}", msg.source_address());
-            let dst_hex = format!("{:02X}", msg.dest_address());
-            let pgn_hex = format!("{:X}", msg.pgn());
-            let title = &msg.title;
+                let detail_str = self.build_detail_string(msg);
 
-            let detail_str = self.build_detail_string(msg);
-
-            if is_selected {
-                Row::new(vec![
-                    Cell::from(timestamp_str),
-                    Cell::from(src_hex),
-                    Cell::from(dst_hex),
-                    Cell::from(pgn_hex),
-                    Cell::from(title.to_string()),
-                    Cell::from(detail_str),
-                ])
-                .style(Style::default().bg(Color::DarkGray).fg(Color::White))
-            } else {
-                Row::new(vec![
-                    timestamp_str,
-                    src_hex,
-                    dst_hex,
-                    pgn_hex,
-                    title.to_string(),
-                    detail_str,
-                ])
-                .style(Style::default().fg(Color::White))
-            }
-        }).collect();
+                if is_selected {
+                    Row::new(vec![
+                        Cell::from(timestamp_str),
+                        Cell::from(src_hex),
+                        Cell::from(dst_hex),
+                        Cell::from(pgn_hex),
+                        Cell::from(title.to_string()),
+                        Cell::from(detail_str),
+                    ])
+                    .style(Style::default().bg(Color::DarkGray).fg(Color::White))
+                } else {
+                    Row::new(vec![
+                        timestamp_str,
+                        src_hex,
+                        dst_hex,
+                        pgn_hex,
+                        title.to_string(),
+                        detail_str,
+                    ])
+                    .style(Style::default().fg(Color::White))
+                }
+            })
+            .collect();
 
         let table = Table::new(rows, column_widths)
             .header(header_row)
@@ -399,7 +424,9 @@ impl TuiRenderer {
         let mut parts = Vec::new();
         for output in msg.outputs.iter().take(2) {
             match output {
-                DecodedField::Value { title, value, unit, .. } => {
+                DecodedField::Value {
+                    title, value, unit, ..
+                } => {
                     let val_str = format_value(&value);
                     if let Some(u) = unit {
                         parts.push(format!("{}={} {}", title, val_str, u));
@@ -431,7 +458,7 @@ impl TuiRenderer {
 
     fn render_rhs(&self, frame: &mut Frame, area: Rect, app: &TuiApp) {
         let is_active = app.focus == Focus::Rhs;
-        
+
         let block_style = if is_active {
             Style::default().fg(Color::Cyan)
         } else {
@@ -444,25 +471,44 @@ impl TuiRenderer {
             .style(block_style);
         frame.render_widget(block.clone(), area);
 
-        let inner = area.inner(Margin { vertical: 1, horizontal: 1 });
+        let inner = area.inner(Margin {
+            vertical: 1,
+            horizontal: 1,
+        });
 
         if let Some(msg) = app.get_selected_message() {
             let mut paragraphs = Vec::new();
 
             // Header section
             paragraphs.push(Line::from("").style(Style::default().fg(Color::Yellow).bold()));
-            paragraphs.push(Line::from(format!(" {}", msg.title)).style(Style::default().fg(Color::Yellow).bold()));
-            
+            paragraphs.push(
+                Line::from(format!(" {}", msg.title))
+                    .style(Style::default().fg(Color::Yellow).bold()),
+            );
+
             // Metadata section
             paragraphs.push(Line::from("").style(Style::default()));
             paragraphs.push(Line::from("Metadata:").style(Style::default().fg(Color::Cyan).bold()));
-            
+
             let timestamp = format_timestamp(msg.timestamp());
             paragraphs.push(Line::from(format!("  Time:    {}", timestamp)));
-            paragraphs.push(Line::from(format!("  PGN:     {:X} ({})", msg.pgn(), msg.title)));
-            paragraphs.push(Line::from(format!("  CAN ID:  {:08X}", msg.assembled_message.id)));
-            paragraphs.push(Line::from(format!("  Source:  {:02X}h", msg.source_address())));
-            paragraphs.push(Line::from(format!("  Dest:    {:02X}h", msg.dest_address())));
+            paragraphs.push(Line::from(format!(
+                "  PGN:     {:X} ({})",
+                msg.pgn(),
+                msg.title
+            )));
+            paragraphs.push(Line::from(format!(
+                "  CAN ID:  {:08X}",
+                msg.assembled_message.id
+            )));
+            paragraphs.push(Line::from(format!(
+                "  Source:  {:02X}h",
+                msg.source_address()
+            )));
+            paragraphs.push(Line::from(format!(
+                "  Dest:    {:02X}h",
+                msg.dest_address()
+            )));
 
             // Try to resolve device name
             let src_name = app.device_manager.get_device(msg.source_address());
@@ -473,7 +519,8 @@ impl TuiRenderer {
             }
 
             // Raw data
-            let data_hex: String = msg.data_bytes()
+            let data_hex: String = msg
+                .data_bytes()
                 .iter()
                 .map(|b| format!("{:02X}", b))
                 .collect::<Vec<_>>()
@@ -483,23 +530,38 @@ impl TuiRenderer {
             // Decoded fields section
             if !msg.outputs.is_empty() {
                 paragraphs.push(Line::from("").style(Style::default()));
-                paragraphs.push(Line::from("Decoded Fields:").style(Style::default().fg(Color::Cyan).bold()));
+                paragraphs.push(
+                    Line::from("Decoded Fields:").style(Style::default().fg(Color::Cyan).bold()),
+                );
 
                 for output in &msg.outputs {
                     match output {
-                        DecodedField::Value { title, value, unit, decimal_places } => {
+                        DecodedField::Value {
+                            title,
+                            value,
+                            unit,
+                            decimal_places,
+                        } => {
                             paragraphs.push(Line::from("").style(Style::default()));
-                            paragraphs.push(Line::from(format!("  {}", title)).style(Style::default().fg(Color::Green).bold()));
-                            
-                    let val_str = format_value(&value);
+                            paragraphs.push(
+                                Line::from(format!("  {}", title))
+                                    .style(Style::default().fg(Color::Green).bold()),
+                            );
+
+                            let val_str = format_value(&value);
                             paragraphs.push(Line::from(format!("    Value:   {}", val_str)));
-                            
+
                             if let Some(u) = unit {
                                 paragraphs.push(Line::from(format!("    Unit:    {}", u)));
                             }
                             if let Some(dp) = decimal_places {
-                                let prec = if *dp > 0 { format!(".{}", "0".repeat(*dp as usize)) } else { String::new() };
-                                paragraphs.push(Line::from(format!("    Precision:{} digits", prec)));
+                                let prec = if *dp > 0 {
+                                    format!(".{}", "0".repeat(*dp as usize))
+                                } else {
+                                    String::new()
+                                };
+                                paragraphs
+                                    .push(Line::from(format!("    Precision:{} digits", prec)));
                             }
 
                             // Raw hex representation
@@ -509,7 +571,10 @@ impl TuiRenderer {
                                     let bytes = f.to_bits();
                                     format!("{:#018X}", bytes)
                                 }
-                                Numeric::Hex(h) => format!("0x{}", h.iter().map(|b| format!("{:02X}", b)).collect::<String>()),
+                                Numeric::Hex(h) => format!(
+                                    "0x{}",
+                                    h.iter().map(|b| format!("{:02X}", b)).collect::<String>()
+                                ),
                                 Numeric::Bool(b) => format!("{}", if *b { 1u64 } else { 0u64 }),
                             };
                             paragraphs.push(Line::from(format!("    Raw:     {}", raw_hex)));
@@ -521,7 +586,10 @@ impl TuiRenderer {
                                 Severity::Warning => Color::Yellow,
                                 Severity::Error => Color::Red,
                             };
-                            paragraphs.push(Line::from(format!("  [{:?}] {}", severity, text)).style(Style::default().fg(sev_color)));
+                            paragraphs.push(
+                                Line::from(format!("  [{:?}] {}", severity, text))
+                                    .style(Style::default().fg(sev_color)),
+                            );
                         }
                         DecodedField::Flag { title, value } => {
                             paragraphs.push(Line::from("").style(Style::default()));
@@ -537,7 +605,10 @@ impl TuiRenderer {
                                 FlagValue::Error => "ERROR",
                                 FlagValue::Unavailable => "UNAVAILABLE",
                             };
-                            paragraphs.push(Line::from(format!("  {} = {}", title, flag_str)).style(Style::default().fg(flag_color)));
+                            paragraphs.push(
+                                Line::from(format!("  {} = {}", title, flag_str))
+                                    .style(Style::default().fg(flag_color)),
+                            );
                         }
                     }
                 }
@@ -546,7 +617,9 @@ impl TuiRenderer {
             // Updates section
             if !msg.updates.is_empty() {
                 paragraphs.push(Line::from("").style(Style::default()));
-                paragraphs.push(Line::from("Device Updates:").style(Style::default().fg(Color::Cyan).bold()));
+                paragraphs.push(
+                    Line::from("Device Updates:").style(Style::default().fg(Color::Cyan).bold()),
+                );
                 for update in &msg.updates {
                     paragraphs.push(Line::from(format!(
                         "  target_name={:#018X} param_id={} value={:?}",
@@ -570,21 +643,34 @@ impl TuiRenderer {
     fn error_log_popup(&self, area: Rect, app: &TuiApp) -> (Rect, Paragraph<'static>) {
         let width = 70u16;
         let height = 20u16;
-        
+
         let x = (area.width.saturating_sub(width)) / 2;
         let y = (area.height.saturating_sub(height)) / 2;
-        
-        let popup_area = Rect { x, y, width, height };
+
+        let popup_area = Rect {
+            x,
+            y,
+            width,
+            height,
+        };
 
         let mut lines = Vec::new();
-        lines.push(Line::from(" Error/Warning Log [Esc to close] ").style(Style::default().fg(Color::Yellow).bold()));
+        lines.push(
+            Line::from(" Error/Warning Log [Esc to close] ")
+                .style(Style::default().fg(Color::Yellow).bold()),
+        );
         lines.push(Line::from("").style(Style::default()));
 
         let log_entries: Vec<&str> = if app.error_log.is_empty() {
             vec!["No errors or warnings."]
         } else {
             let start = app.error_log.len().saturating_sub(height as usize - 4);
-            app.error_log.iter().map(|s| s.as_str()).skip(start).take((height - 4) as usize).collect()
+            app.error_log
+                .iter()
+                .map(|s| s.as_str())
+                .skip(start)
+                .take((height - 4) as usize)
+                .collect()
         };
 
         for entry in log_entries {
@@ -603,7 +689,10 @@ fn format_value(value: &Numeric) -> String {
     match value {
         Numeric::Int(i) => format!("{}", i),
         Numeric::Float(f) => format!("{:.4}", f),
-        Numeric::Hex(h) => format!("0x{}", h.iter().map(|b| format!("{:02X}", b)).collect::<String>()),
+        Numeric::Hex(h) => format!(
+            "0x{}",
+            h.iter().map(|b| format!("{:02X}", b)).collect::<String>()
+        ),
         Numeric::Bool(b) => format!("{}", b),
     }
 }

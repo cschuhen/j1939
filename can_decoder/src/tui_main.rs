@@ -1,18 +1,20 @@
 use can_decoder::config::{validate_proprietary_definitions, LayoutOrientation, TuiCli};
+use can_decoder::traits::Source;
 use can_decoder::tui::app::{TuiApp, TuiKey};
 use can_decoder::tui::renderer::TuiRenderer;
-use can_decoder::traits::Source;
 use can_decoder::types::DecodedMessage;
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, KeyModifiers},
+    event::{
+        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, KeyModifiers,
+    },
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
-use std::sync::atomic::{AtomicBool, Ordering};
-use tokio::sync::mpsc;
+
 use clap::Parser;
+use tokio::sync::mpsc;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -31,7 +33,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Layout: {:?}", cli.layout);
 
     // Validate proprietary DDI definitions
-    let proprietary_defs = validate_proprietary_definitions(&config.use_proprietary_ddi_definitions);
+    let proprietary_defs =
+        validate_proprietary_definitions(&config.use_proprietary_ddi_definitions);
 
     // Build pipeline
     let mut pipeline = can_decoder::pipeline::Pipeline::new();
@@ -49,7 +52,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         can_decoder::SourceType::Candump => {
             if let Some(ref file) = config.input_file {
-                let source = std::sync::Arc::new(can_decoder::sources::CandumpFileSource::new(file));
+                let source =
+                    std::sync::Arc::new(can_decoder::sources::CandumpFileSource::new(file));
                 println!("[{}] Starting candump source...", source.name());
                 pipeline.spawn_source(source);
             } else {
@@ -81,7 +85,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Bridge: decoder output -> mpsc channel for TUI event loop
     let (msg_tx, mut msg_rx) = mpsc::unbounded_channel::<DecodedMessage>();
-    
+
     tokio::spawn(async move {
         let mut rx = filter_rx;
         while let Some(message) = rx.recv().await {
@@ -115,11 +119,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         let _ = shutdown_tx.send(());
     });
-    
+
     // Main event loop
     let mut last_frame_time = std::time::Instant::now();
     let mut running = true;
-    
+
     while running {
         // Drain messages from pipeline channel
         while let Ok(message) = msg_rx.try_recv() {
@@ -129,7 +133,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Render at ~60fps
         if last_frame_time.elapsed() >= std::time::Duration::from_millis(16) {
             terminal.draw(|frame| {
-                renderer.render(frame, &app);
+                renderer.render(frame, &mut app);
             })?;
             last_frame_time = std::time::Instant::now();
         }
@@ -147,7 +151,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press || key.kind == KeyEventKind::Repeat {
                     // Direct Ctrl+C check - crossterm may represent it as Char('\u{3}') or Char('\u{0}') with CONTROL
-                    if (key.code == KeyCode::Char('c') || key.code == KeyCode::Char('C')) && key.modifiers.contains(KeyModifiers::CONTROL) {
+                    if (key.code == KeyCode::Char('c') || key.code == KeyCode::Char('C'))
+                        && key.modifiers.contains(KeyModifiers::CONTROL)
+                    {
                         running = false;
                     } else if key.code == KeyCode::Char('q') {
                         running = false;

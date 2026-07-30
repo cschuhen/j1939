@@ -25,7 +25,7 @@ pub mod types;
 pub mod tui;
 
 // Re-export shared config types for convenience
-pub use config::{LayoutOrientation, SharedConfig, SourceType, DetailLevel, OutputFormat};
+pub use config::{DetailLevel, LayoutOrientation, OutputFormat, SharedConfig, SourceType};
 
 use clap::Parser;
 

@@ -201,8 +201,12 @@ impl TpReassembler {
             TpMessageType::ConnectionManagement => self.handle_connection_management(frame),
             TpMessageType::DataPacket => self.handle_data_packet(frame),
             TpMessageType::NotTp => {
-                let assembled =
-                    AssembledMessage::with_pgn(frame.can_id, frame.pgn(), frame.data.clone(), frame.timestamp);
+                let assembled = AssembledMessage::with_pgn(
+                    frame.can_id,
+                    frame.pgn(),
+                    frame.data.clone(),
+                    frame.timestamp,
+                );
                 Some(TpReassemblyResult::SingleFrame(assembled))
             }
         }
@@ -891,13 +895,19 @@ mod tests {
             can_id_base,
             &[0x01, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x01],
         );
-        assert!(matches!(reassembler.process_frame(&frame1), Some(TpReassemblyResult::Pending)));
+        assert!(matches!(
+            reassembler.process_frame(&frame1),
+            Some(TpReassemblyResult::Pending)
+        ));
 
         let frame2 = make_frame(
             can_id_base,
             &[0x02, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77],
         );
-        assert!(matches!(reassembler.process_frame(&frame2), Some(TpReassemblyResult::Pending)));
+        assert!(matches!(
+            reassembler.process_frame(&frame2),
+            Some(TpReassemblyResult::Pending)
+        ));
 
         let frame3 = make_frame(can_id_base, &[0x03, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC]);
         match reassembler.process_frame(&frame3) {
@@ -951,7 +961,10 @@ mod tests {
             &[0x01, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x01],
         );
 
-        assert!(matches!(reassembler.process_frame(&frame1), Some(TpReassemblyResult::Pending)));
+        assert!(matches!(
+            reassembler.process_frame(&frame1),
+            Some(TpReassemblyResult::Pending)
+        ));
 
         assert!(reassembler.assemblies.contains_key(&key));
     }
@@ -987,7 +1000,10 @@ mod tests {
             &[0x01, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x01],
         );
 
-        assert!(matches!(reassembler.process_frame(&frame), Some(TpReassemblyResult::Pending)));
+        assert!(matches!(
+            reassembler.process_frame(&frame),
+            Some(TpReassemblyResult::Pending)
+        ));
     }
 
     // ========================================================================
@@ -2075,10 +2091,12 @@ mod tests {
 
         // EOM should be processed after assembly completes without interfering
         let eom_can_id = (7u32 << 26) | ((0xEC as u32) << 16) | ((0x20 as u32) << 8) | 0x21;
-        assert!(reassembler.process_frame(&make_frame(
-            eom_can_id,
-            &[0x13, 0x0A, 0x00, 0x02, 0xFF, 0x00, 0x10, 0x00],
-        )).is_none());
+        assert!(reassembler
+            .process_frame(&make_frame(
+                eom_can_id,
+                &[0x13, 0x0A, 0x00, 0x02, 0xFF, 0x00, 0x10, 0x00],
+            ))
+            .is_none());
 
         // Assembly should be cleaned up by EOM
         assert!(!reassembler.assemblies.contains_key(&(0x20, 0x21)));
@@ -2281,7 +2299,9 @@ mod tests {
 
         // Abort instead of CTS
         let abort_can_id = (7u32 << 26) | ((0xEC as u32) << 16) | ((0x20 as u32) << 8) | 0x21;
-        assert!(reassembler.process_frame(&make_frame(abort_can_id, &[0x1C, 0x00])).is_none());
+        assert!(reassembler
+            .process_frame(&make_frame(abort_can_id, &[0x1C, 0x00]))
+            .is_none());
     }
 
     #[test]

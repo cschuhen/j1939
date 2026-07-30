@@ -166,9 +166,7 @@ impl Filter for TitleFilter {
             DecodedField::Value { title, .. } => {
                 title.to_lowercase().contains(&self.title_contains)
             }
-            DecodedField::Flag { title, .. } => {
-                title.to_lowercase().contains(&self.title_contains)
-            }
+            DecodedField::Flag { title, .. } => title.to_lowercase().contains(&self.title_contains),
             DecodedField::StringMessage { text, .. } => {
                 text.to_lowercase().contains(&self.title_contains)
             }
@@ -301,14 +299,20 @@ impl Filter for CompositeFilter {
 
 fn parse_hex_or_dec_u32(s: &str) -> Result<u32, anyhow::Error> {
     s.parse().or_else(|_| {
-        let stripped = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")).unwrap_or(s);
+        let stripped = s
+            .strip_prefix("0x")
+            .or_else(|| s.strip_prefix("0X"))
+            .unwrap_or(s);
         u32::from_str_radix(stripped, 16).map_err(anyhow::Error::from)
     })
 }
 
 fn parse_hex_or_dec_u64(s: &str) -> Result<u64, anyhow::Error> {
     s.parse().or_else(|_| {
-        let stripped = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")).unwrap_or(s);
+        let stripped = s
+            .strip_prefix("0x")
+            .or_else(|| s.strip_prefix("0X"))
+            .unwrap_or(s);
         u64::from_str_radix(stripped, 16).map_err(anyhow::Error::from)
     })
 }
@@ -331,16 +335,66 @@ impl FilterParser {
     pub fn print_help() {
         use owo_colors::OwoColorize;
         eprintln!("{}", "Available filter types:".bold().cyan());
-        eprintln!("  {}.{}              Match by output title (case-insensitive substring)", "title".green().bold(), "<substring>".dimmed());
-        eprintln!("  {}.{}                   Match by PGN number (decimal or hex, e.g. {} or {})", "pgn".green().bold(), "<number>".dimmed(), "pgn:51968".yellow(), "pgn:0xCB00".yellow());
-        eprintln!("  {}.{}               Match by severity (info, warning, error)", "severity".green().bold(), "<level>".dimmed());
-        eprintln!("  {}.{}={}           Match flag value (off, on, error, unavailable)", "flag".green().bold(), "<title>".dimmed(), "<value>".dimmed());
-        eprintln!("  {}.{}:{}         Match numeric (exact N, range N-M, >=N, <=N; e.g. {} or {})", "numeric".green().bold(), "<title>".dimmed(), "<range>".dimmed(), "numeric:RPM:0-5000".yellow(), "numeric:Element:10".yellow());
-        eprintln!("  {}.{}                Match string message text against regex pattern", "regex".green().bold(), "<pattern>".dimmed());
-        eprintln!("  {}.{}              Match by source address (0-255, e.g. {})", "source".green().bold(), "<addr>".dimmed(), "source:144".yellow());
-        eprintln!("  {}.{}              Match by destination address (0-255, e.g. {})", "dest".green().bold(), "<addr>".dimmed(), "dest:255".yellow());
-        eprintln!("  {}.{}              Match by source NAME in hex (e.g. {})", "src-name".green().bold(), "<hex>".dimmed(), "src-name:0x80000000000F2EEC".yellow());
-        eprintln!("  {}.{}              Match by destination NAME in hex (e.g. {})", "dest-name".green().bold(), "<hex>".dimmed(), "dest-name:0x80000000000A1EEC".yellow());
+        eprintln!(
+            "  {}.{}              Match by output title (case-insensitive substring)",
+            "title".green().bold(),
+            "<substring>".dimmed()
+        );
+        eprintln!(
+            "  {}.{}                   Match by PGN number (decimal or hex, e.g. {} or {})",
+            "pgn".green().bold(),
+            "<number>".dimmed(),
+            "pgn:51968".yellow(),
+            "pgn:0xCB00".yellow()
+        );
+        eprintln!(
+            "  {}.{}               Match by severity (info, warning, error)",
+            "severity".green().bold(),
+            "<level>".dimmed()
+        );
+        eprintln!(
+            "  {}.{}={}           Match flag value (off, on, error, unavailable)",
+            "flag".green().bold(),
+            "<title>".dimmed(),
+            "<value>".dimmed()
+        );
+        eprintln!(
+            "  {}.{}:{}         Match numeric (exact N, range N-M, >=N, <=N; e.g. {} or {})",
+            "numeric".green().bold(),
+            "<title>".dimmed(),
+            "<range>".dimmed(),
+            "numeric:RPM:0-5000".yellow(),
+            "numeric:Element:10".yellow()
+        );
+        eprintln!(
+            "  {}.{}                Match string message text against regex pattern",
+            "regex".green().bold(),
+            "<pattern>".dimmed()
+        );
+        eprintln!(
+            "  {}.{}              Match by source address (0-255, e.g. {})",
+            "source".green().bold(),
+            "<addr>".dimmed(),
+            "source:144".yellow()
+        );
+        eprintln!(
+            "  {}.{}              Match by destination address (0-255, e.g. {})",
+            "dest".green().bold(),
+            "<addr>".dimmed(),
+            "dest:255".yellow()
+        );
+        eprintln!(
+            "  {}.{}              Match by source NAME in hex (e.g. {})",
+            "src-name".green().bold(),
+            "<hex>".dimmed(),
+            "src-name:0x80000000000F2EEC".yellow()
+        );
+        eprintln!(
+            "  {}.{}              Match by destination NAME in hex (e.g. {})",
+            "dest-name".green().bold(),
+            "<hex>".dimmed(),
+            "dest-name:0x80000000000A1EEC".yellow()
+        );
         eprintln!();
         eprintln!("{}", "Examples:".bold().cyan());
         eprintln!("  --filter {}", "pgn:51968".yellow());
