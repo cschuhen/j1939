@@ -10,6 +10,7 @@ use crossterm::{
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::mpsc;
 use clap::Parser;
 
@@ -145,18 +146,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if event::poll(std::time::Duration::from_millis(50))? {
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press || key.kind == KeyEventKind::Repeat {
-                    let tui_key = convert_key(key.code, key.modifiers);
-                    
-                    match tui_key {
-                        TuiKey::Char('q') => {
-                            running = false;
-                        }
-                        TuiKey::F(4) => {
-                            app.toggle_layout();
-                        }
-                        _ => {
-                            app.handle_key(tui_key);
-                        }
+                    // Direct Ctrl+C check - crossterm may represent it as Char('\u{3}') or Char('\u{0}') with CONTROL
+                    if (key.code == KeyCode::Char('c') || key.code == KeyCode::Char('C')) && key.modifiers.contains(KeyModifiers::CONTROL) {
+                        running = false;
+                    } else if key.code == KeyCode::Char('q') {
+                        running = false;
+                    } else if key.code == KeyCode::F(4) {
+                        app.toggle_layout();
+                    } else {
+                        let tui_key = convert_key(key.code, key.modifiers);
+                        app.handle_key(tui_key);
                     }
                 }
             }
@@ -178,6 +177,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 fn convert_key(code: KeyCode, modifiers: KeyModifiers) -> TuiKey {
     match code {
+        KeyCode::Char('\u{3}') if modifiers.contains(KeyModifiers::CONTROL) => TuiKey::CtrlC,
+        KeyCode::Char('\u{0}') if modifiers.contains(KeyModifiers::CONTROL) => TuiKey::CtrlC,
         KeyCode::Char('q') => TuiKey::Char('q'),
         KeyCode::Char(c) => TuiKey::Char(c),
         KeyCode::F(n) => TuiKey::F(n),
@@ -202,13 +203,8 @@ fn convert_key(code: KeyCode, modifiers: KeyModifiers) -> TuiKey {
         KeyCode::Enter => TuiKey::Enter,
         KeyCode::Esc => TuiKey::Esc,
         KeyCode::Backspace | KeyCode::Delete => TuiKey::Char('\u{7F}'),
-        KeyCode::Tab => {
-            if modifiers == KeyModifiers::SHIFT {
-                TuiKey::ShiftTab
-            } else {
-                TuiKey::Tab
-            }
-        }
+        KeyCode::Tab => TuiKey::Tab,
+        KeyCode::BackTab => TuiKey::ShiftTab,
         _ => TuiKey::Char(' '),
     }
 }

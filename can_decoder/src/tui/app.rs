@@ -181,17 +181,16 @@ impl TuiApp {
             messages: VecDeque::new(),
             selected_index: 0,
             scroll_offset: 0,
-            is_live_stream: true,
+            is_live_stream: false,
             max_messages: 10000,
             lhs_widgets: vec![
                 FilterWidget::new("Title", FilterType::Title),
                 FilterWidget::new("PGN", FilterType::Pgn),
                 FilterWidget::new("Severity", FilterType::Severity),
-                FilterWidget::new("Source", FilterType::Source),
-                FilterWidget::new("Dest", FilterType::Dest),
-                FilterWidget::new("RPM", FilterType::Numeric),
-                FilterWidget::new("Speed", FilterType::Numeric),
-                FilterWidget::new("Engine", FilterType::Flag),
+                FilterWidget::new("Source Addr", FilterType::Source),
+                FilterWidget::new("Dest Addr", FilterType::Dest),
+                FilterWidget::new("Src Name", FilterType::Numeric),
+                FilterWidget::new("Dst Name", FilterType::Numeric),
             ],
             active_lhs_widget: 0,
             device_manager: DeviceManager::new(60),
@@ -250,8 +249,6 @@ impl TuiApp {
             if self.is_live_stream {
                 self.selected_index = self.messages.len() - 1;
                 self.scroll_offset = self.messages.len().saturating_sub(1);
-            } else if self.selected_index >= self.messages.len() {
-                self.selected_index = self.messages.len() - 1;
             }
         }
     }
@@ -275,40 +272,68 @@ impl TuiApp {
             return;
         }
 
-        if self.is_live_stream {
+        let max_scroll = self.messages.len().saturating_sub(viewport_height);
+        
+        // In live mode at bottom, auto-follow new messages
+        if self.is_live_stream && self.selected_index >= self.messages.len() - 1 {
             self.selected_index = self.messages.len() - 1;
-            self.scroll_offset = self.messages.len().saturating_sub(1);
-        } else {
+            self.scroll_offset = max_scroll;
+            return;
+        }
+
+        // Manual scrolling: move selection down one and keep it visible
+        let new_selected = (self.selected_index + 1).min(self.messages.len() - 1);
+        self.selected_index = new_selected;
+        
+        // Adjust scroll_offset to keep selected message in view
+        if !self.is_live_stream && new_selected > self.scroll_offset {
+            // In manual mode, follow selection after first page
             let max_scroll = self.messages.len().saturating_sub(viewport_height);
-            if self.scroll_offset < max_scroll {
-                self.scroll_offset += 1;
-            }
-            if self.selected_index < self.messages.len() - 1 {
-                self.selected_index += 1;
-            }
+            let offset = new_selected.saturating_sub(viewport_height).saturating_add(1);
+            self.scroll_offset = offset.max(0).min(max_scroll);
+        } else if new_selected >= self.scroll_offset + viewport_height {
+            // In live mode, only scroll when selection goes past bottom of view
+            let max_scroll = self.messages.len().saturating_sub(viewport_height);
+            let offset = new_selected.saturating_sub(viewport_height).saturating_add(1);
+            self.scroll_offset = offset.max(0).min(max_scroll);
         }
     }
 
-    pub fn scroll_up(&mut self) {
-        if self.scroll_offset > 0 {
-            self.scroll_offset -= 1;
+    pub fn scroll_up(&mut self, viewport_height: usize) {
+        // Switch from live to manual when scrolling up from bottom
+        if self.is_live_stream && self.selected_index >= self.messages.len() - 1 {
+            self.is_live_stream = false;
         }
-        if self.selected_index > 0 {
-            self.selected_index -= 1;
+        
+        let new_selected = if self.selected_index > 0 {
+            self.selected_index - 1
+        } else {
+            0
+        };
+        self.selected_index = new_selected;
+        
+        // Adjust scroll_offset to keep selected message in view (manual mode)
+        if !self.is_live_stream && new_selected < self.scroll_offset {
+            let max_scroll = self.messages.len().saturating_sub(viewport_height);
+            self.scroll_offset = new_selected.min(max_scroll);
         }
     }
 
     pub fn page_down(&mut self, viewport_height: usize) {
-        let pages = viewport_height * 3;
+        let pages = viewport_height * 2;
         for _ in 0..pages {
             self.scroll_down(viewport_height);
         }
     }
 
     pub fn page_up(&mut self, viewport_height: usize) {
-        let pages = viewport_height * 3;
+        if self.is_live_stream && self.selected_index >= self.messages.len() - 1 {
+            self.is_live_stream = false;
+        }
+        
+        let pages = viewport_height * 2;
         for _ in 0..pages {
-            self.scroll_up();
+            self.scroll_up(viewport_height);
         }
     }
 
@@ -318,7 +343,10 @@ impl TuiApp {
         }
 
         let total = self.messages.len();
-        let start = if self.is_live_stream {
+        
+        // In live mode at bottom, show last N messages
+        // In manual mode, show scroll_offset to scroll_offset+viewport_height
+        let start = if self.is_live_stream && self.selected_index >= self.messages.len() - 1 {
             total.saturating_sub(viewport_height)
         } else {
             self.scroll_offset.min(total - 1)
@@ -368,7 +396,7 @@ impl TuiApp {
                         self.active_lhs_widget -= 1;
                     }
                 } else if self.focus == Focus::Main {
-                    self.scroll_up();
+                    self.scroll_up(20);
                 }
             }
             Direction::Down => {
@@ -386,74 +414,62 @@ impl TuiApp {
 
     pub fn cycle_focus_forward(&mut self) {
         self.input_mode = InputMode::Navigation;
-        match self.focus {
-            Focus::Lhs => {
-                if self.rhs_visible {
-                    self.focus = Focus::Rhs;
-                } else {
-                    self.focus = Focus::Main;
-                }
+        let visible_panels = self.get_visible_panel_order();
+        if visible_panels.is_empty() {
+            return;
+        }
+        let current_idx = visible_panels.iter().position(|&p| p == self.focus);
+        match current_idx {
+            Some(idx) => {
+                let next_idx = (idx + 1) % visible_panels.len();
+                self.focus = visible_panels[next_idx];
             }
-            Focus::Main => {
-                if self.lhs_visible {
-                    self.focus = Focus::Lhs;
-                } else if self.rhs_visible {
-                    self.focus = Focus::Rhs;
-                } else {
-                    self.focus = Focus::Lhs;
-                }
-            }
-            Focus::Rhs => {
-                if self.lhs_visible {
-                    self.focus = Focus::Lhs;
-                } else {
-                    self.focus = Focus::Main;
-                }
+            None => {
+                self.focus = visible_panels[0];
             }
         }
     }
 
     pub fn cycle_focus_reverse(&mut self) {
         self.input_mode = InputMode::Navigation;
-        match self.focus {
-            Focus::Lhs => {
-                if self.rhs_visible {
-                    self.focus = Focus::Rhs;
-                } else {
-                    self.focus = Focus::Main;
-                }
+        let visible_panels = self.get_visible_panel_order();
+        if visible_panels.is_empty() {
+            return;
+        }
+        let current_idx = visible_panels.iter().position(|&p| p == self.focus);
+        match current_idx {
+            Some(idx) => {
+                let next_idx = if idx == 0 { visible_panels.len() - 1 } else { idx - 1 };
+                self.focus = visible_panels[next_idx];
             }
-            Focus::Main => {
-                if self.rhs_visible {
-                    self.focus = Focus::Rhs;
-                } else if self.lhs_visible {
-                    self.focus = Focus::Lhs;
-                } else {
-                    self.focus = Focus::Rhs;
-                }
-            }
-            Focus::Rhs => {
-                if self.lhs_visible {
-                    self.focus = Focus::Lhs;
-                } else {
-                    self.focus = Focus::Main;
-                }
+            None => {
+                self.focus = visible_panels[0];
             }
         }
+    }
+
+    fn get_visible_panel_order(&self) -> Vec<Focus> {
+        let mut panels = Vec::new();
+        if self.lhs_visible {
+            panels.push(Focus::Lhs);
+        }
+        panels.push(Focus::Main);
+        if self.rhs_visible {
+            panels.push(Focus::Rhs);
+        }
+        panels
     }
 
     pub fn toggle_active_widget(&mut self) {
         if self.focus == Focus::Lhs && self.input_mode == InputMode::Navigation {
             let widget = &mut self.lhs_widgets[self.active_lhs_widget];
             widget.enabled = !widget.enabled;
-            if widget.enabled && widget.input_text.is_empty() {
-                widget.expanded = true;
-            }
+            widget.expanded = true;
         }
     }
 
     pub fn enter_text_mode(&mut self) {
-        if self.focus == Focus::Lhs {
+        if self.focus == Focus::Lhs && self.input_mode == InputMode::Navigation {
             let widget = &mut self.lhs_widgets[self.active_lhs_widget];
             widget.expanded = true;
             self.input_mode = InputMode::TextInput;
@@ -497,7 +513,7 @@ impl TuiApp {
         }
 
         match key {
-            TuiKey::Char('q') => {}
+            TuiKey::CtrlC | TuiKey::Char('q') => {}
             TuiKey::F(1) => self.toggle_lhs(),
             TuiKey::F(2) => self.toggle_rhs(),
             TuiKey::F(3) => self.toggle_error_log(),
@@ -527,9 +543,18 @@ impl TuiApp {
             TuiKey::Up => {
                 match self.focus {
                     Focus::Main => {
-                        self.scroll_up();
+                        self.scroll_up(20);
                     }
-                    Focus::Lhs => {}
+                    Focus::Lhs => {
+                        if self.input_mode == InputMode::TextInput {
+                            let widget = &mut self.lhs_widgets[self.active_lhs_widget];
+                            if widget.cursor_pos > 0 {
+                                widget.cursor_pos -= 1;
+                            }
+                        } else if self.active_lhs_widget > 0 {
+                            self.active_lhs_widget -= 1;
+                        }
+                    }
                     Focus::Rhs => {}
                 }
             }
@@ -539,21 +564,39 @@ impl TuiApp {
                         let viewport_height = 20;
                         self.scroll_down(viewport_height);
                     }
-                    Focus::Lhs => {}
+                    Focus::Lhs => {
+                        if self.input_mode == InputMode::TextInput {
+                            let widget = &mut self.lhs_widgets[self.active_lhs_widget];
+                            widget.cursor_pos += 1;
+                        } else if self.active_lhs_widget < self.lhs_widgets.len() - 1 {
+                            self.active_lhs_widget += 1;
+                        }
+                    }
                     Focus::Rhs => {}
                 }
             }
             TuiKey::PageUp => {
-                let viewport_height = 20;
-                self.page_up(viewport_height);
+                if self.focus == Focus::Main || self.focus == Focus::Lhs {
+                    let viewport_height = 20;
+                    self.page_up(viewport_height);
+                }
             }
             TuiKey::PageDown => {
-                let viewport_height = 20;
-                self.page_down(viewport_height);
+                if self.focus == Focus::Main || self.focus == Focus::Lhs {
+                    let viewport_height = 20;
+                    self.page_down(viewport_height);
+                }
             }
             TuiKey::Space => {
                 if self.focus == Focus::Lhs && self.input_mode == InputMode::Navigation {
-                    self.toggle_active_widget();
+                    let widget = &mut self.lhs_widgets[self.active_lhs_widget];
+                    if !widget.enabled {
+                        widget.enabled = true;
+                        widget.expanded = true;
+                        self.input_mode = InputMode::TextInput;
+                    } else {
+                        self.exit_text_mode();
+                    }
                 } else if self.focus == Focus::Main {
                     self.is_live_stream = !self.is_live_stream;
                 }
@@ -597,11 +640,13 @@ impl TuiApp {
             InputMode::TextInput => "INPUT",
         };
         let stream_str = if self.is_live_stream { "LIVE" } else { "MANUAL" };
+        let layout_hint = if self.layout_vertical { "VERT" } else { "HORZ" };
         format!(
-            " {} | {} | {} | Filters:{} | Msgs:{} | [Space:Stream] [q:Quit]",
+            " {} | {} | {} | {} | Filters:{} | Msgs:{} | [F1:LHS] [F2:RHS] [F3:Log] [F4:Layout] [Tab:Nxt] [Space:Stream] [Ctrl+C/q:Quit]",
             focus_str,
             mode_str,
             stream_str,
+            layout_hint,
             self.active_filter_count(),
             self.message_count()
         )
@@ -642,10 +687,313 @@ pub enum TuiKey {
     Enter,
     Esc,
     Space,
+    CtrlC,
 }
 
 fn filter_matches_sync(filter: &dyn crate::traits::Filter, message: &DecodedMessage) -> bool {
     static RT: std::sync::OnceLock<tokio::runtime::Runtime> = std::sync::OnceLock::new();
     let rt = RT.get_or_init(|| tokio::runtime::Runtime::new().unwrap());
     rt.block_on(filter.matches(message))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_test_message(pgn: u32, title: &str) -> DecodedMessage {
+        let mut msg = DecodedMessage::new(title.to_string());
+        msg.assembled_message.pgn = pgn;
+        msg
+    }
+
+    #[test]
+    fn test_manual_mode_does_not_auto_select_latest() {
+        let mut app = TuiApp::new();
+        assert!(!app.is_live_stream);
+        
+        for i in 0..10 {
+            app.add_message(make_test_message(0x600 + i, &format!("msg {}", i)));
+        }
+        
+        // In manual mode, selected_index should stay at 0 (not auto-advance)
+        assert_eq!(app.selected_index, 0);
+    }
+
+    #[test]
+    fn test_live_mode_auto_selects_latest() {
+        let mut app = TuiApp::new();
+        app.is_live_stream = true;
+        
+        for i in 0..10 {
+            app.add_message(make_test_message(0x600 + i, &format!("msg {}", i)));
+        }
+        
+        assert_eq!(app.selected_index, 9);
+    }
+
+    #[test]
+    fn test_scroll_down_keeps_selection_visible() {
+        let mut app = TuiApp::new();
+        
+        for i in 0..100 {
+            app.add_message(make_test_message(0x600 + i, &format!("msg {}", i)));
+        }
+        
+        // Start at top
+        assert_eq!(app.selected_index, 0);
+        assert_eq!(app.scroll_offset, 0);
+        
+        // Scroll down many times - selection should stay visible
+        for _ in 0..60 {
+            app.scroll_down(20);
+        }
+        
+        let viewport_height = 20;
+        assert!(app.selected_index < app.messages.len());
+        assert!(app.selected_index >= app.scroll_offset);
+        assert!(app.selected_index < app.scroll_offset + viewport_height as usize);
+    }
+
+    #[test]
+    fn test_scroll_up_keeps_selection_visible() {
+        let mut app = TuiApp::new();
+        
+        for i in 0..100 {
+            app.add_message(make_test_message(0x600 + i, &format!("msg {}", i)));
+        }
+        
+        // Jump to bottom manually
+        app.selected_index = 99;
+        app.scroll_offset = 80;
+        
+        // Scroll up - selection should stay visible
+        for _ in 0..50 {
+            app.scroll_up(20);
+        }
+        
+        let viewport_height = 20;
+        assert!(app.selected_index >= app.scroll_offset);
+        assert!(app.selected_index < app.scroll_offset + viewport_height as usize);
+    }
+
+    #[test]
+    fn test_cycle_focus_forward() {
+        let mut app = TuiApp::new();
+        app.lhs_visible = true;
+        app.rhs_visible = true;
+        
+        // Visible order: [Lhs, Main, Rhs], forward cycles through them
+        // Start at Main -> next is Rhs
+        app.focus = Focus::Main;
+        app.cycle_focus_forward();
+        assert_eq!(app.focus, Focus::Rhs);
+        
+        app.cycle_focus_forward();
+        assert_eq!(app.focus, Focus::Lhs);
+        
+        app.cycle_focus_forward();
+        assert_eq!(app.focus, Focus::Main);
+    }
+
+    #[test]
+    fn test_cycle_focus_reverse() {
+        let mut app = TuiApp::new();
+        app.lhs_visible = true;
+        app.rhs_visible = true;
+        
+        // Start at Main
+        app.focus = Focus::Main;
+        app.cycle_focus_reverse();
+        assert_eq!(app.focus, Focus::Lhs);
+        
+        app.cycle_focus_reverse();
+        assert_eq!(app.focus, Focus::Rhs);
+        
+        app.cycle_focus_reverse();
+        assert_eq!(app.focus, Focus::Main);
+    }
+
+    #[test]
+    fn test_cycle_focus_with_hidden_panels() {
+        let mut app = TuiApp::new();
+        app.lhs_visible = true;
+        app.rhs_visible = false;
+        
+        app.focus = Focus::Main;
+        app.cycle_focus_forward();
+        assert_eq!(app.focus, Focus::Lhs);
+        
+        app.cycle_focus_forward();
+        assert_eq!(app.focus, Focus::Main);
+    }
+
+    #[test]
+    fn test_widget_toggle_expands() {
+        let mut app = TuiApp::new();
+        app.focus = Focus::Lhs;
+        
+        let widget_idx = 0;
+        assert!(!app.lhs_widgets[widget_idx].enabled);
+        
+        app.toggle_active_widget();
+        
+        assert!(app.lhs_widgets[widget_idx].enabled);
+        // toggle_active_widget always sets expanded=true
+        assert!(app.lhs_widgets[widget_idx].expanded);
+    }
+
+    #[test]
+    fn test_enter_text_mode_expands() {
+        let mut app = TuiApp::new();
+        app.focus = Focus::Lhs;
+        
+        app.enter_text_mode();
+        
+        assert_eq!(app.input_mode, InputMode::TextInput);
+        assert!(app.lhs_widgets[0].expanded);
+    }
+
+    #[test]
+    fn test_exit_text_mode() {
+        let mut app = TuiApp::new();
+        app.focus = Focus::Lhs;
+        app.input_mode = InputMode::TextInput;
+        
+        app.exit_text_mode();
+        
+        assert_eq!(app.input_mode, InputMode::Navigation);
+    }
+
+    #[test]
+    fn test_toggle_layout() {
+        let mut app = TuiApp::new();
+        assert!(!app.layout_vertical);
+        
+        app.toggle_layout();
+        assert!(app.layout_vertical);
+        
+        app.toggle_layout();
+        assert!(!app.layout_vertical);
+    }
+
+    #[test]
+    fn test_toggle_lhs() {
+        let mut app = TuiApp::new();
+        assert!(app.lhs_visible);
+        
+        app.toggle_lhs();
+        assert!(!app.lhs_visible);
+        
+        app.toggle_lhs();
+        assert!(app.lhs_visible);
+    }
+
+    #[test]
+    fn test_toggle_rhs() {
+        let mut app = TuiApp::new();
+        assert!(app.rhs_visible);
+        
+        app.toggle_rhs();
+        assert!(!app.rhs_visible);
+        
+        app.toggle_rhs();
+        assert!(app.rhs_visible);
+    }
+
+    #[test]
+    fn test_toggle_error_log() {
+        let mut app = TuiApp::new();
+        assert!(!app.error_log_visible);
+        
+        app.toggle_error_log();
+        assert!(app.error_log_visible);
+        
+        app.toggle_error_log();
+        assert!(!app.error_log_visible);
+    }
+
+    #[test]
+    fn test_scroll_at_bottom_no_overflow() {
+        let mut app = TuiApp::new();
+        
+        for i in 0..5 {
+            app.add_message(make_test_message(0x600 + i, &format!("msg {}", i)));
+        }
+        
+        // Scroll past the end - should not panic or overflow
+        for _ in 0..100 {
+            app.scroll_down(20);
+        }
+        
+        assert_eq!(app.selected_index, 4);
+    }
+
+    #[test]
+    fn test_scroll_at_top_no_underflow() {
+        let mut app = TuiApp::new();
+        
+        for i in 0..5 {
+            app.add_message(make_test_message(0x600 + i, &format!("msg {}", i)));
+        }
+        
+        // Scroll up from top - should not panic or underflow
+        for _ in 0..100 {
+            app.scroll_up(20);
+        }
+        
+        assert_eq!(app.selected_index, 0);
+        assert_eq!(app.scroll_offset, 0);
+    }
+
+    #[test]
+    fn test_get_visible_messages_manual_mode() {
+        let mut app = TuiApp::new();
+        
+        for i in 0..50 {
+            app.add_message(make_test_message(0x600 + i, &format!("msg {}", i)));
+        }
+        
+        // At top - should show first viewport_height messages
+        let visible = app.get_visible_messages(20);
+        assert_eq!(visible.len(), 20);
+        assert_eq!(app.selected_index, 0);
+    }
+
+    #[test]
+    fn test_get_visible_messages_scrolled() {
+        let mut app = TuiApp::new();
+        
+        for i in 0..50 {
+            app.add_message(make_test_message(0x600 + i, &format!("msg {}", i)));
+        }
+        
+        // Scroll down
+        app.scroll_offset = 30;
+        app.selected_index = 35;
+        
+        let visible = app.get_visible_messages(20);
+        assert_eq!(visible.len(), 20);
+    }
+
+    #[test]
+    fn test_get_selected_message() {
+        let mut app = TuiApp::new();
+        
+        for i in 0..5 {
+            app.add_message(make_test_message(0x600 + i, &format!("msg {}", i)));
+        }
+        
+        assert!(app.get_selected_message().is_some());
+        assert_eq!(app.get_selected_message().unwrap().title, "msg 0");
+        
+        app.selected_index = 3;
+        assert_eq!(app.get_selected_message().unwrap().title, "msg 3");
+    }
+
+    #[test]
+    fn test_get_visible_messages_empty() {
+        let app = TuiApp::new();
+        let visible = app.get_visible_messages(20);
+        assert!(visible.is_empty());
+    }
 }

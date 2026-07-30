@@ -36,27 +36,39 @@ impl TuiRenderer {
         if app.layout_vertical {
             self.render_vertical(content_area, frame, app);
         } else {
-            self.render_horizontal(content_area, frame, app);
+            self.render_horizontal(frame, content_area, app);
             
             // Status bar (horizontal mode)
             let status_text = app.status_text();
             let block = Paragraph::new(status_text)
-                .block(Block::default().borders(Borders::TOP))
+                .block(Block::default())
                 .style(Style::default().bg(Color::Blue).fg(Color::White));
             frame.render_widget(block, status_area);
         }
     }
 
-    fn render_horizontal(&self, content_area: Rect, frame: &mut Frame, app: &TuiApp) {
+    fn render_horizontal(&self, frame: &mut Frame, content_area: Rect, app: &TuiApp) {
         let lhs_width = if app.lhs_visible { 30 } else { 0 };
         let rhs_width = if app.rhs_visible { 45 } else { 0 };
         
-        let main_width = content_area.width.saturating_sub(lhs_width + rhs_width);
+        let total_side = lhs_width + rhs_width;
+        let _available = content_area.width.saturating_sub(total_side);
+        
+        // Use ratio-based constraints so main panel gets most space
+        let (lhs_ratio, main_ratio, rhs_ratio) = if app.lhs_visible && app.rhs_visible {
+            (3, 5, 2)
+        } else if app.lhs_visible {
+            (1, 4, 0)
+        } else if app.rhs_visible {
+            (0, 4, 1)
+        } else {
+            (0, 5, 0)
+        };
 
         let constraints = vec![
-            Constraint::Length(lhs_width),
-            Constraint::Length(main_width),
-            Constraint::Length(rhs_width),
+            Constraint::Ratio(lhs_ratio, lhs_ratio + main_ratio + rhs_ratio),
+            Constraint::Ratio(main_ratio, lhs_ratio + main_ratio + rhs_ratio),
+            Constraint::Ratio(rhs_ratio, lhs_ratio + main_ratio + rhs_ratio),
         ];
         let areas = Layout::default()
             .constraints(constraints)
@@ -74,10 +86,19 @@ impl TuiRenderer {
     }
 
     fn render_vertical(&self, content_area: Rect, frame: &mut Frame, app: &TuiApp) {
+        // Reserve space for status bar at bottom
+        let status_height = 1u16;
+        let main_content_area = Rect::new(
+            content_area.x,
+            content_area.y,
+            content_area.width,
+            content_area.height.saturating_sub(status_height),
+        );
+
         // Split vertically: top = LHS (full width), bottom = Main | RHS
         let vertical_chunks = Layout::default()
             .constraints([Constraint::Length(15), Constraint::Min(0)])
-            .split(content_area);
+            .split(main_content_area);
 
         // Render LHS at top (full width)
         if app.lhs_visible {
@@ -112,15 +133,18 @@ impl TuiRenderer {
         }
 
         // Status bar at very bottom
-        let status_area = Layout::default()
-            .constraints([Constraint::Min(0), Constraint::Length(1)])
-            .split(vertical_chunks[1]);
+        let status_area = Rect::new(
+            content_area.x,
+            main_content_area.y + main_content_area.height,
+            content_area.width,
+            status_height,
+        );
 
         let status_text = app.status_text();
         let block = Paragraph::new(status_text)
-            .block(Block::default().borders(Borders::TOP))
+            .block(Block::default())
             .style(Style::default().bg(Color::Blue).fg(Color::White));
-        frame.render_widget(block, status_area[1]);
+        frame.render_widget(block, status_area);
     }
 
     fn render_lhs(&self, frame: &mut Frame, area: Rect, app: &TuiApp) {
@@ -151,10 +175,42 @@ impl TuiRenderer {
 
                 match widget.filter_type {
                     FilterType::Title => {
-                        spans.push(Span::raw(format!("input: {}", widget.input_text)));
+                        if is_selected && app.input_mode == InputMode::TextInput {
+                            let before_cursor = &widget.input_text[..widget.cursor_pos.min(widget.input_text.len())];
+                            let after_cursor = &widget.input_text[widget.cursor_pos.min(widget.input_text.len())..];
+                            spans.push(Span::styled(
+                                format!("{}{}", before_cursor, "█"),
+                                Style::default().fg(Color::White).bg(Color::DarkGray)
+                            ));
+                            spans.push(Span::raw(after_cursor.to_string()));
+                        } else {
+                            spans.push(Span::raw(format!("input: {}", widget.input_text)));
+                            if is_selected && !widget.enabled {
+                                spans.push(Span::styled(
+                                    " [Enter to edit]",
+                                    Style::default().fg(Color::Yellow)
+                                ));
+                            }
+                        }
                     }
                     FilterType::Pgn => {
-                        spans.push(Span::raw(format!("pgn: {}", widget.input_text)));
+                        if is_selected && app.input_mode == InputMode::TextInput {
+                            let before_cursor = &widget.input_text[..widget.cursor_pos.min(widget.input_text.len())];
+                            let after_cursor = &widget.input_text[widget.cursor_pos.min(widget.input_text.len())..];
+                            spans.push(Span::styled(
+                                format!("{}{}", before_cursor, "█"),
+                                Style::default().fg(Color::White).bg(Color::DarkGray)
+                            ));
+                            spans.push(Span::raw(after_cursor.to_string()));
+                        } else {
+                            spans.push(Span::raw(format!("pgn: {}", widget.input_text)));
+                            if is_selected && !widget.enabled {
+                                spans.push(Span::styled(
+                                    " [Enter to edit]",
+                                    Style::default().fg(Color::Yellow)
+                                ));
+                            }
+                        }
                     }
                     FilterType::Severity => {
                         let options = ["info", "warning", "error"];
@@ -170,10 +226,42 @@ impl TuiRenderer {
                         }
                     }
                     FilterType::Source | FilterType::Dest => {
-                        spans.push(Span::raw(format!("addr: {}", widget.input_text)));
+                        if is_selected && app.input_mode == InputMode::TextInput {
+                            let before_cursor = &widget.input_text[..widget.cursor_pos.min(widget.input_text.len())];
+                            let after_cursor = &widget.input_text[widget.cursor_pos.min(widget.input_text.len())..];
+                            spans.push(Span::styled(
+                                format!("{}{}", before_cursor, "█"),
+                                Style::default().fg(Color::White).bg(Color::DarkGray)
+                            ));
+                            spans.push(Span::raw(after_cursor.to_string()));
+                        } else {
+                            spans.push(Span::raw(format!("addr: {}", widget.input_text)));
+                            if is_selected && !widget.enabled {
+                                spans.push(Span::styled(
+                                    " [Enter to edit]",
+                                    Style::default().fg(Color::Yellow)
+                                ));
+                            }
+                        }
                     }
                     FilterType::Numeric => {
-                        spans.push(Span::raw(format!("range: {}", widget.input_text)));
+                        if is_selected && app.input_mode == InputMode::TextInput {
+                            let before_cursor = &widget.input_text[..widget.cursor_pos.min(widget.input_text.len())];
+                            let after_cursor = &widget.input_text[widget.cursor_pos.min(widget.input_text.len())..];
+                            spans.push(Span::styled(
+                                format!("{}{}", before_cursor, "█"),
+                                Style::default().fg(Color::White).bg(Color::DarkGray)
+                            ));
+                            spans.push(Span::raw(after_cursor.to_string()));
+                        } else {
+                            spans.push(Span::raw(format!("range: {}", widget.input_text)));
+                            if is_selected && !widget.enabled {
+                                spans.push(Span::styled(
+                                    " [Enter to edit]",
+                                    Style::default().fg(Color::Yellow)
+                                ));
+                            }
+                        }
                     }
                     FilterType::Flag => {
                         let options = ["on", "off", "error", "unavailable"];
@@ -188,13 +276,6 @@ impl TuiRenderer {
                             }
                         }
                     }
-                }
-                
-                if is_selected && app.input_mode == InputMode::TextInput {
-                    spans.push(Span::styled(
-                        format!("[CURSOR:{}]", widget.cursor_pos),
-                        Style::default().fg(Color::Yellow)
-                    ));
                 }
                 
                 Line::from(spans)

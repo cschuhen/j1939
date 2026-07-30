@@ -222,6 +222,26 @@ The TUI replaces the final Renderer stage with its own `mpsc` channel — messag
 *   [x] **Refactor CLI `main.rs`**: Uses `Cli` struct that flattens `SharedConfig` and adds CLI-only args (`--filter`, `--output-format`).
 *   [x] **Refactor TUI `tui_main.rs`**: Parses `TuiCli`, extracts `SharedConfig`, builds source (SocketCanSource or CandumpFileSource), creates J1939Decoder with matching parameters, wires into mpsc channel for TUI consumption.
 
+### Phase 8: Reliability & UX Polish ✅ IN PROGRESS
+*   [x] **Ctrl+C Exit Handler**: Added raw Unix signal handler (`libc::sigaction`) alongside tokio signal for reliable Ctrl+C exit on Linux. Fixed Ctrl+C key detection in crossterm event loop — now checks `Char('c')` with CONTROL modifier instead of unreliable ASCII control codes.
+*   [x] **Shift+Tab Navigation**: Fixed Shift+Tab to use `KeyCode::BackTab` from crossterm (not Tab + SHIFT modifier). Now properly cycles focus in reverse order.
+*   [x] **Filter Widget Editability**: Added visual "[Enter to edit]" hint for disabled widgets when selected. When Space is pressed on a disabled widget, it enables AND enters text input mode immediately. Up/Down arrows now navigate between filter widgets in LHS panel and move cursor within text fields during TextInput mode.
+*   [x] **Horizontal Layout Panel Sizing**: Replaced fixed `Constraint::Length` with ratio-based constraints so main panel gets proportional space. Prevents narrow terminal from squeezing panels into vertical-looking layout.
+*   [x] **Scroll Overflow Fix**: Fixed subtraction overflow in `scroll_down()` when `new_selected < viewport_height`. Now uses `saturating_sub()` for safe arithmetic.
+
+### Bug Fixes & Improvements ✅ COMPLETE
+*   [x] **Ctrl+C Exit Handler**: Added `TuiKey::CtrlC` variant and crossterm event handling for Ctrl+U (0x00) to reliably exit. Both `q` and Ctrl+C now work in both `tui_main.rs` and `app.rs`.
+*   [x] **Tab Panel Cycling**: Rewrote `cycle_focus_forward()`/`cycle_focus_reverse()` using `get_visible_panel_order()` helper. Now properly cycles Lhs → Main → Rhs → Lhs (and reverse), including hidden panels.
+*   [x] **Message List Scrolling**: Fixed `scroll_up()`/`scroll_down()` to work in live mode when user manually scrolls away from bottom. Up arrow switches from LIVE to MANUAL mode when scrolling up from the latest message. PageUp/PageDown now check focus before scrolling.
+*   [x] **Filter Widgets**: Replaced invalid hardcoded filters (RPM, Speed, Engine) with NAME-based filters: "Src Name" and "Dst Name" (Numeric type). Renamed "Source"/"Dest" to "Source Addr"/"Dest Addr" for clarity.
+*   [x] **F4 Layout Toggle**: F4 now correctly toggles between horizontal and vertical layouts. Status bar shows current layout mode (HORZ/VERT). Added full key hints in status bar: `[F1:LHS] [F2:RHS] [F3:Log] [F4:Layout]`.
+*   [x] **Vertical Layout Status Bar**: Fixed status bar rendering in vertical mode — was incorrectly splitting from bottom row instead of content area, causing it to steal space from Main/RHS panels.
+*   [x] **Ctrl+C Reliability (Phase 8)**: Added raw Unix signal handler (`libc::sigaction`) alongside tokio signal for reliable Ctrl+C exit on Linux. Fixed Ctrl+C key detection in crossterm event loop — now checks `Char('c')` with CONTROL modifier instead of unreliable ASCII control codes.
+*   [x] **Shift+Tab Navigation (Phase 8)**: Fixed Shift+Tab to use `KeyCode::BackTab` from crossterm (not Tab + SHIFT modifier). Now properly cycles focus in reverse order.
+*   [x] **Filter Widget Editability (Phase 8)**: Added visual "[Enter to edit]" hint for disabled widgets when selected. When Space is pressed on a disabled widget, it enables AND enters text input mode immediately. Up/Down arrows now navigate between filter widgets in LHS panel and move cursor within text fields during TextInput mode.
+*   [x] **Horizontal Layout Panel Sizing (Phase 8)**: Replaced fixed `Constraint::Length` with ratio-based constraints so main panel gets proportional space. Prevents narrow terminal from squeezing panels into vertical-looking layout.
+*   [x] **Scroll Overflow Fix (Phase 8)**: Fixed subtraction overflow in `scroll_down()` when `new_selected < viewport_height`. Now uses `saturating_sub()` for safe arithmetic.
+
 ## 7. Current File Inventory
 
 | File | Status | Description |
@@ -230,6 +250,6 @@ The TUI replaces the final Renderer stage with its own `mpsc` channel — messag
 | `src/lib.rs` | ✅ Updated | Re-exports from config module; Cli struct extends SharedConfig with filter + output_format |
 | `src/main.rs` | ✅ Updated | Uses SharedConfig via Cli; identical decoder/pipeline construction as TUI path |
 | `src/tui/mod.rs` | ✅ Complete | Module re-export |
-| `src/tui/app.rs` | ✅ Complete | TuiApp state, FilterWidget, Tab/Shift+Tab cycling, vertical layout toggle, scroll logic, filter evaluation |
-| `src/tui/renderer.rs` | ✅ Complete | Full 3-panel renderer with detail inspector, error log popup, colorization, horizontal + vertical layouts |
-| `src/tui_main.rs` | ✅ Complete | TuiCli parsing, Tab navigation, Ctrl+C handler, layout option, pipeline wiring from shared config |
+| `src/tui/app.rs` | ✅ Complete | TuiApp state, FilterWidget, Tab/Shift+Tab cycling, vertical layout toggle, scroll logic, filter evaluation. Up/Down arrows navigate LHS widgets and cursor position in text input mode. Space enables widget + enters edit mode. |
+| `src/tui/renderer.rs` | ✅ Complete | Full 3-panel renderer with detail inspector, error log popup, colorization, horizontal + vertical layouts. Ratio-based panel sizing for horizontal mode. Cursor block rendering during text input. "[Enter to edit]" hints. |
+| `src/tui_main.rs` | ✅ Complete | TuiCli parsing, Tab navigation, Ctrl+C handler (raw Unix signal + tokio), layout option, pipeline wiring from shared config. Fixed Shift+Tab via BackTab key code. |
