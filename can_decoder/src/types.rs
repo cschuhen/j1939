@@ -66,31 +66,25 @@ pub struct AssembledMessage {
 }
 
 impl AssembledMessage {
-    /// Create a new AssembledMessage with the current timestamp and broadcast destination.
-    pub fn new(id: u32, data: Vec<u8>) -> Self {
-        let duration = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default();
+    /// Create a new AssembledMessage with the given CAN ID, data, and timestamp.
+    pub fn new(id: u32, data: Vec<u8>, timestamp: u64) -> Self {
         AssembledMessage {
             id,
             pgn: 0,
             data,
-            timestamp: duration.as_micros() as u64,
+            timestamp,
             source_name: None,
             dest_name: None,
         }
     }
 
-    /// Create a new AssembledMessage with an explicit PGN value.
-    pub fn with_pgn(id: u32, pgn: u32, data: Vec<u8>) -> Self {
-        let duration = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default();
+    /// Create a new AssembledMessage with an explicit PGN value and timestamp.
+    pub fn with_pgn(id: u32, pgn: u32, data: Vec<u8>, timestamp: u64) -> Self {
         AssembledMessage {
             id,
             pgn,
             data,
-            timestamp: duration.as_micros() as u64,
+            timestamp,
             source_name: None,
             dest_name: None,
         }
@@ -264,7 +258,7 @@ impl DecodedMessage {
             title,
             outputs: Vec::new(),
             updates: Vec::new(),
-            assembled_message: AssembledMessage::new(0, vec![]),
+            assembled_message: AssembledMessage::new(0, vec![], 0),
         }
     }
 
@@ -465,16 +459,10 @@ mod tests {
     #[test]
     fn assembled_message_new_timestamp() {
         let can_id = 0x18EF4000;
-        let before = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default();
-        let msg = AssembledMessage::new(can_id, vec![0x01]);
-        let after = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default();
+        let ts: u64 = 1234567890;
+        let msg = AssembledMessage::new(can_id, vec![0x01], ts);
 
-        assert!(msg.timestamp >= before.as_micros() as u64);
-        assert!(msg.timestamp <= after.as_micros() as u64 + 100_000);
+        assert_eq!(msg.timestamp, ts);
     }
 
     #[test]

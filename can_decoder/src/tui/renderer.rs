@@ -1,6 +1,6 @@
 use ratatui::{prelude::*, widgets::*};
 use crate::tui::app::{TuiApp, Focus, FilterType, InputMode};
-use crate::types::{DecodedField, Numeric, Severity, FlagValue};
+use crate::types::{DecodedField, DecodedMessage, Numeric, Severity, FlagValue};
 
 pub struct TuiRenderer {}
 
@@ -300,7 +300,7 @@ impl TuiRenderer {
 
     fn render_main(&self, frame: &mut Frame, area: Rect, app: &TuiApp) {
         let is_active = app.focus == Focus::Main;
-        
+
         let block_style = if is_active {
             Style::default().fg(Color::Cyan)
         } else {
@@ -325,69 +325,108 @@ impl TuiRenderer {
         }
 
         let visible_msgs = app.get_visible_messages(viewport_height);
-        
-        let items: Vec<Line> = visible_msgs.iter().enumerate().map(|(i, msg)| {
-            let global_idx = app.scroll_offset + i;
-            let is_selected = global_idx == app.selected_index && is_active;
-            
-            // Build a condensed single-line representation
+
+        let header_row = Row::new(vec![
+            Cell::from("Time"),
+            Cell::from("Src"),
+            Cell::from("Dst"),
+            Cell::from("PGN"),
+            Cell::from("PGN Name"),
+            Cell::from("Title"),
+            Cell::from("Detail"),
+        ])
+        .style(Style::default().fg(Color::White).bg(Color::DarkGray));
+
+        let column_widths = [
+            Constraint::Length(12),
+            Constraint::Length(3),
+            Constraint::Length(3),
+            Constraint::Length(6),
+            Constraint::Ratio(1, 7),
+            Constraint::Ratio(3, 7),
+            Constraint::Ratio(1, 7),
+        ];
+
+        let selected_local = if is_active && app.selected_index >= app.scroll_offset
+            && app.selected_index < app.scroll_offset + visible_msgs.len() {
+            Some(app.selected_index - app.scroll_offset)
+        } else {
+            None
+        };
+
+        let rows: Vec<Row> = visible_msgs.iter().enumerate().map(|(i, msg)| {
+            let is_selected = selected_local == Some(i);
+
+            let timestamp_str = format_timestamp(msg.timestamp());
+            let src_hex = format!("{:02X}", msg.source_address());
+            let dst_hex = format!("{:02X}", msg.dest_address());
             let pgn_hex = format!("{:X}", msg.pgn());
-            let src_addr = format!("{:X}", msg.source_address());
             let title = &msg.title;
-            
-            // Extract first meaningful output for display
-            let preview = if let Some(output) = msg.outputs.first() {
-                match output {
-                    DecodedField::Value { title, value, unit, .. } => {
-                        let val_str = format_value(value);
-                        if let Some(u) = unit {
-                            format!("{}={} {}", title, val_str, u)
-                        } else {
-                            format!("{}={}", title, val_str)
-                        }
-                    }
-                    DecodedField::StringMessage { text, severity } => {
-                        let sev_char = match severity {
-                            Severity::Info => "I",
-                            Severity::Warning => "W",
-                            Severity::Error => "E",
-                        };
-                        format!("[{}] {}", sev_char, text)
-                    }
-                    DecodedField::Flag { title, value } => {
-                        let flag_str = match value {
-                            FlagValue::Off => "OFF",
-                            FlagValue::On => "ON",
-                            FlagValue::Error => "ERR",
-                            FlagValue::Unavailable => "N/A",
-                        };
-                        format!("{}={}", title, flag_str)
-                    }
-                }
+
+            let detail_str = self.build_detail_string(msg);
+
+            if is_selected {
+                Row::new(vec![
+                    Cell::from(timestamp_str),
+                    Cell::from(src_hex),
+                    Cell::from(dst_hex),
+                    Cell::from(pgn_hex),
+                    Cell::from(title.to_string()),
+                    Cell::from(detail_str),
+                ])
+                .style(Style::default().bg(Color::DarkGray).fg(Color::White))
             } else {
-                String::new()
-            };
-
-            let timestamp = format_timestamp(msg.timestamp());
-
-            let style = if is_selected {
-                Style::default().bg(Color::DarkGray).fg(Color::White)
-            } else {
-                Style::default()
-            };
-
-            // Format: [time] PGN src | title | preview
-            let line_text = format!("[{}] {} {} | {} {}", 
-                timestamp, pgn_hex, src_addr, title, preview);
-            
-            Line::from(line_text).style(style)
+                Row::new(vec![
+                    timestamp_str,
+                    src_hex,
+                    dst_hex,
+                    pgn_hex,
+                    title.to_string(),
+                    detail_str,
+                ])
+                .style(Style::default().fg(Color::White))
+            }
         }).collect();
 
-        let list = List::new(items)
-            .block(Block::default().borders(Borders::NONE))
-            .highlight_style(Style::default());
+        let table = Table::new(rows, column_widths)
+            .header(header_row)
+            .column_spacing(1);
 
-        frame.render_widget(list, inner);
+        frame.render_widget(table, inner);
+    }
+
+    fn build_detail_string(&self, msg: &DecodedMessage) -> String {
+        let mut parts = Vec::new();
+        for output in msg.outputs.iter().take(2) {
+            match output {
+                DecodedField::Value { title, value, unit, .. } => {
+                    let val_str = format_value(&value);
+                    if let Some(u) = unit {
+                        parts.push(format!("{}={} {}", title, val_str, u));
+                    } else {
+                        parts.push(format!("{}={}", title, val_str));
+                    }
+                }
+                DecodedField::StringMessage { text, .. } => {
+                    parts.push(text.clone());
+                }
+                DecodedField::Flag { title, value } => {
+                    let flag_str = match value {
+                        FlagValue::Off => "OFF",
+                        FlagValue::On => "ON",
+                        FlagValue::Error => "ERR",
+                        FlagValue::Unavailable => "N/A",
+                    };
+                    parts.push(format!("{}={}", title, flag_str));
+                }
+            }
+        }
+        let detail = parts.join(", ");
+        if detail.len() > 30 {
+            format!("{}...", &detail[..27])
+        } else {
+            detail
+        }
     }
 
     fn render_rhs(&self, frame: &mut Frame, area: Rect, app: &TuiApp) {
@@ -452,7 +491,7 @@ impl TuiRenderer {
                             paragraphs.push(Line::from("").style(Style::default()));
                             paragraphs.push(Line::from(format!("  {}", title)).style(Style::default().fg(Color::Green).bold()));
                             
-                            let val_str = format_value(value);
+                    let val_str = format_value(&value);
                             paragraphs.push(Line::from(format!("    Value:   {}", val_str)));
                             
                             if let Some(u) = unit {
@@ -571,6 +610,6 @@ fn format_value(value: &Numeric) -> String {
 
 fn format_timestamp(timestamp: u64) -> String {
     let seconds = timestamp / 1_000_000;
-    let millis = (timestamp % 1_000_000) / 1_000;
-    format!("{}.{:03}", seconds, millis)
+    let usec = timestamp % 1_000_000;
+    format!("{}.{}", seconds, format!("{:06}", usec))
 }

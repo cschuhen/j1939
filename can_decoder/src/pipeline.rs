@@ -226,7 +226,7 @@ mod tests {
     use crate::types::{DecodedField, Numeric};
 
     fn make_test_message() -> DecodedMessage {
-        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![0x01, 0x02]);
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![0x01, 0x02], 0);
         DecodedMessage {
             title: "Engine Speed".to_string(),
             outputs: vec![
@@ -322,7 +322,7 @@ mod tests {
     #[tokio::test]
     async fn test_json_renderer_empty_outputs() {
         let mut renderer = JsonRenderer;
-        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![], 0);
         let message = DecodedMessage {
             title: "Empty Message".to_string(),
             outputs: vec![],
@@ -336,7 +336,7 @@ mod tests {
     #[tokio::test]
     async fn test_json_renderer_flag_value() {
         let mut renderer = JsonRenderer;
-        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![], 0);
         let message = DecodedMessage {
             title: "Status".to_string(),
             outputs: vec![DecodedField::Flag {
@@ -353,7 +353,7 @@ mod tests {
     #[tokio::test]
     async fn test_json_renderer_hex_value() {
         let mut renderer = JsonRenderer;
-        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![], 0);
         let message = DecodedMessage {
             title: "VIN".to_string(),
             outputs: vec![DecodedField::Value {
@@ -375,7 +375,7 @@ mod tests {
     #[tokio::test]
     async fn test_json_renderer_bool_value() {
         let mut renderer = JsonRenderer;
-        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![], 0);
         let message = DecodedMessage {
             title: "Flag".to_string(),
             outputs: vec![DecodedField::Value {
@@ -394,7 +394,7 @@ mod tests {
     #[tokio::test]
     async fn test_json_renderer_float_value() {
         let mut renderer = JsonRenderer;
-        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![], 0);
         let message = DecodedMessage {
             title: "Temperature".to_string(),
             outputs: vec![DecodedField::Value {
@@ -413,7 +413,7 @@ mod tests {
     #[tokio::test]
     async fn test_json_renderer_severity_values() {
         let mut renderer = JsonRenderer;
-        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![], 0);
 
         for severity in [
             crate::types::Severity::Info,
@@ -439,7 +439,7 @@ mod tests {
     async fn test_json_renderer_data_bytes() {
         let mut renderer = JsonRenderer;
         let assembled =
-            AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![0xDE, 0xAD, 0xBE, 0xEF]);
+            AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![0xDE, 0xAD, 0xBE, 0xEF], 0);
         let message = DecodedMessage {
             title: "Data".to_string(),
             outputs: vec![],
@@ -455,7 +455,7 @@ mod tests {
     #[tokio::test]
     async fn test_json_renderer_assembled_message_fields() {
         let mut renderer = JsonRenderer;
-        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![], 0);
         let message = DecodedMessage {
             title: "Address".to_string(),
             outputs: vec![],
@@ -471,7 +471,7 @@ mod tests {
     #[tokio::test]
     async fn test_json_renderer_source_dest_name() {
         let mut renderer = JsonRenderer;
-        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![], 0);
         let message = DecodedMessage {
             title: "Names".to_string(),
             outputs: vec![],
@@ -486,7 +486,7 @@ mod tests {
     #[tokio::test]
     async fn test_json_renderer_updates() {
         let mut renderer = JsonRenderer;
-        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![], 0);
         let message = DecodedMessage {
             title: "Updates".to_string(),
             outputs: vec![],
@@ -505,7 +505,7 @@ mod tests {
     #[tokio::test]
     async fn test_json_renderer_can_id() {
         let mut renderer = JsonRenderer;
-        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![], 0);
         let message = DecodedMessage {
             title: "ID".to_string(),
             outputs: vec![],
@@ -519,7 +519,7 @@ mod tests {
     #[tokio::test]
     async fn test_json_renderer_all_flag_values() {
         let mut renderer = JsonRenderer;
-        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![], 0);
 
         for (flag_val, expected_str) in [
             (crate::types::FlagValue::Off, "\"off\""),

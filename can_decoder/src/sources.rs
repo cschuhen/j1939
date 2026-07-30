@@ -195,8 +195,15 @@ impl CandumpFileSource {
             return None;
         }
         let sec: u64 = parts[0].parse().ok()?;
-        let usec: u64 = parts[1].parse().ok()?;
-        let timestamp = (sec * 1_000_000) + (usec % 1_000_000);
+        let frac = parts[1];
+        // Normalize fractional part to exactly 6 digits (microseconds)
+        let usec: u64 = if frac.len() >= 6 {
+            frac[..6].parse().unwrap_or(0)
+        } else {
+            let padded = format!("{}{}", frac, "0".repeat(6 - frac.len()));
+            padded.parse().unwrap_or(0)
+        };
+        let timestamp = (sec * 1_000_000) + usec;
 
         // 2. Parse the rest: interface can_id [dlc] data
         let rest = line[close_paren + 1..].trim();

@@ -635,7 +635,7 @@ mod tests {
     use crate::types::{AssembledMessage, DecodedField, Numeric};
 
     fn make_test_message() -> DecodedMessage {
-        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![0x01, 0x02]);
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![0x01, 0x02], 0);
         DecodedMessage {
             title: "Engine Speed".to_string(),
             outputs: vec![
@@ -713,7 +713,7 @@ mod tests {
         let mut renderer = CsvRenderer::default();
 
         // First message with PGN 0x18EF4000 and title "RPM"
-        let assembled1 = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let assembled1 = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![], 0);
         let msg1 = DecodedMessage {
             title: "Engine Speed".to_string(),
             outputs: vec![DecodedField::Value {
@@ -737,7 +737,7 @@ mod tests {
                 decimal_places: None,
             }],
             updates: vec![],
-            assembled_message: AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]),
+            assembled_message: AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![], 0),
         };
         renderer.render(&msg2).await.unwrap();
 
@@ -751,7 +751,7 @@ mod tests {
                 decimal_places: None,
             }],
             updates: vec![],
-            assembled_message: AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]),
+            assembled_message: AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![], 0),
         };
         let result = renderer.render(&msg3).await.unwrap();
 
@@ -763,7 +763,7 @@ mod tests {
     #[tokio::test]
     async fn test_csv_renderer_string_escaping() {
         let mut renderer = CsvRenderer::default();
-        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![], 0);
         let message = DecodedMessage {
             title: "Test".to_string(),
             outputs: vec![DecodedField::StringMessage {
@@ -780,7 +780,7 @@ mod tests {
     #[tokio::test]
     async fn test_csv_renderer_empty_outputs() {
         let mut renderer = CsvRenderer::default();
-        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![], 0);
         let message = DecodedMessage {
             title: "Empty".to_string(),
             outputs: vec![],
@@ -795,7 +795,7 @@ mod tests {
     #[tokio::test]
     async fn test_csv_renderer_hex_value() {
         let mut renderer = CsvRenderer::default();
-        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![], 0);
         let message = DecodedMessage {
             title: "VIN".to_string(),
             outputs: vec![DecodedField::Value {
@@ -814,7 +814,7 @@ mod tests {
     #[tokio::test]
     async fn test_csv_renderer_bool_value() {
         let mut renderer = CsvRenderer::default();
-        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![], 0);
         let message = DecodedMessage {
             title: "Flag".to_string(),
             outputs: vec![DecodedField::Value {
@@ -833,7 +833,7 @@ mod tests {
     #[tokio::test]
     async fn test_csv_renderer_float_value() {
         let mut renderer = CsvRenderer::default();
-        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![], 0);
         let message = DecodedMessage {
             title: "Temperature".to_string(),
             outputs: vec![DecodedField::Value {
@@ -852,7 +852,7 @@ mod tests {
     #[tokio::test]
     async fn test_csv_renderer_all_flag_values() {
         let mut renderer = CsvRenderer::default();
-        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![], 0);
 
         for (flag_val, expected) in [
             (crate::types::FlagValue::Off, "OFF"),
@@ -925,7 +925,7 @@ mod tests {
     #[tokio::test]
     async fn test_condensed_renderer_flag_colors() {
         let mut renderer = CondensedRenderer;
-        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![], 0);
 
         for (flag_val, expected_text) in [
             (crate::types::FlagValue::Off, "OFF"),
@@ -950,7 +950,7 @@ mod tests {
     #[tokio::test]
     async fn test_condensed_renderer_severity_codes() {
         let mut renderer = CondensedRenderer;
-        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![], 0);
 
         for (severity, code) in [
             (crate::types::Severity::Info, "I"),
@@ -979,7 +979,7 @@ mod tests {
     #[tokio::test]
     async fn test_condensed_renderer_multiple_outputs() {
         let mut renderer = CondensedRenderer;
-        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![], 0);
         let message = DecodedMessage {
             title: "Multi".to_string(),
             outputs: vec![
@@ -1007,7 +1007,7 @@ mod tests {
     #[tokio::test]
     async fn test_condensed_renderer_data_bytes_hex() {
         let mut renderer = CondensedRenderer;
-        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![0xAA, 0xBB]);
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![0xAA, 0xBB], 0);
         let message = DecodedMessage {
             title: "Test".to_string(),
             outputs: vec![],
@@ -1021,7 +1021,7 @@ mod tests {
     #[tokio::test]
     async fn test_condensed_renderer_string_messages_concatenated() {
         let mut renderer = CondensedRenderer;
-        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![], 0);
         let message = DecodedMessage {
             title: "Test".to_string(),
             outputs: vec![
@@ -1044,7 +1044,7 @@ mod tests {
     #[tokio::test]
     async fn test_condensed_renderer_empty_outputs() {
         let mut renderer = CondensedRenderer;
-        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![], 0);
         let message = DecodedMessage {
             title: "Empty".to_string(),
             outputs: vec![],
@@ -1059,7 +1059,7 @@ mod tests {
     #[tokio::test]
     async fn test_condensed_renderer_pgn_hex() {
         let mut renderer = CondensedRenderer;
-        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![], 0);
         let message = DecodedMessage {
             title: "Test".to_string(),
             outputs: vec![],
@@ -1074,7 +1074,7 @@ mod tests {
     #[tokio::test]
     async fn test_condensed_renderer_name_and_dest_names() {
         let mut renderer = CondensedRenderer;
-        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![], 0);
 
         let message = DecodedMessage {
             title: "Test".to_string(),
@@ -1090,7 +1090,7 @@ mod tests {
     #[tokio::test]
     async fn test_condensed_renderer_value_with_title() {
         let mut renderer = CondensedRenderer;
-        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![], 0);
         let message = DecodedMessage {
             title: "Test".to_string(),
             outputs: vec![DecodedField::Value {
@@ -1111,7 +1111,7 @@ mod tests {
     #[tokio::test]
     async fn test_condensed_renderer_flag_with_title() {
         let mut renderer = CondensedRenderer;
-        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![], 0);
         let message = DecodedMessage {
             title: "Test".to_string(),
             outputs: vec![DecodedField::Flag {
@@ -1129,7 +1129,7 @@ mod tests {
     #[tokio::test]
     async fn test_condensed_renderer_hex_value() {
         let mut renderer = CondensedRenderer;
-        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![], 0);
         let message = DecodedMessage {
             title: "VIN".to_string(),
             outputs: vec![DecodedField::Value {
@@ -1149,7 +1149,7 @@ mod tests {
     #[tokio::test]
     async fn test_condensed_renderer_bool_value() {
         let mut renderer = CondensedRenderer;
-        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![], 0);
         let message = DecodedMessage {
             title: "Flag".to_string(),
             outputs: vec![DecodedField::Value {
@@ -1169,7 +1169,7 @@ mod tests {
     #[tokio::test]
     async fn test_condensed_renderer_float_value() {
         let mut renderer = CondensedRenderer;
-        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![], 0);
         let message = DecodedMessage {
             title: "Temperature".to_string(),
             outputs: vec![DecodedField::Value {
@@ -1237,7 +1237,7 @@ mod tests {
     #[tokio::test]
     async fn test_full_condensed_renderer_flag_colors() {
         let mut renderer = FullCondensedRenderer;
-        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![], 0);
 
         for (flag_val, expected_text) in [
             (crate::types::FlagValue::Off, "OFF"),
@@ -1262,7 +1262,7 @@ mod tests {
     #[tokio::test]
     async fn test_full_condensed_renderer_severity_codes() {
         let mut renderer = FullCondensedRenderer;
-        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![], 0);
 
         for (severity, code) in [
             (crate::types::Severity::Info, "I"),
@@ -1291,7 +1291,7 @@ mod tests {
     #[tokio::test]
     async fn test_full_condensed_renderer_multiple_outputs() {
         let mut renderer = FullCondensedRenderer;
-        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![], 0);
         let message = DecodedMessage {
             title: "Multi".to_string(),
             outputs: vec![
@@ -1319,7 +1319,7 @@ mod tests {
     #[tokio::test]
     async fn test_full_condensed_renderer_data_bytes_hex() {
         let mut renderer = FullCondensedRenderer;
-        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![0xAA, 0xBB]);
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![0xAA, 0xBB], 0);
         let message = DecodedMessage {
             title: "Test".to_string(),
             outputs: vec![],
@@ -1333,7 +1333,7 @@ mod tests {
     #[tokio::test]
     async fn test_full_condensed_renderer_string_messages_concatenated() {
         let mut renderer = FullCondensedRenderer;
-        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![], 0);
         let message = DecodedMessage {
             title: "Test".to_string(),
             outputs: vec![
@@ -1356,7 +1356,7 @@ mod tests {
     #[tokio::test]
     async fn test_full_condensed_renderer_empty_outputs() {
         let mut renderer = FullCondensedRenderer;
-        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![], 0);
         let message = DecodedMessage {
             title: "Empty".to_string(),
             outputs: vec![],
@@ -1371,7 +1371,7 @@ mod tests {
     #[tokio::test]
     async fn test_full_condensed_renderer_pgn_hex() {
         let mut renderer = FullCondensedRenderer;
-        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![], 0);
         let message = DecodedMessage {
             title: "Test".to_string(),
             outputs: vec![],
@@ -1386,7 +1386,7 @@ mod tests {
     #[tokio::test]
     async fn test_full_condensed_renderer_name_and_dest_names() {
         let mut renderer = FullCondensedRenderer;
-        let mut assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let mut assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![], 0);
         assembled.source_name = Some(0x123456789ABCDEF0);
         assembled.dest_name = Some(0xFEDCBA9876543210);
 
@@ -1403,7 +1403,7 @@ mod tests {
     #[tokio::test]
     async fn test_full_condensed_renderer_value_with_title() {
         let mut renderer = FullCondensedRenderer;
-        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![], 0);
         let message = DecodedMessage {
             title: "Test".to_string(),
             outputs: vec![DecodedField::Value {
@@ -1424,7 +1424,7 @@ mod tests {
     #[tokio::test]
     async fn test_full_condensed_renderer_flag_with_title() {
         let mut renderer = FullCondensedRenderer;
-        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![], 0);
         let message = DecodedMessage {
             title: "Test".to_string(),
             outputs: vec![DecodedField::Flag {
@@ -1442,7 +1442,7 @@ mod tests {
     #[tokio::test]
     async fn test_full_condensed_renderer_hex_value() {
         let mut renderer = FullCondensedRenderer;
-        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![], 0);
         let message = DecodedMessage {
             title: "VIN".to_string(),
             outputs: vec![DecodedField::Value {
@@ -1462,7 +1462,7 @@ mod tests {
     #[tokio::test]
     async fn test_full_condensed_renderer_bool_value() {
         let mut renderer = FullCondensedRenderer;
-        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![], 0);
         let message = DecodedMessage {
             title: "Flag".to_string(),
             outputs: vec![DecodedField::Value {
@@ -1482,7 +1482,7 @@ mod tests {
     #[tokio::test]
     async fn test_full_condensed_renderer_float_value() {
         let mut renderer = FullCondensedRenderer;
-        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![]);
+        let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF40, vec![], 0);
         let message = DecodedMessage {
             title: "Temperature".to_string(),
             outputs: vec![DecodedField::Value {

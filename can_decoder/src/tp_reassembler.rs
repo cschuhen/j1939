@@ -202,7 +202,7 @@ impl TpReassembler {
             TpMessageType::DataPacket => self.handle_data_packet(frame),
             TpMessageType::NotTp => {
                 let assembled =
-                    AssembledMessage::with_pgn(frame.can_id, frame.pgn(), frame.data.clone());
+                    AssembledMessage::with_pgn(frame.can_id, frame.pgn(), frame.data.clone(), frame.timestamp);
                 Some(TpReassemblyResult::SingleFrame(assembled))
             }
         }
