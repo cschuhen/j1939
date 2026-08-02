@@ -67,10 +67,12 @@ pub struct AssembledMessage {
 
 impl AssembledMessage {
     /// Create a new AssembledMessage with the given CAN ID, data, and timestamp.
+    /// Extracts PGN from bits 8-25 of the CAN ID (J1939 extended format).
     pub fn new(id: u32, data: Vec<u8>, timestamp: u64) -> Self {
+        let pgn = (id >> 8) & 0x3FFFF;
         AssembledMessage {
             id,
-            pgn: 0,
+            pgn,
             data,
             timestamp,
             source_name: None,

@@ -1,5 +1,7 @@
 pub mod config;
 pub mod device_manager;
+/// Filter engine: maintains all messages, computes filtered indices lazily.
+pub mod filter_engine;
 /// Filter implementations and filter expression parsing.
 pub mod filters;
 /// PGN decoder engine with YAML configuration support.
