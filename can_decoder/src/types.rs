@@ -67,9 +67,10 @@ pub struct AssembledMessage {
 
 impl AssembledMessage {
     /// Create a new AssembledMessage with the given CAN ID, data, and timestamp.
-    /// Extracts PGN from bits 8-25 of the CAN ID (J1939 extended format).
+    /// Extracts PGN using j1939_async::IdImpl which handles PDU1/PDU2 format correctly.
     pub fn new(id: u32, data: Vec<u8>, timestamp: u64) -> Self {
-        let pgn = (id >> 8) & 0x3FFFF;
+        let id_impl = j1939_async::can::IdImpl::new_unchecked(id);
+        let pgn = id_impl.pgn();
         AssembledMessage {
             id,
             pgn,
@@ -82,6 +83,12 @@ impl AssembledMessage {
 
     /// Create a new AssembledMessage with an explicit PGN value and timestamp.
     pub fn with_pgn(id: u32, pgn: u32, data: Vec<u8>, timestamp: u64) -> Self {
+        // In testing, check that the PGN supplied is actually valid. Agents
+        // keep wanting to use invalid made-up PGN's (like 0xEF40) that are
+        // TOTALLY INVALID! They can not be represented in the J1939 address
+        // fields.
+        #[cfg(test)]
+        assert!(j1939_async::can::is_pgn_valid(pgn));
         AssembledMessage {
             id,
             pgn,

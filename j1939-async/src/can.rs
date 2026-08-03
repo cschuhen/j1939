@@ -91,8 +91,8 @@ pub trait Id {
 
     fn pgn(&self) -> RawCanId {
         match self.pdu2() {
-            true => (self.as_raw() >> 8) & 0x3FFFF,
-            false => (self.as_raw() >> 8) & 0x3FF00,
+            true => (self.as_raw() >> 8) & 0x3_FFFF,
+            false => (self.as_raw() >> 8) & 0x3_FF00,
         }
     }
 
@@ -100,6 +100,22 @@ pub trait Id {
         ((self.as_raw() >> 26) & 0x07) as u8
     }
 }
+
+pub fn is_pgn_valid(pgn: u32) -> bool {
+    if pgn > 0x3_FFFF {
+        return false; // Exceeds 18-bit J1939 PGN limit
+    }
+
+    let pf = ((pgn >> 8) & 0xFF) as u8;
+    let ps = (pgn & 0xFF) as u8;
+
+    if pf < 240 {
+        ps == 0 // PDU1 destination address must be zeroed in definition
+    } else {
+        true // PDU2 group extension can be any value
+    }
+}
+
 
 impl Id for embedded_can::ExtendedId {
     fn as_raw(&self) -> RawCanId {

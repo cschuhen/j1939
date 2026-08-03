@@ -192,7 +192,7 @@ mod tests {
         let mut engine = FilterEngine::new();
 
         for i in 0..20u8 {
-            engine.add_message(make_message(0xEF40, i, &format!("msg {}", i)));
+            engine.add_message(make_message(0xEF00, i, &format!("msg {}", i)));
         }
 
         assert_eq!(engine.total_count(), 20);
@@ -210,7 +210,7 @@ mod tests {
         engine.set_filters(vec![filter]);
 
         for i in 0..10u8 {
-            engine.add_message(make_message(0xEF40, i, &format!("msg {}", i)));
+            engine.add_message(make_message(0xEF00, i, &format!("msg {}", i)));
         }
 
         // Only source=5 should pass
@@ -256,12 +256,12 @@ mod tests {
 
         // Add messages with mixed PGNs
         for i in 0..10u8 {
-            let pgn = if i % 3 == 0 { 0xEF40 } else { 0xEC00 };
+            let pgn = if i % 3 == 0 { 0xEF00 } else { 0xEC00 };
             engine.add_message(make_message(pgn, 5, &format!("msg {}", i)));
         }
 
-        // Filter by PGN 0xEF40
-        let filter: Box<dyn Filter> = Box::new(PgnFilter::new(0xEF40));
+        // Filter by PGN 0xEF00
+        let filter: Box<dyn Filter> = Box::new(PgnFilter::new(0xEF00));
         engine.set_filters(vec![filter]);
 
         engine.recompute();
@@ -281,7 +281,12 @@ mod tests {
     fn test_title_filter_case_insensitive() {
         let mut engine = FilterEngine::new();
 
-        for title in &["Vehicle Speed", "ENGINE SPEED", "coolant temp", "Brake Pressure"] {
+        for title in &[
+            "Vehicle Speed",
+            "ENGINE SPEED",
+            "coolant temp",
+            "Brake Pressure",
+        ] {
             engine.add_message(make_message(0xCF00, 1, title));
         }
 
@@ -299,7 +304,7 @@ mod tests {
         let mut engine = FilterEngine::new();
 
         for title in &["Vehicle Speed", "Engine RPM"] {
-            engine.add_message(make_message(0xEF40, 1, title));
+            engine.add_message(make_message(0xEF00, 1, title));
         }
 
         let filter: Box<dyn Filter> = Box::new(TitleFilter::new("brake"));
@@ -322,7 +327,12 @@ mod tests {
                 unit: Some("rpm".to_string()),
                 decimal_places: None,
             }];
-            engine.add_message(make_message_with_outputs(0xEF40, 1, "Engine Speed", outputs));
+            engine.add_message(make_message_with_outputs(
+                0xEF00,
+                1,
+                "Engine Speed",
+                outputs,
+            ));
         }
 
         // Filter RPM in range 1000-6000 (should match 1500, 3000, and 5500)
@@ -349,7 +359,7 @@ mod tests {
                 unit: None,
                 decimal_places: None,
             }];
-            engine.add_message(make_message_with_outputs(0xEF40, 1, "Test", outputs));
+            engine.add_message(make_message_with_outputs(0xEF00, 1, "Test", outputs));
         }
 
         // Filter RPM == 10 (exact)
@@ -370,7 +380,7 @@ mod tests {
 
         // Add messages with no outputs at all
         for i in 0..5u8 {
-            engine.add_message(make_message(0xEF40, i, &format!("msg {}", i)));
+            engine.add_message(make_message(0xEF00, i, &format!("msg {}", i)));
         }
 
         let filter: Box<dyn Filter> = Box::new(NumericFilter {
@@ -391,7 +401,12 @@ mod tests {
     fn test_severity_filter() {
         let mut engine = FilterEngine::new();
 
-        for sev in &[Severity::Info, Severity::Warning, Severity::Error, Severity::Warning] {
+        for sev in &[
+            Severity::Info,
+            Severity::Warning,
+            Severity::Error,
+            Severity::Warning,
+        ] {
             let outputs = vec![DecodedField::StringMessage {
                 severity: sev.clone(),
                 text: "test message".to_string(),
@@ -437,7 +452,7 @@ mod tests {
         let mut engine = FilterEngine::new();
 
         for src in [1, 5, 10, 144, 255] {
-            engine.add_message(make_message(0xEF40, src, &format!("src {}", src)));
+            engine.add_message(make_message(0xEF00, src, &format!("src {}", src)));
         }
 
         let filter: Box<dyn Filter> = Box::new(SourceFilter::new(144));
@@ -454,7 +469,7 @@ mod tests {
         let mut engine = FilterEngine::new();
 
         for src in [1, 5, 255] {
-            engine.add_message(make_message(0xEF40, src, &format!("src {}", src)));
+            engine.add_message(make_message(0xEF00, src, &format!("src {}", src)));
         }
 
         let filter: Box<dyn Filter> = Box::new(SourceFilter::new(255));
@@ -471,13 +486,13 @@ mod tests {
         let mut engine = FilterEngine::new();
 
         for src in [1, 5, 10, 144] {
-            engine.add_message(make_message(0xEF40, src, &format!("msg {}", src)));
+            engine.add_message(make_message(0xEF00, src, &format!("msg {}", src)));
         }
 
         // Composite: source=5 AND pgn=0x18EF4000
         let filters = vec![
             Box::new(SourceFilter::new(5)) as Box<dyn Filter>,
-            Box::new(PgnFilter::new(0xEF40)),
+            Box::new(PgnFilter::new(0xEF00)),
         ];
         engine.set_filters(filters);
 
@@ -492,13 +507,13 @@ mod tests {
         let mut engine = FilterEngine::new();
 
         for src in [1, 5, 10] {
-            engine.add_message(make_message(0xEF40, src, &format!("msg {}", src)));
+            engine.add_message(make_message(0xEF00, src, &format!("msg {}", src)));
         }
 
         // Composite: source=99 AND pgn=0x18EF4000 — no message has source=99
         let filters = vec![
             Box::new(SourceFilter::new(99)) as Box<dyn Filter>,
-            Box::new(PgnFilter::new(0xEF40)),
+            Box::new(PgnFilter::new(0xEF00)),
         ];
         engine.set_filters(filters);
 
@@ -513,7 +528,7 @@ mod tests {
         let mut engine = FilterEngine::new();
 
         for src in [1, 5, 10, 144] {
-            engine.add_message(make_message(0xEF40, src, &format!("msg {}", src)));
+            engine.add_message(make_message(0xEF00, src, &format!("msg {}", src)));
         }
 
         // First filter: source=5
@@ -534,7 +549,7 @@ mod tests {
         let mut engine = FilterEngine::new();
 
         for src in [1, 5, 10] {
-            engine.add_message(make_message(0xEF40, src, &format!("msg {}", src)));
+            engine.add_message(make_message(0xEF00, src, &format!("msg {}", src)));
         }
 
         // Set filter but don't call recompute manually
@@ -552,13 +567,13 @@ mod tests {
         let mut engine = FilterEngine::new();
 
         for src in [1, 5, 10, 144] {
-            engine.add_message(make_message(0xEF40, src, &format!("msg {}", src)));
+            engine.add_message(make_message(0xEF00, src, &format!("msg {}", src)));
         }
 
         // Two filters: source=5 AND pgn=0x18EF4000 (both must match)
         let filters = vec![
             Box::new(SourceFilter::new(5)) as Box<dyn Filter>,
-            Box::new(PgnFilter::new(0xEF40)),
+            Box::new(PgnFilter::new(0xEF00)),
         ];
         engine.set_filters(filters);
         engine.recompute();
@@ -571,7 +586,7 @@ mod tests {
         assert_eq!(engine.get_filtered_indices().len(), 1);
 
         // Now add a message with different source and remove the source filter too
-        engine.add_message(make_message(0xEF40, 99, "msg 99"));
+        engine.add_message(make_message(0xEF00, 99, "msg 99"));
         engine.remove_filter_at(0);
         engine.recompute();
         // All messages should pass now (no filters)
@@ -585,7 +600,7 @@ mod tests {
         let mut engine = FilterEngine::new();
 
         for src in [1, 5, 10] {
-            engine.add_message(make_message(0xEF40, src, &format!("msg {}", src)));
+            engine.add_message(make_message(0xEF00, src, &format!("msg {}", src)));
         }
 
         // No filters — indices should NOT be dirty (optimized path)
@@ -610,7 +625,7 @@ mod tests {
         let mut engine = FilterEngine::new();
 
         for src in [1, 5] {
-            engine.add_message(make_message(0xEF40, src, &format!("msg {}", src)));
+            engine.add_message(make_message(0xEF00, src, &format!("msg {}", src)));
         }
 
         // Set filter after adding messages
@@ -618,7 +633,7 @@ mod tests {
         assert!(engine.indices_dirty);
 
         // Add another message — should remain dirty
-        engine.add_message(make_message(0xEF40, 10, "msg 10"));
+        engine.add_message(make_message(0xEF00, 10, "msg 10"));
         assert!(engine.indices_dirty);
     }
 
@@ -629,7 +644,7 @@ mod tests {
         let mut engine = FilterEngine::new();
 
         for i in 0..5u8 {
-            engine.add_message(make_message(0xEF40, i, &format!("msg {}", i)));
+            engine.add_message(make_message(0xEF00, i, &format!("msg {}", i)));
         }
 
         // No filters — all messages pass
@@ -645,7 +660,7 @@ mod tests {
         let mut engine = FilterEngine::new();
 
         for i in 0..3u8 {
-            engine.add_message(make_message(0xEF40, i, &format!("msg {}", i)));
+            engine.add_message(make_message(0xEF00, i, &format!("msg {}", i)));
         }
 
         // No filters — only 3 messages
@@ -658,7 +673,7 @@ mod tests {
         let mut engine = FilterEngine::new();
 
         for src in [1, 5, 10, 144] {
-            engine.add_message(make_message(0xEF40, src, &format!("src {}", src)));
+            engine.add_message(make_message(0xEF00, src, &format!("src {}", src)));
         }
 
         // Filter: source=5 only
@@ -697,7 +712,7 @@ mod tests {
         let mut engine = FilterEngine::new();
 
         for i in 0..10u8 {
-            engine.add_message(make_message(0xEF40, i, &format!("msg {}", i)));
+            engine.add_message(make_message(0xEF00, i, &format!("msg {}", i)));
         }
 
         assert_eq!(engine.total_count(), 10);
@@ -753,7 +768,12 @@ mod tests {
     fn test_flag_filter() {
         let mut engine = FilterEngine::new();
 
-        for flag_val in &[FlagValue::Off, FlagValue::On, FlagValue::Error, FlagValue::On] {
+        for flag_val in &[
+            FlagValue::Off,
+            FlagValue::On,
+            FlagValue::Error,
+            FlagValue::On,
+        ] {
             let outputs = vec![DecodedField::Flag {
                 title: "Engine".to_string(),
                 value: flag_val.clone(),
@@ -779,7 +799,7 @@ mod tests {
         let mut engine = FilterEngine::new();
 
         for src in [1, 5, 255, 10] {
-            let id = (7u32 << 26) | (0xEF40 << 8) | src as u32;
+            let id = (7u32 << 26) | (0xEF00 << 8) | src as u32;
             let assembled = crate::types::AssembledMessage::new(id, vec![], 1000);
             engine.add_message(DecodedMessage {
                 title: format!("src {}", src),
@@ -804,7 +824,7 @@ mod tests {
         let mut engine = FilterEngine::new();
 
         for src in [1, 5, 10, 144] {
-            engine.add_message(make_message(0xEF40, src, &format!("msg {}", src)));
+            engine.add_message(make_message(0xEF00, src, &format!("msg {}", src)));
         }
 
         // Set filter — marks dirty
@@ -822,7 +842,7 @@ mod tests {
         let mut engine = FilterEngine::new();
 
         for i in 0..25u8 {
-            engine.add_message(make_message(0xEF40, i, &format!("msg {}", i)));
+            engine.add_message(make_message(0xEF00, i, &format!("msg {}", i)));
         }
 
         assert_eq!(engine.filtered_count(), 25);
@@ -834,7 +854,7 @@ mod tests {
     fn test_multiple_messages_same_source_different_pgns() {
         let mut engine = FilterEngine::new();
 
-        for pgn in [0xEF40, 0xEC00, 0xCF00, 0xFF00] {
+        for pgn in [0xEF00, 0xEC00, 0xCF00, 0xFF00] {
             engine.add_message(make_message(pgn, 5, &format!("pgn {:X}", pgn)));
         }
 
@@ -856,16 +876,16 @@ mod tests {
         let mut engine = FilterEngine::new();
 
         for i in 0..500u16 {
-            let pgn = if i % 3 == 0 { 0xEF40 } else { 0xEC00 };
+            let pgn = if i % 3 == 0 { 0xEF00 } else { 0xEC00 };
             let src = (i % 256) as u8;
             engine.add_message(make_message(pgn, src, &format!("msg {}", i)));
         }
 
         // Filter by PGN
-        engine.set_filters(vec![Box::new(PgnFilter::new(0xEF40))]);
+        engine.set_filters(vec![Box::new(PgnFilter::new(0xEF00))]);
         engine.recompute();
 
         let indices = engine.get_filtered_indices();
-        assert_eq!(indices.len(), 167); // ~500/3 messages have PGN 0xEF40
+        assert_eq!(indices.len(), 167); // ~500/3 messages have PGN 0xEF00
     }
 }
