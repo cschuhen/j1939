@@ -230,17 +230,17 @@ The TUI replaces the final Renderer stage with its own `mpsc` channel — messag
 *   [x] **Scroll Overflow Fix**: Fixed subtraction overflow in `scroll_down()` when `new_selected < viewport_height`. Now uses `saturating_sub()` for safe arithmetic.
 
 ### Bug Fixes & Improvements ✅ COMPLETE
-*   [x] **Ctrl+C Exit Handler**: Added `TuiKey::CtrlC` variant and crossterm event handling for Ctrl+U (0x00) to reliably exit. Both `q` and Ctrl+C now work in both `tui_main.rs` and `app.rs`.
-*   [x] **Tab Panel Cycling**: Rewrote `cycle_focus_forward()`/`cycle_focus_reverse()` using `get_visible_panel_order()` helper. Now properly cycles Lhs → Main → Rhs → Lhs (and reverse), including hidden panels.
-*   [x] **Message List Scrolling**: Fixed `scroll_up()`/`scroll_down()` to work in live mode when user manually scrolls away from bottom. Up arrow switches from LIVE to MANUAL mode when scrolling up from the latest message. PageUp/PageDown now check focus before scrolling.
-*   [x] **Filter Widgets**: Replaced invalid hardcoded filters (RPM, Speed, Engine) with NAME-based filters: "Src Name" and "Dst Name" (Numeric type). Renamed "Source"/"Dest" to "Source Addr"/"Dest Addr" for clarity.
-*   [x] **F4 Layout Toggle**: F4 now correctly toggles between horizontal and vertical layouts. Status bar shows current layout mode (HORZ/VERT). Added full key hints in status bar: `[F1:LHS] [F2:RHS] [F3:Log] [F4:Layout]`.
-*   [x] **Vertical Layout Status Bar**: Fixed status bar rendering in vertical mode — was incorrectly splitting from bottom row instead of content area, causing it to steal space from Main/RHS panels.
-*   [x] **Ctrl+C Reliability (Phase 8)**: Added raw Unix signal handler (`libc::sigaction`) alongside tokio signal for reliable Ctrl+C exit on Linux. Fixed Ctrl+C key detection in crossterm event loop — now checks `Char('c')` with CONTROL modifier instead of unreliable ASCII control codes.
-*   [x] **Shift+Tab Navigation (Phase 8)**: Fixed Shift+Tab to use `KeyCode::BackTab` from crossterm (not Tab + SHIFT modifier). Now properly cycles focus in reverse order.
-*   [x] **Filter Widget Editability (Phase 8)**: Added visual "[Enter to edit]" hint for disabled widgets when selected. When Space is pressed on a disabled widget, it enables AND enters text input mode immediately. Up/Down arrows now navigate between filter widgets in LHS panel and move cursor within text fields during TextInput mode.
-*   [x] **Horizontal Layout Panel Sizing (Phase 8)**: Replaced fixed `Constraint::Length` with ratio-based constraints so main panel gets proportional space. Prevents narrow terminal from squeezing panels into vertical-looking layout.
-*   [x] **Scroll Overflow Fix (Phase 8)**: Fixed subtraction overflow in `scroll_down()` when `new_selected < viewport_height`. Now uses `saturating_sub()` for safe arithmetic.
+ *   [x] **Ctrl+C Exit Handler**: Added `TuiKey::CtrlC` variant and crossterm event handling for Ctrl+U (0x00) to reliably exit. Both `q` and Ctrl+C now work in both `tui_main.rs` and `app.rs`.
+ *   [x] **Tab Panel Cycling**: Rewrote `cycle_focus_forward()`/`cycle_focus_reverse()` using `get_visible_panel_order()` helper. Now properly cycles Lhs → Main → Rhs → Lhs (and reverse), including hidden panels.
+ *   [x] **Message List Scrolling**: Fixed `scroll_up()`/`scroll_down()` to work in live mode when user manually scrolls away from bottom. Up arrow switches from LIVE to MANUAL mode when scrolling up from the latest message. PageUp/PageDown now check focus before scrolling.
+ *   [x] **Filter Widgets**: Replaced invalid hardcoded filters (RPM, Speed, Engine) with NAME-based filters: "Src Name" and "Dst Name" (Numeric type). Renamed "Source"/"Dest" to "Source Addr"/"Dest Addr" for clarity.
+ *   [x] **F4 Layout Toggle**: F4 now correctly toggles between horizontal and vertical layouts. Status bar shows current layout mode (HORZ/VERT). Added full key hints in status bar: `[F1:LHS] [F2:RHS] [F3:Log] [F4:Layout]`.
+ *   [x] **Vertical Layout Status Bar**: Fixed status bar rendering in vertical mode — was incorrectly splitting from bottom row instead of content area, causing it to steal space from Main/RHS panels.
+ *   [x] **Ctrl+C Reliability (Phase 8)**: Added raw Unix signal handler (`libc::sigaction`) alongside tokio signal for reliable Ctrl+C exit on Linux. Fixed Ctrl+C key detection in crossterm event loop — now checks `Char('c')` with CONTROL modifier instead of unreliable ASCII control codes.
+ *   [x] **Shift+Tab Navigation (Phase 8)**: Fixed Shift+Tab to use `KeyCode::BackTab` from crossterm (not Tab + SHIFT modifier). Now properly cycles focus in reverse order.
+ *   [x] **Filter Widget Editability (Phase 8)**: Added visual "[Enter to edit]" hint for disabled widgets when selected. When Space is pressed on a disabled widget, it enables AND enters text input mode immediately. Up/Down arrows now navigate between filter widgets in LHS panel and move cursor within text fields during TextInput mode.
+ *   [x] **Horizontal Layout Panel Sizing (Phase 8)**: Replaced fixed `Constraint::Length` with ratio-based constraints so main panel gets proportional space. Prevents narrow terminal from squeezing panels into vertical-looking layout.
+ *   [x] **Scroll Overflow Fix (Phase 8)**: Fixed subtraction overflow in `scroll_down()` when `new_selected < viewport_height`. Now uses `saturating_sub()` for safe arithmetic.
 
 ## 7. Current File Inventory
 
@@ -253,3 +253,165 @@ The TUI replaces the final Renderer stage with its own `mpsc` channel — messag
 | `src/tui/app.rs` | ✅ Complete | TuiApp state, FilterWidget, Tab/Shift+Tab cycling, vertical layout toggle, scroll logic, filter evaluation. Up/Down arrows navigate LHS widgets and cursor position in text input mode. Space enables widget + enters edit mode. |
 | `src/tui/renderer.rs` | ✅ Complete | Full 3-panel renderer with detail inspector, error log popup, colorization, horizontal + vertical layouts. Ratio-based panel sizing for horizontal mode. Cursor block rendering during text input. "[Enter to edit]" hints. |
 | `src/tui_main.rs` | ✅ Complete | TuiCli parsing, Tab navigation, Ctrl+C handler (raw Unix signal + tokio), layout option, pipeline wiring from shared config. Fixed Shift+Tab via BackTab key code. |
+
+## 8. Planned Features
+
+### 8.1 Device Manager Panel
+
+**Goal**: Display real-time device tracking information from the `DeviceManager` in a dedicated panel.
+
+#### 8.1.1 Data Model
+The `DeviceManager` tracks:
+- Active devices with NAME, source address, TTL expiration
+- Parameter cache (DDI values per device)
+- Address claim conflicts (duplicate claims from different NAMEs for same address)
+
+**Panel Layout**:
+```
+┌─────────────────────────────────────────┐
+│ Devices (N active)                     │
+├─────────────────────────────────────────┤
+│ 0x90  EngineECU        [45s]            │
+│ 0xA1  DisplayUnit      [12s] ⚠️         │
+│ 0xFF  Broadcast        [60s]            │
+│                                         │
+│ ── Selected Device Details ──────────── │
+│ NAME:    0x123456789ABCDEF              │
+│ Address: 0x90 (144)                     │
+│ TTL:     45s                            │
+│ Params:  DDI 0x0E04 = 2500 RPM          │
+│          DDI 0x0E08 = 85°C              │
+│                                         │
+│ Conflicts: 1                            │
+│ ⚠️ 0x90 claimed by two NAMEs            │
+└─────────────────────────────────────────┘
+```
+
+#### 8.1.2 Implementation
+- **New RHS panel** (or expand existing RHS to include device tab)
+- **Tab switching**: Device list view ↔ Selected device details ↔ Conflicts view
+- **Auto-refresh**: TTL countdown updates every second (via timer in event loop)
+- **Color coding**: Green = healthy, Yellow = expiring soon (< 10s), Red = expired/conflict
+- **Navigation**: `Up`/`Down` to select device, `Enter` for details, `Tab` to switch views
+- **Data source**: Access `DeviceManager` state from `TuiApp.device_manager` field
+
+#### 8.1.3 Key Bindings
+| Key | Action |
+|---|---|
+| `F5` | Toggle Device Manager panel visibility (or replace F2) |
+| `Up`/`Down` | Navigate device list |
+| `Enter` | View selected device details |
+| `Tab` | Switch between List / Details / Conflicts views |
+| `Esc` | Return to device list from details view |
+
+---
+
+### 8.2 Debug Logging
+
+**Goal**: Separate debug log output independent of pretty-print filtering, for troubleshooting protocol issues.
+
+#### 8.2.1 Log Categories
+- **Protocol Issues**: TP reassembly timeouts, malformed frames, abort messages
+- **Device Events**: Address claims, conflicts, TTL expiration, parameter cache updates
+- **Decoder Warnings**: Unrecognized PGNs, short payloads, scale/offset errors
+- **Filter Events**: Messages dropped by filters (optional, can be verbose)
+
+#### 8.2.2 Output Targets
+- **stderr** (default): Always available, no file management needed
+- **File** (`--debug-log <path>`): Optional persistent log for post-session analysis
+- **TUI Error Log** (existing F3 popup): Already captures some debug info; extend with structured categories
+
+#### 8.2.3 Implementation
+```rust
+pub enum DebugLevel {
+    Off,
+    Basic,      // Errors and warnings only
+    Verbose,    // Include protocol events, device lifecycle
+    Trace,      // Every frame, reassembly state transitions
+}
+```
+
+- **Log format**: `[HH:MM:SS.mmm] [CATEGORY] message` (colorized in TUI, plain text to file)
+- **Categories**: `TP`, `DEVICE`, `DECODER`, `FILTER`, `SOURCE`
+- **TUI integration**: F3 error log popup shows categorized entries with color-coded category prefixes
+- **File rotation**: Optional max size (e.g., 10MB) with rotation to `.log.1`, `.log.2`
+
+#### 8.2.4 Key Bindings / CLI
+| Flag | Action |
+|---|---|
+| `--debug-log stderr` | Log to stderr (default when --debug is set) |
+| `--debug-log <path>` | Log to file |
+| `--debug-level basic\|verbose\|trace` | Control verbosity (default: basic) |
+
+---
+
+### 8.3 Save Capability
+
+**Goal**: Export messages from the TUI to disk in multiple formats, supporting both all messages and filtered-only subsets.
+
+#### 8.3.1 Supported Formats
+| Format | Extension | Description |
+|---|---|---|
+| **JSON** | `.json` | Structured `DecodedMessage` array with full decoded fields, metadata, assembled payloads |
+| **CSV** | `.csv` | Tabular format with fixed columns (timestamp, CAN ID, PGN, src/dest, data bytes, outputs) |
+| **Condensed** | `.txt` | Single-line-per-message format with key=value pairs and pipe separators |
+| **RAW candump** | `.log` | Standard `candump` format: `[timestamp] can0  DLC <len> <hex bytes>` — compatible with `cansniffer`, `canplayer` |
+
+#### 8.3.2 Save Modes
+| Mode | Description |
+|---|---|
+| **All Messages** | Export the complete message history (up to max_messages limit) |
+| **Filtered Only** | Export only messages passing all active filter rules |
+| **Selected Range** | Export a user-defined range of visible messages (from selected index, N messages) |
+
+#### 8.3.3 UI Interaction
+```
+┌─────────────────────────────────────────┐
+│ Save Dialog                             │
+├─────────────────────────────────────────┤
+│ Format: [JSON ▼]                        │
+│                                         │
+│ Scope:                                  │
+│   (•) All Messages                      │
+│   ( ) Filtered Only                     │
+│   ( ) Selected Range                    │
+│                                         │
+│ Path: /tmp/capture.json                 │
+│                                         │
+│ [ Cancel ]  [ Save ]                    │
+└─────────────────────────────────────────┘
+```
+
+#### 8.3.4 Key Bindings
+| Key | Action |
+|---|---|
+| `F6` | Open save dialog (when Main panel has focus) |
+| `Tab` | Navigate between format, scope, path fields |
+| `Enter` | Confirm save |
+| `Esc` / `Ctrl+C` | Cancel and close dialog |
+
+#### 8.3.5 Implementation Details
+- **Dialog widget**: New overlay modal in `renderer.rs`, similar to error log popup but with form inputs
+- **Format selection**: Dropdown using FlagFilter-style option rendering (JSON, CSV, Condensed, RAW candump)
+- **Scope selection**: Radio buttons implemented as selectable options
+- **Path input**: Text field with basic path validation (directory exists, writable)
+- **Background save**: Use `tokio::task::spawn_blocking` to write files without blocking the event loop
+- **Progress feedback**: Status bar shows "Saving..." during write; toast notification on completion/error
+- **RAW candump format**: Convert each `RawFrame` to standard candump line: `[timestamp_sec.usec] can0  DLC <len> byte0 byte1 ...`
+
+#### 8.3.6 RAW Candump Format Specification
+Each message's underlying `RawFrame` data is written as:
+```
+[1697452800.123456] can0  8  01 23 45 67 89 AB CD EF
+```
+Fields: `[seconds.microseconds] interface  DLC <data_length> <hex_bytes>`
+
+For assembled TP messages, write all constituent DT frames individually (preserving the multi-frame sequence).
+
+---
+
+## 9. Execution Order for Planned Features
+
+1. **Save Capability** — High value, self-contained. Adds `F6` key, save dialog widget, format writers. No dependencies on other features.
+2. **Device Manager Panel** — Completes TUI feature set. Reuses existing `DeviceManager` state; adds panel rendering and navigation.
+3. **Debug Logging** — Improves troubleshooting. Requires log infrastructure in pipeline + TUI error log integration.

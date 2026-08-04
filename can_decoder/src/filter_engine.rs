@@ -100,6 +100,11 @@ impl FilterEngine {
         self.all_messages.get(global_idx)
     }
 
+    /// Get a message by its global (storage) index.
+    pub fn get_message_by_global_index(&self, global_idx: usize) -> Option<&DecodedMessage> {
+        self.all_messages.get(global_idx)
+    }
+
     /// Total number of messages ever received (never drops any).
     pub fn total_count(&self) -> usize {
         self.all_messages.len()
@@ -137,12 +142,11 @@ impl Default for FilterEngine {
     }
 }
 
-/// Synchronously evaluate a filter against a message using an embedded Tokio runtime.
-/// This mirrors the approach used in `tui/app.rs` for sync filter evaluation.
+/// Synchronously evaluate a filter against a message.
+/// Uses the Filter trait's matches_sync method (direct sync for concrete filters,
+/// static runtime bridge as fallback for dynamic dispatch).
 fn filter_matches_sync(filter: &dyn Filter, message: &DecodedMessage) -> bool {
-    static RT: std::sync::OnceLock<tokio::runtime::Runtime> = std::sync::OnceLock::new();
-    let rt = RT.get_or_init(|| tokio::runtime::Runtime::new().unwrap());
-    rt.block_on(filter.matches(message))
+    filter.matches_sync(message)
 }
 
 #[cfg(test)]
@@ -340,6 +344,7 @@ mod tests {
             title: "RPM".to_string(),
             min: Some(1000.0),
             max: Some(6000.0),
+            exact_values: vec![],
         });
         engine.set_filters(vec![filter]);
 
@@ -367,6 +372,7 @@ mod tests {
             title: "Element".to_string(),
             min: Some(10.0),
             max: Some(10.0),
+            exact_values: vec![],
         });
         engine.set_filters(vec![filter]);
 
@@ -387,12 +393,67 @@ mod tests {
             title: "RPM".to_string(),
             min: Some(0.0),
             max: Some(5000.0),
+            exact_values: vec![],
         });
         engine.set_filters(vec![filter]);
 
         // Should not panic, should return 0 matches
         engine.recompute();
         assert_eq!(engine.get_filtered_indices().len(), 0);
+    }
+
+    #[test]
+    fn test_numeric_hex_exact_values() {
+        let mut engine = FilterEngine::new();
+
+        for rpm in &[144u32, 254, 1000, 3000] {
+            let outputs = vec![DecodedField::Value {
+                title: "RPM".to_string(),
+                value: Numeric::Int(*rpm as i64),
+                unit: Some("rpm".to_string()),
+                decimal_places: None,
+            }];
+            engine.add_message(make_message_with_outputs(0xEF00, *rpm as u8, &format!("msg {}", rpm), outputs));
+        }
+
+        // Filter RPM == 144 or 254 (hex: 0x90, 0xfe) — should match first two
+        let filter: Box<dyn Filter> = Box::new(NumericFilter {
+            title: "RPM".to_string(),
+            min: None,
+            max: None,
+            exact_values: vec![144.0, 254.0],
+        });
+        engine.set_filters(vec![filter]);
+
+        engine.recompute();
+        assert_eq!(engine.get_filtered_indices().len(), 2);
+    }
+
+    #[test]
+    fn test_numeric_hex_range() {
+        let mut engine = FilterEngine::new();
+
+        for rpm in &[144u32, 200, 254, 300, 1000] {
+            let outputs = vec![DecodedField::Value {
+                title: "RPM".to_string(),
+                value: Numeric::Int(*rpm as i64),
+                unit: Some("rpm".to_string()),
+                decimal_places: None,
+            }];
+            engine.add_message(make_message_with_outputs(0xEF00, *rpm as u8, &format!("msg {}", rpm), outputs));
+        }
+
+        // Filter RPM >= 0x90 (144) and <= 0xFE (254) — should match 144, 200, 254
+        let filter: Box<dyn Filter> = Box::new(NumericFilter {
+            title: "RPM".to_string(),
+            min: Some(144.0),
+            max: Some(254.0),
+            exact_values: vec![],
+        });
+        engine.set_filters(vec![filter]);
+
+        engine.recompute();
+        assert_eq!(engine.get_filtered_indices().len(), 3);
     }
 
     // ─── Test: severity_filter ─────────────────────────────────────────

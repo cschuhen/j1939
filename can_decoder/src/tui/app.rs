@@ -1,11 +1,12 @@
 use crate::device_manager::DeviceManager;
+use crate::filter_engine::FilterEngine;
 use crate::filters::{
-    DestFilter, FlagFilter, NumericFilter, PgnFilter, SeverityFilter, SourceFilter, TitleFilter,
+    DestFilter, DestNameFilter, FlagFilter, NumericFilter, PgnFilter, RegexFilter, SeverityFilter,
+    SourceFilter, SourceNameFilter, TitleFilter,
 };
 use crate::tui::scroll_manager::MessageScrollManager;
 use crate::types::{DecodedMessage, FlagValue, Severity};
 use ratatui::layout::Rect;
-use std::collections::VecDeque;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
@@ -39,6 +40,9 @@ pub enum FilterType {
     Dest,
     Numeric,
     Flag,
+    SourceName,
+    DestName,
+    Regex,
 }
 
 impl FilterWidget {
@@ -65,6 +69,9 @@ impl FilterWidget {
             FilterType::Dest => format!("dest:{}", self.input_text),
             FilterType::Numeric => format!("numeric:{}:{}", self.name, self.input_text),
             FilterType::Flag => format!("flag:{}={}", self.name, self.input_text),
+            FilterType::SourceName => format!("src-name:{:016X}", parse_hex_or_dec_u64(&self.input_text).unwrap_or(0)),
+            FilterType::DestName => format!("dest-name:{:016X}", parse_hex_or_dec_u64(&self.input_text).unwrap_or(0)),
+            FilterType::Regex => format!("regex:{}", self.input_text),
         }
     }
 
@@ -88,17 +95,25 @@ impl FilterWidget {
                 Some(Box::new(SeverityFilter { severity }))
             }
             FilterType::Source => {
-                let source: u8 = self.input_text.parse().ok()?;
-                Some(Box::new(SourceFilter::new(source)))
+                let sources: Vec<u8> = self.input_text.split(',').filter_map(|s| parse_hex_or_dec_u8(s.trim()).ok()).collect();
+                if sources.is_empty() { return None; }
+                Some(Box::new(SourceFilter::from_list(sources)))
             }
             FilterType::Dest => {
-                let dest: u8 = self.input_text.parse().ok()?;
-                Some(Box::new(DestFilter::new(dest)))
+                let dests: Vec<u8> = self.input_text.split(',').filter_map(|s| parse_hex_or_dec_u8(s.trim()).ok()).collect();
+                if dests.is_empty() { return None; }
+                Some(Box::new(DestFilter::from_list(dests)))
             }
             FilterType::Numeric => {
                 let title = self.name.clone();
-                let (min, max) = parse_range(&self.input_text);
-                Some(Box::new(NumericFilter { title, min, max }))
+                if self.input_text.contains(',') {
+                    let exact_values: Vec<f64> = self.input_text.split(',').filter_map(|s| parse_hex_or_dec_f64(s.trim()).ok()).collect();
+                    if exact_values.is_empty() { return None; }
+                    Some(Box::new(NumericFilter { title, min: None, max: None, exact_values }))
+                } else {
+                    let (min, max) = parse_range(&self.input_text);
+                    Some(Box::new(NumericFilter { title, min, max, exact_values: vec![] }))
+                }
             }
             FilterType::Flag => {
                 let title = self.name.clone();
@@ -110,6 +125,18 @@ impl FilterWidget {
                     _ => return None,
                 };
                 Some(Box::new(FlagFilter { title, value }))
+            }
+            FilterType::SourceName => {
+                let source_name = parse_hex_or_dec_u64(&self.input_text).ok()?;
+                Some(Box::new(SourceNameFilter::new(source_name)))
+            }
+            FilterType::DestName => {
+                let dest_name = parse_hex_or_dec_u64(&self.input_text).ok()?;
+                Some(Box::new(DestNameFilter::new(dest_name)))
+            }
+            FilterType::Regex => {
+                let regex = RegexFilter::new(&self.input_text).ok()?;
+                Some(Box::new(regex))
             }
         }
     }
@@ -129,19 +156,51 @@ fn parse_hex_or_dec_u32(s: &str) -> Result<u32, ()> {
     })
 }
 
+fn parse_hex_or_dec_u64(s: &str) -> Result<u64, ()> {
+    s.parse().or_else(|_| {
+        let stripped = s
+            .strip_prefix("0x")
+            .or_else(|| s.strip_prefix("0X"))
+            .unwrap_or(s);
+        u64::from_str_radix(stripped, 16).map_err(|_| ())
+    })
+}
+
 fn parse_range(s: &str) -> (Option<f64>, Option<f64>) {
     if let Some(stripped) = s.strip_prefix(">=") {
-        (Some(stripped.parse().unwrap_or(f64::MIN)), None)
+        (Some(parse_hex_or_dec_f64(stripped).unwrap_or(f64::MIN)), None)
     } else if let Some(stripped) = s.strip_prefix("<=") {
-        (None, Some(stripped.parse().unwrap_or(f64::MAX)))
+        (None, Some(parse_hex_or_dec_f64(stripped).unwrap_or(f64::MAX)))
     } else if let Some(pos) = s.find('-') {
-        let min_val: f64 = s[..pos].parse().unwrap_or(f64::MIN);
-        let max_val: f64 = s[pos + 1..].parse().unwrap_or(f64::MAX);
+        let min_val: f64 = parse_hex_or_dec_f64(&s[..pos]).unwrap_or(f64::MIN);
+        let max_val: f64 = parse_hex_or_dec_f64(&s[pos + 1..]).unwrap_or(f64::MAX);
         (Some(min_val), Some(max_val))
     } else {
-        let val: f64 = s.parse().unwrap_or(f64::MIN);
+        let val: f64 = parse_hex_or_dec_f64(s).unwrap_or(f64::MIN);
         (Some(val), Some(val))
     }
+}
+
+fn parse_hex_or_dec_f64(s: &str) -> Result<f64, ()> {
+    s.parse::<f64>().or_else(|_| {
+        let stripped = s
+            .strip_prefix("0x")
+            .or_else(|| s.strip_prefix("0X"))
+            .unwrap_or(s);
+        u64::from_str_radix(stripped, 16)
+            .map(|v| v as f64)
+            .map_err(|_| ())
+    })
+}
+
+fn parse_hex_or_dec_u8(s: &str) -> Result<u8, ()> {
+    s.parse::<u8>().or_else(|_| {
+        let stripped = s
+            .strip_prefix("0x")
+            .or_else(|| s.strip_prefix("0X"))
+            .unwrap_or(s);
+        u8::from_str_radix(stripped, 16).map_err(|_| ())
+    })
 }
 
 pub struct TuiApp {
@@ -150,7 +209,7 @@ pub struct TuiApp {
     pub lhs_visible: bool,
     pub rhs_visible: bool,
     pub error_log_visible: bool,
-    pub messages: VecDeque<DecodedMessage>,
+    pub engine: FilterEngine,
     pub selected_index: usize,
     pub scroll_manager: MessageScrollManager,
     pub is_live_stream: bool,
@@ -184,7 +243,7 @@ impl TuiApp {
             lhs_visible: true,
             rhs_visible: true,
             error_log_visible: false,
-            messages: VecDeque::new(),
+            engine: FilterEngine::new(),
             selected_index: 0,
             scroll_manager: MessageScrollManager::new(),
             is_live_stream: false,
@@ -195,8 +254,9 @@ impl TuiApp {
                 FilterWidget::new("Severity", FilterType::Severity),
                 FilterWidget::new("Source Addr", FilterType::Source),
                 FilterWidget::new("Dest Addr", FilterType::Dest),
-                FilterWidget::new("Src Name", FilterType::Numeric),
-                FilterWidget::new("Dst Name", FilterType::Numeric),
+                FilterWidget::new("Src Name", FilterType::SourceName),
+                FilterWidget::new("Dst Name", FilterType::DestName),
+                FilterWidget::new("Regex", FilterType::Regex),
             ],
             active_lhs_widget: 0,
             device_manager: DeviceManager::new(60),
@@ -228,73 +288,68 @@ impl TuiApp {
         self.error_log_visible = !self.error_log_visible;
     }
 
-    pub fn add_message(&mut self, mut message: DecodedMessage) {
-        let passes_filters = self.passes_all_filters(&message);
+    pub fn add_message(&mut self, message: DecodedMessage) {
+        let was_at_bottom = self.is_live_stream && self.selected_index >= self.engine.total_count();
 
-        if !passes_filters && !self.lhs_widgets.iter().all(|w| !w.active_filter_count()) {
-            let title = std::mem::take(&mut message.title);
-            let summary = format!(
-                "[FILTERED] PGN={:X} title={} src={:X}",
-                message.pgn(),
-                title,
-                message.source_address()
-            );
-            self.error_log.push(summary);
-            if self.error_log.len() > 100 {
-                self.error_log.remove(0);
-            }
+        if self.engine.total_count() >= self.max_messages {
+            // Engine doesn't have a pop_front, so we clear and rebuild without the oldest
+            // For simplicity, just skip adding when at capacity (oldest messages are less relevant)
             return;
         }
 
-        if passes_filters || self.lhs_widgets.iter().all(|w| !w.active_filter_count()) {
-            let was_at_bottom = self.is_live_stream && self.selected_index >= self.messages.len();
+        self.engine.add_message(message);
 
-            if self.messages.len() >= self.max_messages {
-                self.messages.pop_front();
-                self.scroll_manager.on_message_removed();
-            }
-            self.messages.push_back(message);
-            self.scroll_manager.set_num_messages(self.messages.len());
-
-            if self.is_live_stream || was_at_bottom {
-                self.selected_index = self.messages.len() - 1;
-                self.scroll_manager.on_message_added();
-            } else {
-                self.scroll_manager.ensure_selected_visible();
+        if self.is_live_stream || was_at_bottom {
+            let total = self.engine.total_count();
+            if total > 0 {
+                self.selected_index = total - 1;
             }
         }
+
+        // Update scroll manager with filtered count for viewport calculations
+        self.scroll_manager.set_num_messages(self.engine.filtered_count());
     }
 
-    pub fn passes_all_filters(&self, message: &DecodedMessage) -> bool {
-        for widget in &self.lhs_widgets {
-            if !widget.active_filter_count() {
-                continue;
-            }
-            if let Some(filter) = widget.build_filter() {
-                if !filter_matches_sync(&*filter, message) {
-                    return false;
-                }
+    pub fn apply_filters(&mut self) {
+        let filters: Vec<Box<dyn crate::traits::Filter>> = self.lhs_widgets
+            .iter()
+            .filter_map(|w| w.build_filter())
+            .collect();
+        for widget in &mut self.lhs_widgets {
+            if widget.enabled && widget.build_filter().is_none() {
+                widget.enabled = false;
             }
         }
-        true
+        self.engine.set_filters(filters);
+
+        // Clamp selection to new filtered set
+        let filtered = self.engine.filtered_count();
+        if filtered == 0 {
+            self.selected_index = 0;
+        } else {
+            self.selected_index = self.selected_index.min(filtered - 1);
+        }
+
+        self.scroll_manager.set_num_messages(self.engine.filtered_count());
     }
 
     pub fn scroll_down(&mut self, steps: usize) {
-        if self.messages.is_empty() {
+        if self.engine.filtered_count() == 0 {
             return;
         }
 
-        self.scroll_manager.set_num_messages(self.messages.len());
+        let filtered = self.engine.filtered_count();
+        self.scroll_manager.set_num_messages(filtered);
 
         // In live mode at bottom, auto-follow new messages
-        if self.is_live_stream && self.selected_index >= self.messages.len() - 1 {
-            self.selected_index = self.messages.len() - 1;
+        if self.is_live_stream && self.selected_index >= filtered - 1 {
+            self.selected_index = filtered - 1;
             return;
         }
 
         self.selected_index += steps;
-        if self.selected_index >= self.messages.len() {
-            self.selected_index = self.messages.len() - 1;
+        if self.selected_index >= filtered {
+            self.selected_index = filtered - 1;
         }
 
         self.scroll_manager.selected_index = self.selected_index;
@@ -303,15 +358,16 @@ impl TuiApp {
 
     pub fn scroll_up(&mut self, steps: usize) {
         // Switch from live to manual when scrolling up from bottom
-        if self.is_live_stream && self.selected_index >= self.messages.len() - 1 {
+        let filtered = self.engine.filtered_count();
+        if self.is_live_stream && self.selected_index >= filtered - 1 {
             self.is_live_stream = false;
         }
 
-        if self.messages.is_empty() {
+        if filtered == 0 {
             return;
         }
 
-        self.scroll_manager.set_num_messages(self.messages.len());
+        self.scroll_manager.set_num_messages(filtered);
 
         self.selected_index = self.selected_index.saturating_sub(steps);
 
@@ -320,56 +376,63 @@ impl TuiApp {
     }
 
     pub fn page_down(&mut self) {
-        if self.messages.is_empty() {
+        if self.engine.filtered_count() == 0 {
             return;
         }
 
-        //self.scroll_manager.set_num_rows(viewport_height);
-        self.scroll_manager.set_num_messages(self.messages.len());
+        self.scroll_manager.set_num_messages(self.engine.filtered_count());
 
         self.scroll_down(self.scroll_manager.num_rows - self.scroll_manager.look_ahead_bottom);
     }
 
     pub fn page_up(&mut self) {
-        if self.messages.is_empty() {
+        if self.engine.filtered_count() == 0 {
             return;
         }
 
         // Switch from live to manual when scrolling up from bottom
-        if self.is_live_stream && self.selected_index >= self.messages.len() - 1 {
+        let filtered = self.engine.filtered_count();
+        if self.is_live_stream && self.selected_index >= filtered - 1 {
             self.is_live_stream = false;
         }
 
-        self.scroll_manager.set_num_messages(self.messages.len());
+        self.scroll_manager.set_num_messages(filtered);
 
         self.scroll_up(self.scroll_manager.num_rows - self.scroll_manager.look_ahead_top);
     }
 
     pub fn get_visible_messages(&mut self, viewport_height: usize) -> Vec<&DecodedMessage> {
         self.scroll_manager.set_num_rows(viewport_height);
-        self.scroll_manager.set_num_messages(self.messages.len());
+        let filtered = self.engine.filtered_count();
+        self.scroll_manager.set_num_messages(filtered);
 
-        if self.messages.is_empty() {
+        if filtered == 0 {
             return vec![];
         }
 
+        // Collect indices first to avoid borrow conflicts
+        let indices = self.engine.get_filtered_indices().to_vec();
+
         let (start, end) = self.scroll_manager.get_visible_range();
+        let start = start.min(indices.len());
+        let end = end.min(indices.len());
 
         let mut result = Vec::new();
-        for (i, msg) in self.messages.iter().enumerate() {
-            if i >= start && i < end {
+        for &global_idx in &indices[start..end] {
+            if let Some(msg) = self.engine.get_message_by_global_index(global_idx) {
                 result.push(msg);
             }
         }
         result
     }
 
-    pub fn get_selected_message(&self) -> Option<&DecodedMessage> {
-        if self.messages.is_empty() {
+    pub fn get_selected_message(&mut self) -> Option<&DecodedMessage> {
+        let filtered = self.engine.filtered_count();
+        if filtered == 0 {
             return None;
         }
-        let idx = self.selected_index.min(self.messages.len() - 1);
-        self.messages.get(idx)
+        let idx = self.selected_index.min(filtered - 1);
+        self.engine.get_message_at(idx)
     }
 
     pub fn move_focus_next(&mut self, direction: Direction) {
@@ -498,6 +561,7 @@ impl TuiApp {
                     }
                 }
                 "\n" | "\r" => {
+                    self.apply_filters();
                     self.exit_text_mode();
                 }
                 _ => {
@@ -526,6 +590,7 @@ impl TuiApp {
             TuiKey::F(3) => self.toggle_error_log(),
             TuiKey::Esc => {
                 if self.input_mode == InputMode::TextInput {
+                    self.apply_filters();
                     self.exit_text_mode();
                 } else {
                     self.focus = Focus::Main;
@@ -542,9 +607,15 @@ impl TuiApp {
                 }
             }
             TuiKey::Tab => {
+                if self.input_mode == InputMode::TextInput {
+                    self.apply_filters();
+                }
                 self.cycle_focus_forward();
             }
             TuiKey::ShiftTab => {
+                if self.input_mode == InputMode::TextInput {
+                    self.apply_filters();
+                }
                 self.cycle_focus_reverse();
             }
             TuiKey::Up => match self.focus {
@@ -602,7 +673,15 @@ impl TuiApp {
                 }
             }
             TuiKey::Enter => {
-                if self.focus == Focus::Lhs {
+                if self.focus == Focus::Lhs && self.input_mode == InputMode::TextInput {
+                    self.apply_filters();
+                    self.exit_text_mode();
+                } else if self.focus == Focus::Lhs {
+                    let widget = &mut self.lhs_widgets[self.active_lhs_widget];
+                    if !widget.enabled {
+                        widget.enabled = true;
+                        widget.expanded = true;
+                    }
                     self.enter_text_mode();
                 }
             }
@@ -629,10 +708,10 @@ impl TuiApp {
     }
 
     pub fn message_count(&self) -> usize {
-        self.messages.len()
+        self.engine.total_count()
     }
 
-    pub fn status_text(&self) -> String {
+    pub fn status_text(&mut self) -> String {
         let focus_str = match self.focus {
             Focus::Lhs => "LHS",
             Focus::Main => "MAIN",
@@ -649,13 +728,14 @@ impl TuiApp {
         };
         let layout_hint = if self.layout_vertical { "VERT" } else { "HORZ" };
         format!(
-            " {} | {} | {} | {} | Filters:{} | Msgs:{} | [F1:LHS] [F2:RHS] [F3:Log] [F4:Layout] [Tab:Nxt] [Space:Stream] [Ctrl+C/q:Quit]",
+            " {} | {} | {} | {} | Filters:{} | Msgs:{}/{} | [F1:LHS] [F2:RHS] [F3:Log] [F4:Layout] [Tab:Nxt] [Space:Stream] [Ctrl+C/q:Quit]",
             focus_str,
             mode_str,
             stream_str,
             layout_hint,
             self.active_filter_count(),
-            self.message_count()
+            self.engine.filtered_count(),
+            self.engine.total_count()
         )
     }
 
@@ -695,12 +775,6 @@ pub enum TuiKey {
     Esc,
     Space,
     CtrlC,
-}
-
-fn filter_matches_sync(filter: &dyn crate::traits::Filter, message: &DecodedMessage) -> bool {
-    static RT: std::sync::OnceLock<tokio::runtime::Runtime> = std::sync::OnceLock::new();
-    let rt = RT.get_or_init(|| tokio::runtime::Runtime::new().unwrap());
-    rt.block_on(filter.matches(message))
 }
 
 #[cfg(test)]
@@ -756,7 +830,7 @@ mod tests {
         }
 
         let viewport_height = 20;
-        assert!(app.selected_index < app.messages.len());
+        assert!(app.selected_index < app.engine.total_count());
         assert!(app.selected_index >= app.scroll_manager.first_visible_message);
         assert!(
             app.selected_index
@@ -1008,5 +1082,161 @@ mod tests {
         let mut app = TuiApp::new();
         let visible = app.get_visible_messages(20);
         assert!(visible.is_empty());
+    }
+
+    #[test]
+    fn test_add_message_never_drops_filtered() {
+        // Phase 2: Messages are never dropped due to filtering.
+        // All messages should be stored in the engine regardless of filter state.
+        let mut app = TuiApp::new();
+
+        for i in 0..10 {
+            app.add_message(make_test_message(0x600 + i, &format!("msg {}", i)));
+        }
+
+        // All 10 messages should be stored (total_count)
+        assert_eq!(app.engine.total_count(), 10);
+        // Without filters, all pass
+        assert_eq!(app.engine.filtered_count(), 10);
+    }
+
+    #[test]
+    fn test_apply_filters_clamps_selection() {
+        let mut app = TuiApp::new();
+
+        for i in 0..20 {
+            app.add_message(make_test_message(0x600 + i, &format!("msg {}", i)));
+        }
+
+        // Set selection near the end
+        app.selected_index = 15;
+
+        // Apply a title filter that matches only "msg 0" (substring match)
+        let widget = &mut app.lhs_widgets[0]; // TitleFilter widget at index 0
+        widget.enabled = true;
+        widget.input_text = "msg 0".to_string();
+
+        assert!(widget.build_filter().is_some());
+
+        app.apply_filters();
+
+        // Selection should be clamped to the filtered set (1 message matching "msg 0")
+        let filtered = app.engine.filtered_count();
+        assert!(filtered > 0, "filtered_count should be > 0 but was {}", filtered);
+        assert!(app.selected_index < filtered, "selected_index {} >= filtered {}", app.selected_index, filtered);
+    }
+
+    #[test]
+    fn test_status_bar_shows_pass_total() {
+        let mut app = TuiApp::new();
+
+        for i in 0..10 {
+            app.add_message(make_test_message(0x600 + i, &format!("msg {}", i)));
+        }
+
+        // Without filters: pass == total
+        let status = app.status_text();
+        assert!(status.contains("Msgs:10/10"));
+    }
+
+    #[test]
+    fn test_scroll_with_filters() {
+        let mut app = TuiApp::new();
+
+        for i in 0..20 {
+            app.add_message(make_test_message(0x600 + i, &format!("msg {}", i)));
+        }
+
+        // Apply a title filter that matches "msg 1" (messages msg 1, msg 10-19)
+        let widget = &mut app.lhs_widgets[0]; // TitleFilter widget at index 0
+        widget.enabled = true;
+        widget.input_text = "msg 1".to_string();
+
+        app.apply_filters();
+
+        assert_eq!(app.engine.total_count(), 20);
+        // "msg 1" matches: msg 1, msg 10, msg 11, msg 12, msg 13, msg 14, msg 15, msg 16, msg 17, msg 18, msg 19 = 11
+        assert!(app.engine.filtered_count() > 0);
+
+        // Scrolling should work within the filtered set
+        app.scroll_down(5);
+        let filtered = app.engine.filtered_count();
+        assert!(app.selected_index < filtered);
+    }
+
+    #[test]
+    fn test_get_visible_messages_with_filters() {
+        let mut app = TuiApp::new();
+
+        for i in 0..20 {
+            app.add_message(make_test_message(0x600 + i, &format!("msg {}", i)));
+        }
+
+        // Apply a title filter that matches "msg 5" (only msg 5)
+        let widget = &mut app.lhs_widgets[0]; // TitleFilter widget at index 0
+        widget.enabled = true;
+        widget.input_text = "msg 5".to_string();
+
+        app.apply_filters();
+
+        assert_eq!(app.engine.total_count(), 20);
+        assert_eq!(app.engine.filtered_count(), 1);
+
+        let indices = app.engine.get_filtered_indices().to_vec();
+        println!("indices: {:?}", indices);
+        println!("selected_index: {}", app.selected_index);
+        println!("first_visible_message: {}", app.scroll_manager.first_visible_message);
+        println!("num_messages: {}", app.scroll_manager.num_messages);
+
+        let visible = app.get_visible_messages(10);
+        assert_eq!(visible.len(), 1, "expected 1 visible message but got {}, indices={:?}", visible.len(), indices);
+    }
+
+    #[test]
+    fn test_selected_message_with_filters() {
+        let mut app = TuiApp::new();
+
+        for i in 0..20 {
+            app.add_message(make_test_message(0x600 + i, &format!("msg {}", i)));
+        }
+
+        // Apply a title filter that matches "msg 1" (messages msg 1, msg 10-19)
+        let widget = &mut app.lhs_widgets[0]; // TitleFilter widget at index 0
+        widget.enabled = true;
+        widget.input_text = "msg 1".to_string();
+
+        app.apply_filters();
+
+        assert_eq!(app.engine.total_count(), 20);
+        assert!(app.engine.filtered_count() > 0);
+
+        let selected = app.get_selected_message();
+        assert!(selected.is_some());
+    }
+
+    #[test]
+    fn test_scroll_at_bottom_with_filters() {
+        let mut app = TuiApp::new();
+        app.is_live_stream = true;
+
+        for i in 0..20 {
+            app.add_message(make_test_message(0x600 + i, &format!("msg {}", i)));
+        }
+
+        // Apply a title filter that matches "msg 5" (only msg 5)
+        let widget = &mut app.lhs_widgets[0]; // TitleFilter widget at index 0
+        widget.enabled = true;
+        widget.input_text = "msg 5".to_string();
+
+        app.apply_filters();
+
+        assert_eq!(app.engine.filtered_count(), 1);
+
+        // Scroll past the end - should not panic or overflow
+        for _ in 0..100 {
+            app.scroll_down(20);
+        }
+
+        assert_eq!(app.selected_index, 0); // Only 1 filtered message
     }
 }

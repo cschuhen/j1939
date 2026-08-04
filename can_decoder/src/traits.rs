@@ -4,6 +4,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
+use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
 /// Abstracts data sources that produce raw CAN frames.
@@ -75,4 +76,12 @@ pub trait Filter: Send + Sync {
         &'a self,
         message: &'a DecodedMessage,
     ) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>>;
+
+    /// Synchronous version of `matches`. Default impl uses a static runtime bridge.
+    /// Concrete implementations should override for direct synchronous evaluation.
+    fn matches_sync(&self, message: &DecodedMessage) -> bool {
+        static RT: std::sync::OnceLock<Runtime> = std::sync::OnceLock::new();
+        let rt = RT.get_or_init(|| Runtime::new().unwrap());
+        rt.block_on(self.matches(message))
+    }
 }

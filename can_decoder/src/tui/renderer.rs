@@ -288,6 +288,53 @@ impl TuiRenderer {
                                 }
                             }
                         }
+                        FilterType::SourceName | FilterType::DestName => {
+                            if is_selected && app.input_mode == InputMode::TextInput {
+                                let before_cursor = &widget.input_text
+                                    [..widget.cursor_pos.min(widget.input_text.len())];
+                                let after_cursor = &widget.input_text
+                                    [widget.cursor_pos.min(widget.input_text.len())..];
+                                spans.push(Span::styled(
+                                    format!("{}{}", before_cursor, "█"),
+                                    Style::default().fg(Color::White).bg(Color::DarkGray),
+                                ));
+                                spans.push(Span::raw(after_cursor.to_string()));
+                            } else {
+                                let name_type = if widget.filter_type == FilterType::SourceName {
+                                    "src-name"
+                                } else {
+                                    "dest-name"
+                                };
+                                spans.push(Span::raw(format!("{}: {}", name_type, widget.input_text)));
+                                if is_selected && !widget.enabled {
+                                    spans.push(Span::styled(
+                                        " [Enter to edit]",
+                                        Style::default().fg(Color::Yellow),
+                                    ));
+                                }
+                            }
+                        }
+                        FilterType::Regex => {
+                            if is_selected && app.input_mode == InputMode::TextInput {
+                                let before_cursor = &widget.input_text
+                                    [..widget.cursor_pos.min(widget.input_text.len())];
+                                let after_cursor = &widget.input_text
+                                    [widget.cursor_pos.min(widget.input_text.len())..];
+                                spans.push(Span::styled(
+                                    format!("{}{}", before_cursor, "█"),
+                                    Style::default().fg(Color::White).bg(Color::DarkGray),
+                                ));
+                                spans.push(Span::raw(after_cursor.to_string()));
+                            } else {
+                                spans.push(Span::raw(format!("regex: {}", widget.input_text)));
+                                if is_selected && !widget.enabled {
+                                    spans.push(Span::styled(
+                                        " [Enter to edit]",
+                                        Style::default().fg(Color::Yellow),
+                                    ));
+                                }
+                            }
+                        }
                     }
 
                     Line::from(spans)
@@ -338,7 +385,7 @@ impl TuiRenderer {
         });
         let viewport_height = inner.height.saturating_sub(1) as usize;
 
-        if app.messages.is_empty() {
+        if app.engine.total_count() == 0 {
             let msg = Paragraph::new("No messages received yet.")
                 .style(Style::default().fg(Color::Gray))
                 .alignment(Alignment::Center);
@@ -456,7 +503,7 @@ impl TuiRenderer {
         }
     }
 
-    fn render_rhs(&self, frame: &mut Frame, area: Rect, app: &TuiApp) {
+    fn render_rhs(&self, frame: &mut Frame, area: Rect, app: &mut TuiApp) {
         let is_active = app.focus == Focus::Rhs;
 
         let block_style = if is_active {
@@ -479,10 +526,26 @@ impl TuiRenderer {
         if let Some(msg) = app.get_selected_message() {
             let mut paragraphs = Vec::new();
 
+            // Extract owned data from msg before accessing device_manager
+            let source_addr = msg.source_address();
+            let dest_addr = msg.dest_address();
+            let pgn_val = msg.pgn();
+            let title_str = msg.title.clone();
+            let can_id = msg.assembled_message.id;
+            let timestamp_val = msg.timestamp();
+            let data_hex: String = msg
+                .data_bytes()
+                .iter()
+                .map(|b| format!("{:02X}", b))
+                .collect::<Vec<_>>()
+                .join(" ");
+            let outputs_clone = msg.outputs.clone();
+            let updates_clone = msg.updates.clone();
+
             // Header section
             paragraphs.push(Line::from("").style(Style::default().fg(Color::Yellow).bold()));
             paragraphs.push(
-                Line::from(format!(" {}", msg.title))
+                Line::from(format!(" {}", title_str))
                     .style(Style::default().fg(Color::Yellow).bold()),
             );
 
@@ -490,28 +553,27 @@ impl TuiRenderer {
             paragraphs.push(Line::from("").style(Style::default()));
             paragraphs.push(Line::from("Metadata:").style(Style::default().fg(Color::Cyan).bold()));
 
-            let timestamp = format_timestamp(msg.timestamp());
+            let timestamp = format_timestamp(timestamp_val);
             paragraphs.push(Line::from(format!("  Time:    {}", timestamp)));
             paragraphs.push(Line::from(format!(
                 "  PGN:     {:X} ({})",
-                msg.pgn(),
-                msg.title
+                pgn_val, title_str
             )));
             paragraphs.push(Line::from(format!(
                 "  CAN ID:  {:08X}",
-                msg.assembled_message.id
+                can_id
             )));
             paragraphs.push(Line::from(format!(
                 "  Source:  {:02X}h",
-                msg.source_address()
+                source_addr
             )));
             paragraphs.push(Line::from(format!(
                 "  Dest:    {:02X}h",
-                msg.dest_address()
+                dest_addr
             )));
 
-            // Try to resolve device name
-            let src_name = app.device_manager.get_device(msg.source_address());
+            // Try to resolve device name (msg borrow is now dropped)
+            let src_name = app.device_manager.get_device(source_addr);
             if let Some(device) = src_name {
                 if let Some(ref name) = device.name {
                     paragraphs.push(Line::from(format!("  DevName: {}", name)));
@@ -519,22 +581,16 @@ impl TuiRenderer {
             }
 
             // Raw data
-            let data_hex: String = msg
-                .data_bytes()
-                .iter()
-                .map(|b| format!("{:02X}", b))
-                .collect::<Vec<_>>()
-                .join(" ");
             paragraphs.push(Line::from(format!("  Data:    {}", data_hex)));
 
             // Decoded fields section
-            if !msg.outputs.is_empty() {
+            if !outputs_clone.is_empty() {
                 paragraphs.push(Line::from("").style(Style::default()));
                 paragraphs.push(
                     Line::from("Decoded Fields:").style(Style::default().fg(Color::Cyan).bold()),
                 );
 
-                for output in &msg.outputs {
+                for output in &outputs_clone {
                     match output {
                         DecodedField::Value {
                             title,
@@ -615,12 +671,12 @@ impl TuiRenderer {
             }
 
             // Updates section
-            if !msg.updates.is_empty() {
+            if !updates_clone.is_empty() {
                 paragraphs.push(Line::from("").style(Style::default()));
                 paragraphs.push(
                     Line::from("Device Updates:").style(Style::default().fg(Color::Cyan).bold()),
                 );
-                for update in &msg.updates {
+                for update in &updates_clone {
                     paragraphs.push(Line::from(format!(
                         "  target_name={:#018X} param_id={} value={:?}",
                         update.target_name, update.param_id, update.value

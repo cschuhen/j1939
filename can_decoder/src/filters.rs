@@ -35,13 +35,28 @@ impl Filter for RegexFilter {
         };
         Box::pin(async move { result })
     }
+
+    fn matches_sync(&self, message: &DecodedMessage) -> bool {
+        if let Some(DecodedField::StringMessage { text, .. }) = message
+            .outputs
+            .iter()
+            .find(|o| matches!(o, DecodedField::StringMessage { .. }))
+        {
+            self.regex.is_match(text)
+        } else {
+            false
+        }
+    }
 }
 
-/// A filter that matches numeric values by title and range.
+/// A filter that matches numeric values by title and range or exact values.
+/// Supports decimal (144), hex (0x90, 0xfe), ranges (>=144, 0x90-0xFE),
+/// and comma-separated exact values (144,254 or 0x90,0xfe).
 pub struct NumericFilter {
     pub title: String,
     pub min: Option<f64>,
     pub max: Option<f64>,
+    pub exact_values: Vec<f64>,
 }
 
 impl Filter for NumericFilter {
@@ -50,17 +65,30 @@ impl Filter for NumericFilter {
     }
 
     fn matches(&self, message: &DecodedMessage) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
-        let result = message.outputs.iter().any(|output| {
+        let result = self.matches_sync(message);
+        Box::pin(async move { result })
+    }
+
+    fn matches_sync(&self, message: &DecodedMessage) -> bool {
+        message.outputs.iter().any(|output| {
             if let DecodedField::Value { title, value, .. } = output {
                 if title == &self.title {
                     match value {
                         Numeric::Int(i) => {
                             let val: f64 = *i as f64;
-                            (self.min.is_none_or(|m| val >= m))
-                                && (self.max.is_none_or(|m| val <= m))
+                            if !self.exact_values.is_empty() {
+                                self.exact_values.contains(&val)
+                            } else {
+                                (self.min.is_none_or(|m| val >= m))
+                                    && (self.max.is_none_or(|m| val <= m))
+                            }
                         }
                         Numeric::Float(f) => {
-                            (self.min.is_none_or(|m| *f >= m)) && (self.max.is_none_or(|m| *f <= m))
+                            if !self.exact_values.is_empty() {
+                                self.exact_values.contains(f)
+                            } else {
+                                (self.min.is_none_or(|m| *f >= m)) && (self.max.is_none_or(|m| *f <= m))
+                            }
                         }
                         _ => false,
                     }
@@ -70,8 +98,7 @@ impl Filter for NumericFilter {
             } else {
                 false
             }
-        });
-        Box::pin(async move { result })
+        })
     }
 }
 
@@ -87,14 +114,18 @@ impl Filter for FlagFilter {
     }
 
     fn matches(&self, message: &DecodedMessage) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
-        let result = message.outputs.iter().any(|output| {
+        let result = self.matches_sync(message);
+        Box::pin(async move { result })
+    }
+
+    fn matches_sync(&self, message: &DecodedMessage) -> bool {
+        message.outputs.iter().any(|output| {
             if let DecodedField::Flag { title, value } = output {
                 title == &self.title && *value == self.value
             } else {
                 false
             }
-        });
-        Box::pin(async move { result })
+        })
     }
 }
 
@@ -109,14 +140,18 @@ impl Filter for SeverityFilter {
     }
 
     fn matches(&self, message: &DecodedMessage) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
-        let result = message.outputs.iter().any(|output| {
+        let result = self.matches_sync(message);
+        Box::pin(async move { result })
+    }
+
+    fn matches_sync(&self, message: &DecodedMessage) -> bool {
+        message.outputs.iter().any(|output| {
             if let DecodedField::StringMessage { severity, .. } = output {
                 *severity == self.severity
             } else {
                 false
             }
-        });
-        Box::pin(async move { result })
+        })
     }
 }
 
@@ -137,8 +172,12 @@ impl Filter for PgnFilter {
     }
 
     fn matches(&self, message: &DecodedMessage) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
-        let result = self.pgn == message.assembled_message.pgn();
+        let result = self.matches_sync(message);
         Box::pin(async move { result })
+    }
+
+    fn matches_sync(&self, message: &DecodedMessage) -> bool {
+        self.pgn == message.assembled_message.pgn()
     }
 }
 
@@ -161,6 +200,11 @@ impl Filter for TitleFilter {
     }
 
     fn matches(&self, message: &DecodedMessage) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
+        let result = self.matches_sync(message);
+        Box::pin(async move { result })
+    }
+
+    fn matches_sync(&self, message: &DecodedMessage) -> bool {
         let msg_match = message.title.to_lowercase().contains(&self.title_contains);
         let output_match = message.outputs.iter().any(|output| match output {
             DecodedField::Value { title, .. } => {
@@ -171,19 +215,22 @@ impl Filter for TitleFilter {
                 text.to_lowercase().contains(&self.title_contains)
             }
         });
-        let result = msg_match || output_match;
-        Box::pin(async move { result })
+        msg_match || output_match
     }
 }
 
-/// A filter that matches by source address.
+/// A filter that matches by source address (supports comma-separated list).
 pub struct SourceFilter {
-    pub source: u8,
+    pub sources: Vec<u8>,
 }
 
 impl SourceFilter {
     pub fn new(source: u8) -> Self {
-        Self { source }
+        Self { sources: vec![source] }
+    }
+
+    pub fn from_list(sources: Vec<u8>) -> Self {
+        Self { sources }
     }
 }
 
@@ -193,19 +240,27 @@ impl Filter for SourceFilter {
     }
 
     fn matches(&self, message: &DecodedMessage) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
-        let result = self.source == message.assembled_message.source();
+        let result = self.matches_sync(message);
         Box::pin(async move { result })
+    }
+
+    fn matches_sync(&self, message: &DecodedMessage) -> bool {
+        self.sources.contains(&message.assembled_message.source())
     }
 }
 
-/// A filter that matches by destination address.
+/// A filter that matches by destination address (supports comma-separated list).
 pub struct DestFilter {
-    pub dest: u8,
+    pub dests: Vec<u8>,
 }
 
 impl DestFilter {
     pub fn new(dest: u8) -> Self {
-        Self { dest }
+        Self { dests: vec![dest] }
+    }
+
+    pub fn from_list(dests: Vec<u8>) -> Self {
+        Self { dests }
     }
 }
 
@@ -215,8 +270,12 @@ impl Filter for DestFilter {
     }
 
     fn matches(&self, message: &DecodedMessage) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
-        let result = self.dest == message.assembled_message.destination();
+        let result = self.matches_sync(message);
         Box::pin(async move { result })
+    }
+
+    fn matches_sync(&self, message: &DecodedMessage) -> bool {
+        self.dests.contains(&message.assembled_message.destination())
     }
 }
 
@@ -237,8 +296,12 @@ impl Filter for SourceNameFilter {
     }
 
     fn matches(&self, message: &DecodedMessage) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
-        let result = message.assembled_message.source_name == Some(self.source_name);
+        let result = self.matches_sync(message);
         Box::pin(async move { result })
+    }
+
+    fn matches_sync(&self, message: &DecodedMessage) -> bool {
+        message.assembled_message.source_name == Some(self.source_name)
     }
 }
 
@@ -259,8 +322,12 @@ impl Filter for DestNameFilter {
     }
 
     fn matches(&self, message: &DecodedMessage) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
-        let result = message.assembled_message.dest_name == Some(self.dest_name);
+        let result = self.matches_sync(message);
         Box::pin(async move { result })
+    }
+
+    fn matches_sync(&self, message: &DecodedMessage) -> bool {
+        message.assembled_message.dest_name == Some(self.dest_name)
     }
 }
 
@@ -359,12 +426,12 @@ impl FilterParser {
             "<value>".dimmed()
         );
         eprintln!(
-            "  {}.{}:{}         Match numeric (exact N, range N-M, >=N, <=N; e.g. {} or {})",
+            "  {}.{}:{}         Match numeric (exact N, range N-M, >=N, <=N; hex supported; e.g. {} or {})",
             "numeric".green().bold(),
             "<title>".dimmed(),
             "<range>".dimmed(),
             "numeric:RPM:0-5000".yellow(),
-            "numeric:Element:10".yellow()
+            "numeric:Element:144,0xfe".yellow()
         );
         eprintln!(
             "  {}.{}                Match string message text against regex pattern",
@@ -372,16 +439,16 @@ impl FilterParser {
             "<pattern>".dimmed()
         );
         eprintln!(
-            "  {}.{}              Match by source address (0-255, e.g. {})",
+            "  {}.{}              Match by source address (0-255, hex supported; e.g. {})",
             "source".green().bold(),
             "<addr>".dimmed(),
-            "source:144".yellow()
+            "source:144,0xfe".yellow()
         );
         eprintln!(
-            "  {}.{}              Match by destination address (0-255, e.g. {})",
+            "  {}.{}              Match by destination address (0-255, hex supported; e.g. {})",
             "dest".green().bold(),
             "<addr>".dimmed(),
-            "dest:255".yellow()
+            "dest:0x90,254".yellow()
         );
         eprintln!(
             "  {}.{}              Match by source NAME in hex (e.g. {})",
@@ -398,8 +465,8 @@ impl FilterParser {
         eprintln!();
         eprintln!("{}", "Examples:".bold().cyan());
         eprintln!("  --filter {}", "pgn:51968".yellow());
-        eprintln!("  --filter {}", "source:144".yellow());
-        eprintln!("  --filter {}", "dest:255".yellow());
+        eprintln!("  --filter {}", "source:144,0xfe".yellow());
+        eprintln!("  --filter {}", "dest:0x90,254".yellow());
         eprintln!("  --filter {}", "src-name:0x80000000000F2EEC".yellow());
         eprintln!("  --filter {}", "severity:error".yellow());
         eprintln!("  --filter {}", "title:speed".yellow());
@@ -438,32 +505,42 @@ impl FilterParser {
                 None => anyhow::bail!("flag filter requires '=' (e.g. flag:title=on)"),
             }
         } else if let Some(rest) = expr.strip_prefix("numeric:") {
-            // numeric:<title>:<range> where <range> is: N (exact), N-M (range), >=N (min), <=N (max)
+            // numeric:<title>:<range> where <range> supports: N (exact), N-M (range), >=N (min), <=N (max), or comma-separated values with hex support
             let parts: Vec<&str> = rest.splitn(3, ':').collect();
             if parts.len() < 2 {
                 anyhow::bail!("numeric filter requires title and range (e.g. numeric:RPM:0-5000)");
             }
             let title = parts[0].to_string();
             let range_str = parts[1];
-            let (min, max) = if let Some(stripped) = range_str.strip_prefix(">=") {
-                (Some(stripped.parse::<f64>()?), None)
-            } else if let Some(stripped) = range_str.strip_prefix("<=") {
-                (None, Some(stripped.parse::<f64>()?))
-            } else if let Some(pos) = range_str.find('-') {
-                let min_val: f64 = range_str[..pos].parse()?;
-                let max_val: f64 = range_str[pos + 1..].parse()?;
-                (Some(min_val), Some(max_val))
+
+            // Check for comma-separated exact values (supports hex: "144,0xfe" or "0x90,254")
+            if range_str.contains(',') {
+                let exact_values: Vec<f64> = range_str
+                    .split(',')
+                    .map(|s| parse_hex_or_dec_f64(s.trim()))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(Box::new(NumericFilter { title, min: None, max: None, exact_values }))
             } else {
-                let val: f64 = range_str.parse()?;
-                (Some(val), Some(val))
-            };
-            Ok(Box::new(NumericFilter { title, min, max }))
+                let (min, max) = if let Some(stripped) = range_str.strip_prefix(">=") {
+                    (Some(parse_hex_or_dec_f64(stripped)?), None)
+                } else if let Some(stripped) = range_str.strip_prefix("<=") {
+                    (None, Some(parse_hex_or_dec_f64(stripped)?))
+                } else if let Some(pos) = range_str.find('-') {
+                    let min_val: f64 = parse_hex_or_dec_f64(&range_str[..pos])?;
+                    let max_val: f64 = parse_hex_or_dec_f64(&range_str[pos + 1..])?;
+                    (Some(min_val), Some(max_val))
+                } else {
+                    let val: f64 = parse_hex_or_dec_f64(range_str)?;
+                    (Some(val), Some(val))
+                };
+                Ok(Box::new(NumericFilter { title, min, max, exact_values: vec![] }))
+            }
         } else if let Some(rest) = expr.strip_prefix("source:") {
-            let source: u8 = rest.parse()?;
-            Ok(Box::new(SourceFilter::new(source)))
+            let sources: Vec<u8> = rest.split(',').map(|s| parse_hex_or_dec_u8(s)).collect::<Result<Vec<_>, _>>()?;
+            Ok(Box::new(SourceFilter::from_list(sources)))
         } else if let Some(rest) = expr.strip_prefix("dest:") {
-            let dest: u8 = rest.parse()?;
-            Ok(Box::new(DestFilter::new(dest)))
+            let dests: Vec<u8> = rest.split(',').map(|s| parse_hex_or_dec_u8(s)).collect::<Result<Vec<_>, _>>()?;
+            Ok(Box::new(DestFilter::from_list(dests)))
         } else if let Some(rest) = expr.strip_prefix("src-name:") {
             let name: u64 = parse_hex_or_dec_u64(rest)?;
             Ok(Box::new(SourceNameFilter::new(name)))
@@ -478,5 +555,113 @@ impl FilterParser {
             FilterParser::print_help();
             Err(anyhow::anyhow!("unknown filter type"))
         }
+    }
+}
+
+/// Parse a numeric string that may be decimal or hex (0x prefix).
+fn parse_hex_or_dec_f64(s: &str) -> Result<f64, anyhow::Error> {
+    s.parse::<f64>().or_else(|_| {
+        let stripped = s
+            .strip_prefix("0x")
+            .or_else(|| s.strip_prefix("0X"))
+            .ok_or_else(|| anyhow::anyhow!("invalid numeric value: {}", s))?;
+        u64::from_str_radix(stripped, 16)
+            .map(|v| v as f64)
+            .map_err(anyhow::Error::from)
+    })
+}
+
+/// Parse a single byte address that may be decimal or hex (0x prefix).
+fn parse_hex_or_dec_u8(s: &str) -> Result<u8, anyhow::Error> {
+    s.trim().parse::<u8>().or_else(|_| {
+        let stripped = s
+            .trim()
+            .strip_prefix("0x")
+            .or_else(|| s.trim().strip_prefix("0X"))
+            .ok_or_else(|| anyhow::anyhow!("invalid address value: {}", s))?;
+        u8::from_str_radix(stripped, 16).map_err(anyhow::Error::from)
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_hex_or_dec_f64_decimal() {
+        assert_eq!(parse_hex_or_dec_f64("144").unwrap(), 144.0);
+        assert_eq!(parse_hex_or_dec_f64("254").unwrap(), 254.0);
+    }
+
+    #[test]
+    fn test_parse_hex_or_dec_f64_hex() {
+        assert_eq!(parse_hex_or_dec_f64("0x90").unwrap(), 144.0);
+        assert_eq!(parse_hex_or_dec_f64("0xfe").unwrap(), 254.0);
+        assert_eq!(parse_hex_or_dec_f64("0X90").unwrap(), 144.0);
+    }
+
+    #[test]
+    fn test_parse_hex_or_dec_f64_invalid() {
+        assert!(parse_hex_or_dec_f64("abc").is_err());
+        assert!(parse_hex_or_dec_f64("0xxyz").is_err());
+    }
+
+    #[test]
+    fn test_numeric_filter_parser_hex_exact_values() {
+        let filter = FilterParser::parse("numeric:RPM:144,0xfe");
+        assert!(filter.is_ok());
+        let f = filter.unwrap();
+        assert_eq!(f.name(), "numeric_filter");
+    }
+
+    #[test]
+    fn test_numeric_filter_parser_hex_range() {
+        let filter = FilterParser::parse("numeric:RPM:0x90-0xfe");
+        assert!(filter.is_ok());
+        let f = filter.unwrap();
+        assert_eq!(f.name(), "numeric_filter");
+    }
+
+    #[test]
+    fn test_numeric_filter_parser_hex_min() {
+        let filter = FilterParser::parse("numeric:RPM:>=0x90");
+        assert!(filter.is_ok());
+        let f = filter.unwrap();
+        assert_eq!(f.name(), "numeric_filter");
+    }
+
+    #[test]
+    fn test_source_filter_parser_hex() {
+        let filter = FilterParser::parse("source:144,0xfe");
+        assert!(filter.is_ok());
+        let f = filter.unwrap();
+        assert_eq!(f.name(), "source_filter");
+    }
+
+    #[test]
+    fn test_dest_filter_parser_hex() {
+        let filter = FilterParser::parse("dest:0x90,254");
+        assert!(filter.is_ok());
+        let f = filter.unwrap();
+        assert_eq!(f.name(), "dest_filter");
+    }
+
+    #[test]
+    fn test_parse_hex_or_dec_u8_decimal() {
+        assert_eq!(parse_hex_or_dec_u8("144").unwrap(), 144);
+        assert_eq!(parse_hex_or_dec_u8("255").unwrap(), 255);
+    }
+
+    #[test]
+    fn test_parse_hex_or_dec_u8_hex() {
+        assert_eq!(parse_hex_or_dec_u8("0x90").unwrap(), 144);
+        assert_eq!(parse_hex_or_dec_u8("0xfe").unwrap(), 254);
+        assert_eq!(parse_hex_or_dec_u8("0XFF").unwrap(), 255);
+    }
+
+    #[test]
+    fn test_parse_hex_or_dec_u8_invalid() {
+        assert!(parse_hex_or_dec_u8("300").is_err());
+        assert!(parse_hex_or_dec_u8("abc").is_err());
     }
 }

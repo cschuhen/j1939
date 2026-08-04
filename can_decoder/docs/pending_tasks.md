@@ -35,10 +35,15 @@
 
 
 ### TUI Integration (ratatui)
-- [ ] Develop terminal UI using ratatui/crossterm.
-- [ ] Live scrollable list of all messages (full history retained in RAM).
-- [ ] Dynamic runtime filter editing without restart.
-- [ ] Device manager panel showing active devices and NAMEs.
+- [x] Develop terminal UI using ratatui/crossterm.
+- [x] Live scrollable list of all messages (full history retained in RAM).
+- [x] Dynamic runtime filter editing without restart.
+- [ ] Device manager panel showing active devices and NAMEs. (Planned: Section 8.1 in tui_design.md)
+
+### Save Capability
+- [ ] Export messages to JSON, CSV, Condensed, or RAW candump format.
+- [ ] Support all messages, filtered-only, or selected range scopes.
+- [ ] F6 key opens save dialog with format/scope/path selection. (Planned: Section 8.3 in tui_design.md)
 
 ### GPUI Integration
 - [ ] Develop graphical UI integration (future scope, high effort).
@@ -57,6 +62,8 @@
 ### Debug Logging
 - [ ] Implement separate debug log (stderr or file) independent of pretty-print filtering.
 - [ ] Log protocol issues, timeout events, device expiration, and address conflicts.
+- [ ] Add `--debug-log <path>` and `--debug-level basic|verbose|trace` CLI options.
+- [ ] Color-coded categories in TUI error log popup (TP, DEVICE, DECODER, FILTER, SOURCE). (Planned: Section 8.2 in tui_design.md)
 
 ## Code Cleanup ⏳ COMPLETED ✅
 
