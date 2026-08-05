@@ -833,6 +833,7 @@ impl TuiApp {
             TuiKey::F(1) => self.toggle_lhs(),
             TuiKey::F(2) => self.toggle_rhs(),
             TuiKey::F(3) => self.toggle_error_log(),
+            TuiKey::F(4) => self.toggle_layout(),
             TuiKey::Esc => {
                 if self.input_mode == InputMode::TextInput {
                     self.apply_filters();

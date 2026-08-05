@@ -79,6 +79,7 @@ impl TuiRenderer {
             Constraint::Ratio(rhs_ratio, lhs_ratio + main_ratio + rhs_ratio),
         ];
         let areas = Layout::default()
+            .direction(Direction::Horizontal)
             .constraints(constraints)
             .split(content_area);
 
@@ -123,6 +124,7 @@ impl TuiRenderer {
         let main_width = vertical_chunks[1].width.saturating_sub(rhs_width);
 
         let bottom_chunks = Layout::default()
+            .direction(Direction::Horizontal)
             .constraints([
                 Constraint::Length(main_width),
                 Constraint::Length(rhs_width),
