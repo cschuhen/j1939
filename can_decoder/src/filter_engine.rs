@@ -1,6 +1,132 @@
+use crate::filter_editor::{FilterOption, FieldType, RawValue};
 use crate::traits::Filter;
 use crate::types::DecodedMessage;
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::rc::Rc;
+
+/// Tracks unique values seen across all messages, updated incrementally on add_message().
+pub struct UniqueValueCache {
+    /// Which source addresses exist (bit array for fast lookup).
+    source_addrs: [bool; 256],
+    dest_addrs: [bool; 256],
+
+    /// Unique PGNs seen (BTreeSet for automatic sorted iteration).
+    pgns: BTreeSet<u32>,
+
+    /// Unique NAMEs seen: u64 key -> display string value.
+    src_names: BTreeMap<u64, String>,
+    dst_names: BTreeMap<u64, String>,
+
+    /// Unique titles seen (BTreeSet for automatic alpha-sorted iteration).
+    titles: BTreeSet<Rc<str>>,
+}
+
+impl Default for UniqueValueCache {
+    fn default() -> Self {
+        Self {
+            source_addrs: [false; 256],
+            dest_addrs: [false; 256],
+            pgns: BTreeSet::new(),
+            src_names: BTreeMap::new(),
+            dst_names: BTreeMap::new(),
+            titles: BTreeSet::new(),
+        }
+    }
+}
+
+impl UniqueValueCache {
+    /// Update the cache with values from a single message.
+    pub fn update(&mut self, msg: &DecodedMessage) {
+        let src = msg.source_address();
+        let dst = msg.dest_address();
+        let pgn = msg.pgn();
+
+        // Addresses — O(1) bit array set
+        self.source_addrs[src as usize] = true;
+        self.dest_addrs[dst as usize] = true;
+
+        // PGNs — O(log n) BTreeSet insert (no-op if already present)
+        self.pgns.insert(pgn);
+
+        // Source NAME — only format display string if key is new
+        if let Some(name) = msg.source_name() {
+            self.src_names.entry(name).or_insert_with(|| format!("{:016X}", name));
+        }
+
+        // Dest NAME — only format display string if key is new
+        if let Some(name) = msg.dest_name() {
+            self.dst_names.entry(name).or_insert_with(|| format!("{:016X}", name));
+        }
+
+        // Titles — check first to avoid allocating Rc when title already seen
+        if !self.titles.contains(msg.title.as_str()) {
+            self.titles.insert(Rc::from(msg.title.as_str()));
+        }
+    }
+
+
+
+
+
+    /// Build FilterOption vec for a given field type from the cache.
+    pub fn get_options(&self, field_type: FieldType) -> Vec<FilterOption> {
+        match field_type {
+            FieldType::SourceAddr => self.source_addrs.iter().enumerate()
+                .filter(|(_, &exists)| exists)
+                .map(|(addr, _)| FilterOption {
+                    id: addr as u32,
+                    display: format!("{}", addr),
+                    raw_value: RawValue::U8(addr as u8),
+                })
+                .collect(),
+
+            FieldType::DestAddr => self.dest_addrs.iter().enumerate()
+                .filter(|(_, &exists)| exists)
+                .map(|(addr, _)| FilterOption {
+                    id: addr as u32,
+                    display: format!("{}", addr),
+                    raw_value: RawValue::U8(addr as u8),
+                })
+                .collect(),
+
+            FieldType::Pgn => self.pgns.iter().map(|&pgn| FilterOption {
+                id: pgn as u32,
+                display: crate::utils::render_pgn(pgn),
+                raw_value: RawValue::U32(pgn),
+            })
+            .collect(),
+
+            FieldType::SrcName => self.src_names.iter().map(|(&name, _)| {
+                FilterOption {
+                    id: name as u32, // Use lower 32 bits as stable ID
+                    //display: display.clone(),
+                    display: crate::utils::render_name(name),
+                    raw_value: RawValue::U64(name),
+                }
+            })
+            .collect(),
+
+            FieldType::DstName => self.dst_names.iter().map(|(&name, _)| {
+                FilterOption {
+                    id: name as u32,
+                    //display: display.clone(),
+                    display: crate::utils::render_name(name),
+                    raw_value: RawValue::U64(name),
+                }
+            })
+            .collect(),
+
+            FieldType::Title => self.titles.iter().map(|title| {
+                FilterOption {
+                    id: title.as_ptr() as u32, // Use pointer as stable ID for Rc<str>
+                    display: title.to_string(),
+                    raw_value: RawValue::Title(title.clone()),
+                }
+            })
+            .collect(),
+        }
+    }
+}
 
 /// Engine that maintains all messages and computes which ones pass active filters.
 ///
@@ -18,6 +144,9 @@ pub struct FilterEngine {
 
     /// True when `filtered_indices` is stale and needs recomputation.
     indices_dirty: bool,
+
+    /// Incrementally maintained cache of unique values for filter editor options.
+    value_cache: UniqueValueCache,
 }
 
 impl FilterEngine {
@@ -28,12 +157,16 @@ impl FilterEngine {
             active_filters: Vec::new(),
             filtered_indices: Vec::new(),
             indices_dirty: true,
+            value_cache: UniqueValueCache::default(),
         }
     }
 
     /// Append a message to the engine. Marks indices dirty since a new message
-    /// may or may not pass current filters.
+    /// may or may not pass current filters. Also updates the unique value cache.
     pub fn add_message(&mut self, msg: DecodedMessage) {
+        // Update cache before storing (we need &msg for cache update)
+        self.value_cache.update(&msg);
+
         let idx = self.all_messages.len();
         self.all_messages.push_back(msg);
         // Mark dirty so the new index gets evaluated on next recompute
@@ -118,6 +251,11 @@ impl FilterEngine {
         self.filtered_indices.len()
     }
 
+    /// Get pre-computed unique filter options for a given field type.
+    pub fn get_unique_options(&self, field_type: FieldType) -> Vec<FilterOption> {
+        self.value_cache.get_options(field_type)
+    }
+
     /// Check if a single message passes all active filters.
     fn message_passes_all_filters(&self, msg: &DecodedMessage) -> bool {
         for filter_ref in &self.active_filters {
@@ -133,6 +271,7 @@ impl FilterEngine {
         self.all_messages.clear();
         self.filtered_indices.clear();
         self.indices_dirty = true;
+        self.value_cache = UniqueValueCache::default();
     }
 }
 
@@ -948,5 +1087,60 @@ mod tests {
 
         let indices = engine.get_filtered_indices();
         assert_eq!(indices.len(), 167); // ~500/3 messages have PGN 0xEF00
+    }
+
+    // ─── Test: unique value cache tracking ─────────────────────────────
+
+    #[test]
+    fn test_unique_options_source_addrs() {
+        let mut engine = FilterEngine::new();
+
+        for src in [1, 5, 10, 144, 255] {
+            engine.add_message(make_message(0xEF00, src, "test"));
+        }
+
+        let options = engine.get_unique_options(FieldType::SourceAddr);
+        assert_eq!(options.len(), 5);
+    }
+
+    #[test]
+    fn test_unique_options_pgns() {
+        let mut engine = FilterEngine::new();
+
+        for pgn in [0xEF00, 0xEC00, 0xCF00] {
+            engine.add_message(make_message(pgn, 1, "test"));
+        }
+
+        let options = engine.get_unique_options(FieldType::Pgn);
+        assert_eq!(options.len(), 3);
+    }
+
+    #[test]
+    fn test_unique_options_titles() {
+        let mut engine = FilterEngine::new();
+
+        for title in &["Vehicle Speed", "Engine RPM", "Coolant Temp"] {
+            engine.add_message(make_message(0xEF00, 1, title));
+        }
+
+        // Add duplicate title
+        engine.add_message(make_message(0xEC00, 2, "Vehicle Speed"));
+
+        let options = engine.get_unique_options(FieldType::Title);
+        assert_eq!(options.len(), 3); // deduplicated
+    }
+
+    #[test]
+    fn test_clear_resets_cache() {
+        let mut engine = FilterEngine::new();
+
+        for src in [1, 5, 10] {
+            engine.add_message(make_message(0xEF00, src, "test"));
+        }
+
+        assert_eq!(engine.get_unique_options(FieldType::SourceAddr).len(), 3);
+
+        engine.clear();
+        assert_eq!(engine.get_unique_options(FieldType::SourceAddr).len(), 0);
     }
 }

@@ -1,5 +1,9 @@
 pub mod config;
 pub mod device_manager;
+/// Generic scroll manager for list views.
+pub mod scroll_manager;
+/// GUI-independent filter editor logic (modal state management).
+pub mod filter_editor;
 /// Filter engine: maintains all messages, computes filtered indices lazily.
 pub mod filter_engine;
 /// Filter implementations and filter expression parsing.
@@ -22,6 +26,8 @@ pub mod tp_reassembler;
 pub mod traits;
 /// Data models for CAN frames, messages, and decoded output.
 pub mod types;
+
+pub mod utils;
 
 // TUI modules
 pub mod tui;

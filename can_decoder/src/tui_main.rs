@@ -185,6 +185,7 @@ fn convert_key(code: KeyCode, modifiers: KeyModifiers) -> TuiKey {
     match code {
         KeyCode::Char('\u{3}') if modifiers.contains(KeyModifiers::CONTROL) => TuiKey::CtrlC,
         KeyCode::Char('\u{0}') if modifiers.contains(KeyModifiers::CONTROL) => TuiKey::CtrlC,
+        KeyCode::Char(' ') => TuiKey::Space,
         KeyCode::Char('q') => TuiKey::Char('q'),
         KeyCode::Char(c) => TuiKey::Char(c),
         KeyCode::F(n) => TuiKey::F(n),

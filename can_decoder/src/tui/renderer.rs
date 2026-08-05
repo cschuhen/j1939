@@ -1,4 +1,5 @@
 use crate::tui::app::{FilterType, Focus, InputMode, TuiApp};
+use crate::tui::filter_editor_widget::FilterEditorWidget;
 use crate::types::{DecodedField, DecodedMessage, FlagValue, Numeric, Severity};
 use ratatui::{prelude::*, widgets::*};
 
@@ -22,6 +23,13 @@ impl TuiRenderer {
         if app.error_log_visible {
             let (popup_area, popup) = self.error_log_popup(area, app);
             frame.render_widget(popup, popup_area);
+            return;
+        }
+
+        // Handle filter editor modal overlay
+        if let Some(modal) = app.filter_editor.as_mut() {
+            let widget = FilterEditorWidget::new(&mut modal.state, &modal.editor);
+            frame.render_widget(widget, area);
             return;
         }
 
@@ -337,7 +345,11 @@ impl TuiRenderer {
                         }
                     }
 
-                    Line::from(spans)
+                    let mut line = Line::from(spans);
+                    if is_selected {
+                        line = line.style(Style::default().bg(Color::DarkGray).fg(Color::White));
+                    }
+                    line
                 } else {
                     // Minimized - just show name with enabled indicator
                     let indicator = if widget.enabled { "*" } else { " " };

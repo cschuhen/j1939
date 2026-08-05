@@ -1,12 +1,18 @@
 use crate::device_manager::DeviceManager;
+use crate::filter_editor::{FilterEditor, FilterEditorState, FieldType};
 use crate::filter_engine::FilterEngine;
 use crate::filters::{
     DestFilter, DestNameFilter, FlagFilter, NumericFilter, PgnFilter, RegexFilter, SeverityFilter,
     SourceFilter, SourceNameFilter, TitleFilter,
 };
-use crate::tui::scroll_manager::MessageScrollManager;
+use crate::scroll_manager::MessageScrollManager;
 use crate::types::{DecodedMessage, FlagValue, Severity};
 use ratatui::layout::Rect;
+
+pub struct FilterEditorModal {
+    pub state: FilterEditorState,
+    pub editor: FilterEditor,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
@@ -144,6 +150,20 @@ impl FilterWidget {
     pub fn active_filter_count(&self) -> bool {
         self.enabled && !self.input_text.is_empty()
     }
+
+    /// Convert this widget's FilterType to a FieldType for the modal editor.
+    /// Returns None for filter types that don't use the modal (Flag, Severity, Numeric, Regex).
+    pub fn to_field_type(&self) -> Option<FieldType> {
+        match self.filter_type {
+            FilterType::Source => Some(FieldType::SourceAddr),
+            FilterType::Dest => Some(FieldType::DestAddr),
+            FilterType::SourceName => Some(FieldType::SrcName),
+            FilterType::DestName => Some(FieldType::DstName),
+            FilterType::Pgn => Some(FieldType::Pgn),
+            FilterType::Title => Some(FieldType::Title),
+            FilterType::Severity | FilterType::Numeric | FilterType::Flag | FilterType::Regex => None,
+        }
+    }
 }
 
 fn parse_hex_or_dec_u32(s: &str) -> Result<u32, ()> {
@@ -220,6 +240,12 @@ pub struct TuiApp {
     pub error_log: Vec<String>,
     pub connection_status: ConnectionStatus,
     pub layout_vertical: bool,
+
+    /// Modal editor state (None = no modal open).
+    pub filter_editor: Option<FilterEditorModal>,
+
+    /// Which LHS widget index is being edited by the modal.
+    pub editing_widget_index: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -263,6 +289,8 @@ impl TuiApp {
             error_log: Vec::new(),
             connection_status: ConnectionStatus::Disconnected,
             layout_vertical: false,
+            filter_editor: None,
+            editing_widget_index: 0,
         }
     }
 
@@ -548,6 +576,201 @@ impl TuiApp {
         self.input_mode = InputMode::Navigation;
     }
 
+    /// Open the modal filter editor for the currently active LHS widget.
+    pub fn open_filter_editor(&mut self) {
+        if self.focus != Focus::Lhs || self.input_mode != InputMode::Navigation {
+            return;
+        }
+
+        let widget = &self.lhs_widgets[self.active_lhs_widget];
+        let field_type = match widget.to_field_type() {
+            Some(ft) => ft,
+            None => return, // This filter type doesn't use the modal
+        };
+
+        self.editing_widget_index = self.active_lhs_widget;
+        let options = self.engine.get_unique_options(field_type);
+        let editor = FilterEditor::new(field_type);
+        let state = editor.open(&widget.input_text, options);
+
+        self.filter_editor = Some(FilterEditorModal { state, editor });
+    }
+
+    /// Close the modal filter editor, optionally applying changes.
+    pub fn close_filter_editor(&mut self, apply: bool) {
+        if let Some(modal) = self.filter_editor.take() {
+            if apply && !modal.state.selected_ids.is_empty() {
+                let csv = modal.editor.get_output_csv(&modal.state);
+                if let Some(csv_text) = csv {
+                    if let Some(widget) = self.lhs_widgets.get_mut(self.editing_widget_index) {
+                        widget.input_text = csv_text;
+                        widget.enabled = true;
+                        widget.expanded = true;
+                        self.apply_filters();
+                    }
+                }
+            }
+        }
+    }
+
+    /// Handle a key event while the modal editor is open.
+    /// Returns true if the key was consumed by the modal (should not propagate to main handler).
+    pub fn handle_modal_key(&mut self, key: &str) -> bool {
+        let modal = match &mut self.filter_editor {
+            Some(m) => m,
+            None => return false,
+        };
+
+        let viewport_height = 14;
+
+        match key {
+            "\t" | "Tab" => {
+                // Toggle focus between text field and list
+                if modal.state.is_text_focused() {
+                    modal.state.move_down(viewport_height);
+                } else {
+                    modal.state.focus_index = -1;
+                    // Re-sync text from list selection
+                    let new_text = modal.editor.reconstruct_text(&modal.state);
+                    modal.state.text_input = new_text;
+                    let (validation, _) = modal.editor.update_from_text(&modal.state);
+                    modal.state.validation = validation;
+                }
+                true
+            }
+            "Enter" | "\n" => {
+                if modal.editor.can_accept(&modal.state) {
+                    self.close_filter_editor(true);
+                } else {
+                    // Beep / invalid - just stay open
+                }
+                true
+            }
+            "Esc" => {
+                self.close_filter_editor(false);
+                true
+            }
+            "Space" => {
+                if modal.state.is_list_focused() && !modal.state.options.is_empty() {
+                    modal.state.toggle_focused();
+                    // Re-sync text from list selection
+                    let new_text = modal.editor.reconstruct_text(&modal.state);
+                    modal.state.text_input = new_text;
+                    let (validation, _) = modal.editor.update_from_text(&modal.state);
+                    modal.state.validation = validation;
+                } else if modal.state.is_text_focused() {
+                    // Insert space character in text field
+                    modal.state.text_input.insert(modal.state.cursor_pos, ' ');
+                    modal.state.cursor_pos += 1;
+                    let (validation, selected_ids) = modal.editor.update_from_text(&modal.state);
+                    modal.state.validation = validation;
+                    modal.state.selected_ids = selected_ids;
+                }
+                true
+            }
+            "Up" => {
+                if modal.state.is_list_focused() {
+                    modal.state.move_up(viewport_height);
+                    // Re-sync text from list selection
+                    let new_text = modal.editor.reconstruct_text(&modal.state);
+                    modal.state.text_input = new_text;
+                    let (validation, _) = modal.editor.update_from_text(&modal.state);
+                    modal.state.validation = validation;
+                } else {
+                    // Text field: move cursor left
+                    if modal.state.cursor_pos > 0 {
+                        modal.state.cursor_pos -= 1;
+                    }
+                }
+                true
+            }
+            "Down" => {
+                if modal.state.is_list_focused() {
+                    modal.state.move_down(viewport_height);
+                    // Re-sync text from list selection
+                    let new_text = modal.editor.reconstruct_text(&modal.state);
+                    modal.state.text_input = new_text;
+                    let (validation, _) = modal.editor.update_from_text(&modal.state);
+                    modal.state.validation = validation;
+                } else {
+                    // Text field: move cursor right
+                    modal.state.cursor_pos = modal.state.cursor_pos.saturating_add(1);
+                }
+                true
+            }
+            "PageUp" => {
+                if modal.state.is_list_focused() {
+                    modal.state.page_up(viewport_height);
+                    let new_text = modal.editor.reconstruct_text(&modal.state);
+                    modal.state.text_input = new_text;
+                    let (validation, _) = modal.editor.update_from_text(&modal.state);
+                    modal.state.validation = validation;
+                }
+                true
+            }
+            "PageDown" => {
+                if modal.state.is_list_focused() {
+                    modal.state.page_down(viewport_height);
+                    let new_text = modal.editor.reconstruct_text(&modal.state);
+                    modal.state.text_input = new_text;
+                    let (validation, _) = modal.editor.update_from_text(&modal.state);
+                    modal.state.validation = validation;
+                }
+                true
+            }
+            "Home" => {
+                if modal.state.is_list_focused() {
+                    modal.state.go_to_first(viewport_height);
+                    let new_text = modal.editor.reconstruct_text(&modal.state);
+                    modal.state.text_input = new_text;
+                    let (validation, _) = modal.editor.update_from_text(&modal.state);
+                    modal.state.validation = validation;
+                } else {
+                    modal.state.cursor_pos = 0;
+                }
+                true
+            }
+            "End" => {
+                if modal.state.is_list_focused() {
+                    modal.state.go_to_last(viewport_height);
+                    let new_text = modal.editor.reconstruct_text(&modal.state);
+                    modal.state.text_input = new_text;
+                    let (validation, _) = modal.editor.update_from_text(&modal.state);
+                    modal.state.validation = validation;
+                } else {
+                    modal.state.cursor_pos = modal.state.text_input.chars().count();
+                }
+                true
+            }
+            "\u{7F}" | "\x08" => {
+                // Backspace in text field
+                if modal.state.is_text_focused() && modal.state.cursor_pos > 0 {
+                    let byte_idx = modal.state.char_to_byte(modal.state.cursor_pos - 1);
+                    modal.state.text_input.remove(byte_idx);
+                    modal.state.cursor_pos -= 1;
+                    // Re-validate
+                    let (validation, selected_ids) = modal.editor.update_from_text(&modal.state);
+                    modal.state.validation = validation;
+                    modal.state.selected_ids = selected_ids;
+                }
+                true
+            }
+            _ => {
+                // Character key - append to text input if text field is focused
+                if modal.state.is_text_focused() {
+                    let byte_idx = modal.state.char_to_byte(modal.state.cursor_pos);
+                    let ch = key.chars().next().unwrap_or(' ');
+                    modal.state.text_input.insert(byte_idx, ch);
+                    modal.state.cursor_pos += 1;
+                    let (validation, selected_ids) = modal.editor.update_from_text(&modal.state);
+                    modal.state.validation = validation;
+                    modal.state.selected_ids = selected_ids;
+                }
+                true
+            }
+        }
+    }
+
     pub fn handle_text_input(&mut self, key: &str) {
         if self.focus == Focus::Lhs && self.input_mode == InputMode::TextInput {
             let widget = &mut self.lhs_widgets[self.active_lhs_widget];
@@ -581,6 +804,28 @@ impl TuiApp {
                 _ => {}
             }
             return;
+        }
+
+        // Route keys through modal editor first if it's open
+        if self.filter_editor.is_some() {
+            let consumed = match &key {
+                TuiKey::Esc => self.handle_modal_key("Esc"),
+                TuiKey::Enter | TuiKey::Char('\n') => self.handle_modal_key("Enter"),
+                TuiKey::Tab => self.handle_modal_key("\t"),
+                TuiKey::ShiftTab => self.handle_modal_key("\t"),
+                TuiKey::Space => self.handle_modal_key("Space"),
+                TuiKey::Up => self.handle_modal_key("Up"),
+                TuiKey::Down => self.handle_modal_key("Down"),
+                TuiKey::PageUp => self.handle_modal_key("PageUp"),
+                TuiKey::PageDown => self.handle_modal_key("PageDown"),
+                TuiKey::Left => self.handle_modal_key("Home"),
+                TuiKey::Right => self.handle_modal_key("End"),
+                TuiKey::Char(c) => self.handle_modal_key(&c.to_string()),
+                _ => false,
+            };
+            if consumed {
+                return;
+            }
         }
 
         match key {
@@ -674,15 +919,26 @@ impl TuiApp {
             }
             TuiKey::Enter => {
                 if self.focus == Focus::Lhs && self.input_mode == InputMode::TextInput {
-                    self.apply_filters();
-                    self.exit_text_mode();
+                    // Check if this widget supports the modal editor
+                    let widget = &self.lhs_widgets[self.active_lhs_widget];
+                    if widget.to_field_type().is_some() {
+                        self.open_filter_editor();
+                    } else {
+                        self.apply_filters();
+                        self.exit_text_mode();
+                    }
                 } else if self.focus == Focus::Lhs {
                     let widget = &mut self.lhs_widgets[self.active_lhs_widget];
                     if !widget.enabled {
                         widget.enabled = true;
                         widget.expanded = true;
                     }
-                    self.enter_text_mode();
+                    // Check if this widget supports the modal editor
+                    if widget.to_field_type().is_some() {
+                        self.open_filter_editor();
+                    } else {
+                        self.enter_text_mode();
+                    }
                 }
             }
             TuiKey::Char(c) => {
