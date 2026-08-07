@@ -488,24 +488,25 @@ impl TuiRenderer {
                 DecodedField::Value {
                     title, value, unit, ..
                 } => {
-                    let val_str = format_value(&value);
-                    if let Some(u) = unit {
-                        parts.push(format!("{}={} {}", title, val_str, u));
+                    if let Numeric::Flag(flag_value) = &value {
+                        let flag_str = match flag_value {
+                            FlagValue::Off => "OFF",
+                            FlagValue::On => "ON",
+                            FlagValue::Error => "ERR",
+                            FlagValue::Unavailable => "N/A",
+                        };
+                        parts.push(format!("{}={}", title, flag_str));
                     } else {
-                        parts.push(format!("{}={}", title, val_str));
+                        let val_str = format_value(&value);
+                        if let Some(u) = unit {
+                            parts.push(format!("{}={} {}", title, val_str, u));
+                        } else {
+                            parts.push(format!("{}={}", title, val_str));
+                        }
                     }
                 }
                 DecodedField::StringMessage { text, .. } => {
                     parts.push(text.clone());
-                }
-                DecodedField::Flag { title, value } => {
-                    let flag_str = match value {
-                        FlagValue::Off => "OFF",
-                        FlagValue::On => "ON",
-                        FlagValue::Error => "ERR",
-                        FlagValue::Unavailable => "N/A",
-                    };
-                    parts.push(format!("{}={}", title, flag_str));
                 }
             }
         }
@@ -612,42 +613,60 @@ impl TuiRenderer {
                             unit,
                             decimal_places,
                         } => {
-                            paragraphs.push(Line::from("").style(Style::default()));
-                            paragraphs.push(
-                                Line::from(format!("  {}", title))
-                                    .style(Style::default().fg(Color::Green).bold()),
-                            );
-
-                            let val_str = format_value(&value);
-                            paragraphs.push(Line::from(format!("    Value:   {}", val_str)));
-
-                            if let Some(u) = unit {
-                                paragraphs.push(Line::from(format!("    Unit:    {}", u)));
-                            }
-                            if let Some(dp) = decimal_places {
-                                let prec = if *dp > 0 {
-                                    format!(".{}", "0".repeat(*dp as usize))
-                                } else {
-                                    String::new()
+                            if let Numeric::Flag(flag_value) = &value {
+                                paragraphs.push(Line::from("").style(Style::default()));
+                                let flag_color = match flag_value {
+                                    FlagValue::Off => Color::Red,
+                                    FlagValue::On => Color::Green,
+                                    FlagValue::Error => Color::Magenta,
+                                    FlagValue::Unavailable => Color::Gray,
                                 };
-                                paragraphs
-                                    .push(Line::from(format!("    Precision:{} digits", prec)));
-                            }
+                                let flag_str = match flag_value {
+                                    FlagValue::Off => "OFF",
+                                    FlagValue::On => "ON",
+                                    FlagValue::Error => "ERROR",
+                                    FlagValue::Unavailable => "UNAVAILABLE",
+                                };
+                                paragraphs.push(
+                                    Line::from(format!("  {} = {}", title, flag_str))
+                                        .style(Style::default().fg(flag_color)),
+                                );
+                            } else {
+                                paragraphs.push(Line::from("").style(Style::default()));
+                                paragraphs.push(
+                                    Line::from(format!("  {}", title))
+                                        .style(Style::default().fg(Color::Green).bold()),
+                                );
 
-                            // Raw hex representation
-                            let raw_hex = match value {
-                                Numeric::Int(i) => format!("{:#018X}", *i as u64),
-                                Numeric::Float(f) => {
-                                    let bytes = f.to_bits();
-                                    format!("{:#018X}", bytes)
+                                let val_str = format_value(&value);
+                                paragraphs.push(Line::from(format!("    Value:   {}", val_str)));
+
+                                if let Some(u) = unit {
+                                    paragraphs.push(Line::from(format!("    Unit:    {}", u)));
                                 }
-                                Numeric::Hex(h) => format!(
-                                    "0x{}",
-                                    h.iter().map(|b| format!("{:02X}", b)).collect::<String>()
-                                ),
-                                Numeric::Bool(b) => format!("{}", if *b { 1u64 } else { 0u64 }),
-                            };
-                            paragraphs.push(Line::from(format!("    Raw:     {}", raw_hex)));
+                                if let Some(dp) = decimal_places {
+                                    let prec = if *dp > 0 {
+                                        format!(".{}", "0".repeat(*dp as usize))
+                                    } else {
+                                        String::new()
+                                    };
+                                    paragraphs
+                                        .push(Line::from(format!("    Precision:{} digits", prec)));
+                                }
+
+                                // Raw hex representation
+                                let raw_hex = match value {
+                                    Numeric::Int(i) => format!("{:#018X}", *i as u64),
+                                    Numeric::Float(f) => {
+                                        let bytes = f.to_bits();
+                                        format!("{:#018X}", bytes)
+                                    }
+                                    Numeric::Hex(h) => format!("0x{:X}", h),
+                                    Numeric::Bool(b) => format!("{}", if *b { 1u64 } else { 0u64 }),
+                                    Numeric::Flag(..) => "N/A".to_string(),
+                                };
+                                paragraphs.push(Line::from(format!("    Raw:     {}", raw_hex)));
+                            }
                         }
                         DecodedField::StringMessage { severity, text } => {
                             paragraphs.push(Line::from("").style(Style::default()));
@@ -659,25 +678,6 @@ impl TuiRenderer {
                             paragraphs.push(
                                 Line::from(format!("  [{:?}] {}", severity, text))
                                     .style(Style::default().fg(sev_color)),
-                            );
-                        }
-                        DecodedField::Flag { title, value } => {
-                            paragraphs.push(Line::from("").style(Style::default()));
-                            let flag_color = match value {
-                                FlagValue::Off => Color::Red,
-                                FlagValue::On => Color::Green,
-                                FlagValue::Error => Color::Magenta,
-                                FlagValue::Unavailable => Color::Gray,
-                            };
-                            let flag_str = match value {
-                                FlagValue::Off => "OFF",
-                                FlagValue::On => "ON",
-                                FlagValue::Error => "ERROR",
-                                FlagValue::Unavailable => "UNAVAILABLE",
-                            };
-                            paragraphs.push(
-                                Line::from(format!("  {} = {}", title, flag_str))
-                                    .style(Style::default().fg(flag_color)),
                             );
                         }
                     }
@@ -759,11 +759,14 @@ fn format_value(value: &Numeric) -> String {
     match value {
         Numeric::Int(i) => format!("{}", i),
         Numeric::Float(f) => format!("{:.4}", f),
-        Numeric::Hex(h) => format!(
-            "0x{}",
-            h.iter().map(|b| format!("{:02X}", b)).collect::<String>()
-        ),
+        Numeric::Hex(h) => format!("0x{:X}", h),
         Numeric::Bool(b) => format!("{}", b),
+        Numeric::Flag(flag_value) => match flag_value {
+            FlagValue::Off => "OFF".to_string(),
+            FlagValue::On => "ON".to_string(),
+            FlagValue::Error => "ERR".to_string(),
+            FlagValue::Unavailable => "N/A".to_string(),
+        },
     }
 }
 

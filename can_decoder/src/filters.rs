@@ -120,7 +120,7 @@ impl Filter for FlagFilter {
 
     fn matches_sync(&self, message: &DecodedMessage) -> bool {
         message.outputs.iter().any(|output| {
-            if let DecodedField::Flag { title, value } = output {
+            if let DecodedField::Value { title, value: Numeric::Flag(value), .. } = output {
                 title == &self.title && *value == self.value
             } else {
                 false
@@ -210,7 +210,6 @@ impl Filter for TitleFilter {
             DecodedField::Value { title, .. } => {
                 title.to_lowercase().contains(&self.title_contains)
             }
-            DecodedField::Flag { title, .. } => title.to_lowercase().contains(&self.title_contains),
             DecodedField::StringMessage { text, .. } => {
                 text.to_lowercase().contains(&self.title_contains)
             }

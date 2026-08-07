@@ -40,9 +40,11 @@ async fn test_console_renderer() {
     assert!(res_str.contains("Error message"));
 
     // Test Flag
-    let output_flag = DecodedField::Flag {
+    let output_flag = DecodedField::Value {
         title: "Flag Title".to_string(),
-        value: FlagValue::On,
+        value: Numeric::Flag(FlagValue::On),
+        unit: None,
+        decimal_places: None,
     };
     let mut output_message = DecodedMessage::new("Some Title".to_string());
     output_message.outputs.push(output_flag);

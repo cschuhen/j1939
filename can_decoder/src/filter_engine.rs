@@ -974,9 +974,11 @@ mod tests {
             FlagValue::Error,
             FlagValue::On,
         ] {
-            let outputs = vec![DecodedField::Flag {
+            let outputs = vec![DecodedField::Value {
                 title: "Engine".to_string(),
-                value: flag_val.clone(),
+                value: Numeric::Flag(flag_val.clone()),
+                unit: None,
+                decimal_places: None,
             }];
             engine.add_message(make_message_with_outputs(0xCF00, 1, "Status", outputs));
         }

@@ -507,16 +507,7 @@ impl J1939Decoder {
                 0,
                 DecodedField::Value {
                     title: "Source Device".to_string(),
-                    value: Numeric::Hex(vec![
-                        (src_name_u64 >> 56) as u8,
-                        (src_name_u64 >> 48) as u8,
-                        (src_name_u64 >> 40) as u8,
-                        (src_name_u64 >> 32) as u8,
-                        (src_name_u64 >> 24) as u8,
-                        (src_name_u64 >> 16) as u8,
-                        (src_name_u64 >> 8) as u8,
-                        src_name_u64 as u8,
-                    ]),
+                    value: Numeric::Hex(src_name_u64),
                     unit: Some("NAME".to_string()),
                     decimal_places: None,
                 },
@@ -527,16 +518,7 @@ impl J1939Decoder {
         if let Some(dest_name_u64) = msg.dest_name {
             decoded.outputs.push(DecodedField::Value {
                 title: "Dest Device".to_string(),
-                value: Numeric::Hex(vec![
-                    (dest_name_u64 >> 56) as u8,
-                    (dest_name_u64 >> 48) as u8,
-                    (dest_name_u64 >> 40) as u8,
-                    (dest_name_u64 >> 32) as u8,
-                    (dest_name_u64 >> 24) as u8,
-                    (dest_name_u64 >> 16) as u8,
-                    (dest_name_u64 >> 8) as u8,
-                    dest_name_u64 as u8,
-                ]),
+                value: Numeric::Hex(dest_name_u64),
                 unit: Some("NAME".to_string()),
                 decimal_places: None,
             });
@@ -678,12 +660,18 @@ impl J1939Decoder {
                     decimal_places: comp.decimal_places,
                 })
             }
-            ValueType::Hex => Some(DecodedField::Value {
-                title: comp.name.clone(),
-                value: Numeric::Hex(slice.to_vec()),
-                unit: None,
-                decimal_places: None,
-            }),
+            ValueType::Hex => {
+                let mut hex_val: u64 = 0;
+                for &byte in slice {
+                    hex_val = (hex_val << 8) | byte as u64;
+                }
+                Some(DecodedField::Value {
+                    title: comp.name.clone(),
+                    value: Numeric::Hex(hex_val),
+                    unit: None,
+                    decimal_places: None,
+                })
+            }
             ValueType::Bool => {
                 let val = slice[0] != 0;
                 Some(DecodedField::Value {
@@ -1089,7 +1077,7 @@ pgns:
         let result = J1939Decoder::decode_component(&data, &comp).unwrap();
         match result {
             DecodedField::Value { value, .. } => {
-                assert_eq!(value, Numeric::Hex(vec![0xAA, 0xBB, 0xCC]))
+                assert_eq!(value, Numeric::Hex(0xAABBCC))
             }
             _ => panic!("Expected Value"),
         }
@@ -1518,12 +1506,8 @@ pgns:
             } => {
                 assert_eq!(title, "Source Device");
                 assert_eq!(unit.as_ref(), Some(&"NAME".to_string()));
-                if let Numeric::Hex(hex_bytes) = value {
-                    assert_eq!(hex_bytes.len(), 8);
-                    assert_eq!(
-                        *hex_bytes,
-                        vec![0x80, 0x00, 0x3e, 0x00, 0x46, 0x0d, 0x83, 0x6e]
-                    );
+                if let Numeric::Hex(hex_val) = value {
+                    assert_eq!(*hex_val, 0x80003E00460D836E);
                 } else {
                     panic!("Expected Hex value for Source Device");
                 }
@@ -1572,12 +1556,8 @@ pgns:
         match &msg.outputs[0] {
             DecodedField::Value { title, value, .. } => {
                 assert_eq!(title, "Source Device");
-                if let Numeric::Hex(hex_bytes) = value {
-                    assert_eq!(hex_bytes.len(), 8);
-                    assert_eq!(
-                        *hex_bytes,
-                        vec![0x80, 0x00, 0x3e, 0x00, 0x46, 0x0d, 0x83, 0x6e]
-                    );
+                if let Numeric::Hex(hex_val) = value {
+                    assert_eq!(*hex_val, 0x80003E00460D836E);
                 } else {
                     panic!("Expected Hex value for Source Device");
                 }

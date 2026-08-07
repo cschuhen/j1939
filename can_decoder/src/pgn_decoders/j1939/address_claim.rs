@@ -70,13 +70,15 @@ impl ComplexDecoder for AddressClaimDecoder {
         }
 
         // Self Configurable flag
-        msg.outputs.push(DecodedField::Flag {
+        msg.outputs.push(DecodedField::Value {
             title: "Self Configurable".to_string(),
-            value: if name.self_configurable() {
+            value: Numeric::Flag(if name.self_configurable() {
                 crate::types::FlagValue::On
             } else {
                 crate::types::FlagValue::Off
-            },
+            }),
+            unit: None,
+            decimal_places: None,
         });
 
         // Vehicle System Instance (4 bits)
@@ -161,9 +163,10 @@ impl ComplexDecoder for AddressClaimDecoder {
 
         // Raw NAME (8 bytes)
         let name_bytes: Vec<u8> = name.bytes_iter().collect();
+        let name_u64: u64 = u64::from_be_bytes(name_bytes.try_into().unwrap_or([0; 8]));
         msg.outputs.push(DecodedField::Value {
             title: "Raw NAME".to_string(),
-            value: Numeric::Hex(name_bytes),
+            value: Numeric::Hex(name_u64),
             unit: Some("NAME".to_string()),
             decimal_places: None,
         });
@@ -319,7 +322,7 @@ mod tests {
                 DecodedField::Value { value, .. } => {
                     assert_eq!(
                         *value,
-                        Numeric::Hex(vec![0x6e, 0x83, 0x0d, 0x46, 0x00, 0x3e, 0x00, 0x80])
+                        Numeric::Hex(0x6E830D46003E0080)
                     );
                 }
                 _ => panic!("Expected Raw NAME Value"),
@@ -348,15 +351,12 @@ mod tests {
         assert!(result.is_some());
         let msg = result.unwrap();
 
-        // Check Self Configurable flag is Off
-        let sc_idx = msg.outputs.iter().position(|o| match o {
-            DecodedField::Flag { title, .. } => title == "Self Configurable",
-            _ => false,
-        });
+        // Check Self Configurable flag is Off (it's the first Flag output)
+        let sc_idx = msg.outputs.iter().position(|o| matches!(o, DecodedField::Value { value: Numeric::Flag(..), .. }));
         assert!(sc_idx.is_some());
         if let Some(idx) = sc_idx {
             match &msg.outputs[idx] {
-                DecodedField::Flag { value, .. } => {
+                DecodedField::Value { value: Numeric::Flag(value), .. } => {
                     assert_eq!(*value, FlagValue::Off);
                 }
                 _ => panic!("Expected Self Configurable Flag"),
@@ -375,15 +375,12 @@ mod tests {
         assert!(result.is_some());
         let msg = result.unwrap();
 
-        // Check Self Configurable flag is On
-        let sc_idx = msg.outputs.iter().position(|o| match o {
-            DecodedField::Flag { title, .. } => title == "Self Configurable",
-            _ => false,
-        });
+        // Check Self Configurable flag is On (it's the first Flag output)
+        let sc_idx = msg.outputs.iter().position(|o| matches!(o, DecodedField::Value { value: Numeric::Flag(..), .. }));
         assert!(sc_idx.is_some());
         if let Some(idx) = sc_idx {
             match &msg.outputs[idx] {
-                DecodedField::Flag { value, .. } => {
+                DecodedField::Value { value: Numeric::Flag(value), .. } => {
                     assert_eq!(*value, FlagValue::On);
                 }
                 _ => panic!("Expected Self Configurable Flag"),

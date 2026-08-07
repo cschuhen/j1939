@@ -68,27 +68,36 @@ pub fn format_output(output: &DecodedField) -> String {
                         format!("{}", v)
                     }
                 }
-                crate::types::Numeric::Hex(v) => {
-                    format!(
-                        "0x{}",
-                        v.iter().map(|b| format!("{:02X}", b)).collect::<String>()
-                    )
-                }
+                crate::types::Numeric::Hex(v) => format!("0x{:X}", v),
                 crate::types::Numeric::Bool(v) => format!("{}", v),
+                crate::types::Numeric::Flag(value) => {
+                    let flag_text = match value {
+                        crate::types::FlagValue::Off => "OFF".red().to_string(),
+                        crate::types::FlagValue::On => "ON".green().to_string(),
+                        crate::types::FlagValue::Error => "ERR".red().bold().to_string(),
+                        crate::types::FlagValue::Unavailable => "N/A".dimmed().to_string(),
+                    };
+                    format!("[{}] {}", title.bold().cyan(), flag_text)
+                }
             };
             let title_part = format!("[{}]", title.bold().cyan());
             let unit_part = unit
                 .as_ref()
                 .map(|u| u.dimmed().to_string())
                 .unwrap_or_else(|| "".to_string());
-            format!(
-                "{:<w1$} | {:<w2$} | {}",
-                title_part,
-                val_str,
-                unit_part,
-                w1 = w1,
-                w2 = w2
-            )
+            // For Flag values, val_str already contains the formatted output
+            if matches!(value, crate::types::Numeric::Flag(..)) {
+                val_str
+            } else {
+                format!(
+                    "{:<w1$} | {:<w2$} | {}",
+                    title_part,
+                    val_str,
+                    unit_part,
+                    w1 = w1,
+                    w2 = w2
+                )
+            }
         }
         DecodedField::StringMessage { severity, text } => {
             let sev_part = match severity {
@@ -101,23 +110,6 @@ pub fn format_output(output: &DecodedField) -> String {
                 sev_part,
                 "",
                 text,
-                w1 = w1,
-                w2 = w2
-            )
-        }
-        DecodedField::Flag { title, value } => {
-            let flag_text = match value {
-                crate::types::FlagValue::Off => "OFF".red().to_string(),
-                crate::types::FlagValue::On => "ON".green().to_string(),
-                crate::types::FlagValue::Error => "ERR".red().bold().to_string(),
-                crate::types::FlagValue::Unavailable => "N/A".dimmed().to_string(),
-            };
-            let title_part = format!("[{}]", title.bold().cyan());
-            format!(
-                "{:<w1$} | {:<w2$} | {}",
-                title_part,
-                "",
-                flag_text,
                 w1 = w1,
                 w2 = w2
             )
@@ -233,7 +225,7 @@ impl Renderer for CsvRenderer {
 
             for output in &message.outputs {
                 match output {
-                    DecodedField::Value { title, .. } | DecodedField::Flag { title, .. } => {
+                    DecodedField::Value { title, .. } => {
                         // Check if we've seen this PGN before
                         if let Some(existing_cols) = self.column_registry.get(&pgn) {
                             // Use existing columns for this PGN
@@ -326,21 +318,25 @@ impl Renderer for CsvRenderer {
                     DecodedField::Value {
                         title, value, unit, ..
                     } => {
-                        let val = match value {
+                        let display = match value {
                             crate::types::Numeric::Int(v) => format!("{}", v),
                             crate::types::Numeric::Float(v) => format!("{}", v),
-                            crate::types::Numeric::Hex(v) => {
-                                format!(
-                                    "0x{}",
-                                    v.iter().map(|b| format!("{:02X}", b)).collect::<String>()
-                                )
-                            }
+                            crate::types::Numeric::Hex(v) => format!("0x{:X}", v),
                             crate::types::Numeric::Bool(v) => format!("{}", v),
+                            crate::types::Numeric::Flag(flag_value) => {
+                                let flag = match flag_value {
+                                    crate::types::FlagValue::Off => "OFF",
+                                    crate::types::FlagValue::On => "ON",
+                                    crate::types::FlagValue::Error => "ERR",
+                                    crate::types::FlagValue::Unavailable => "N/A",
+                                };
+                                format!("{}: {}", title, flag)
+                            }
                         };
                         let display = if let Some(ref u) = unit {
-                            format!("{} {}", val, u)
+                            format!("{} {}", display, u)
                         } else {
-                            val
+                            display
                         };
 
                         // Check if this value's title is in dynamic columns for this PGN
@@ -357,25 +353,6 @@ impl Renderer for CsvRenderer {
                     DecodedField::StringMessage { .. } => {
                         // Already handled in fixed columns
                         values.push("".to_string());
-                    }
-                    DecodedField::Flag { title, value } => {
-                        let flag = match value {
-                            crate::types::FlagValue::Off => "OFF",
-                            crate::types::FlagValue::On => "ON",
-                            crate::types::FlagValue::Error => "ERR",
-                            crate::types::FlagValue::Unavailable => "N/A",
-                        };
-
-                        // Check if this flag's title is in dynamic columns for this PGN
-                        if let Some(cols) = self.column_registry.get(&pgn) {
-                            if cols.contains(title) {
-                                values.push(flag.to_string());
-                            } else {
-                                values.push("".to_string());
-                            }
-                        } else {
-                            values.push("".to_string());
-                        }
                     }
                 }
             }
@@ -457,21 +434,25 @@ impl Renderer for CondensedRenderer {
                     DecodedField::Value {
                         title, value, unit, ..
                     } => {
-                        let val_str = match value {
+                        let display = match value {
                             crate::types::Numeric::Int(v) => format!("{}", v),
                             crate::types::Numeric::Float(v) => format!("{}", v),
-                            crate::types::Numeric::Hex(v) => {
-                                format!(
-                                    "0x{}",
-                                    v.iter().map(|b| format!("{:02X}", b)).collect::<String>()
-                                )
-                            }
+                            crate::types::Numeric::Hex(v) => format!("0x{:X}", v),
                             crate::types::Numeric::Bool(v) => format!("{}", v),
+                            crate::types::Numeric::Flag(flag_value) => {
+                                let flag_text = match flag_value {
+                                    crate::types::FlagValue::Off => "OFF".red().to_string(),
+                                    crate::types::FlagValue::On => "ON".green().to_string(),
+                                    crate::types::FlagValue::Error => "ERR".white().bold().to_string(),
+                                    crate::types::FlagValue::Unavailable => "N/A".dimmed().to_string(),
+                                };
+                                flag_text
+                            }
                         };
                         let display = if let Some(ref u) = unit {
-                            format!("{} {}", val_str, u)
+                            format!("{} {}", display, u)
                         } else {
-                            val_str
+                            display
                         };
                         parts.push(format!("{}={}", title.bold().cyan(), display));
                     }
@@ -485,15 +466,6 @@ impl Renderer for CondensedRenderer {
                             crate::types::Severity::Error => "E".red().to_string(),
                         };
                         parts.push(format!("[{}] {}", sev, text));
-                    }
-                    DecodedField::Flag { title, value } => {
-                        let flag_text = match value {
-                            crate::types::FlagValue::Off => "OFF".red().to_string(),
-                            crate::types::FlagValue::On => "ON".green().to_string(),
-                            crate::types::FlagValue::Error => "ERR".white().bold().to_string(),
-                            crate::types::FlagValue::Unavailable => "N/A".dimmed().to_string(),
-                        };
-                        parts.push(format!("{}={}", title.bold().cyan(), flag_text));
                     }
                 }
             }
@@ -586,21 +558,25 @@ impl Renderer for FullCondensedRenderer {
                     DecodedField::Value {
                         title, value, unit, ..
                     } => {
-                        let val_str = match value {
+                        let display = match value {
                             crate::types::Numeric::Int(v) => format!("{}", v),
                             crate::types::Numeric::Float(v) => format!("{}", v),
-                            crate::types::Numeric::Hex(v) => {
-                                format!(
-                                    "0x{}",
-                                    v.iter().map(|b| format!("{:02X}", b)).collect::<String>()
-                                )
-                            }
+                            crate::types::Numeric::Hex(v) => format!("0x{:X}", v),
                             crate::types::Numeric::Bool(v) => format!("{}", v),
+                            crate::types::Numeric::Flag(flag_value) => {
+                                let flag_text = match flag_value {
+                                    crate::types::FlagValue::Off => "OFF".red().to_string(),
+                                    crate::types::FlagValue::On => "ON".green().to_string(),
+                                    crate::types::FlagValue::Error => "ERR".white().bold().to_string(),
+                                    crate::types::FlagValue::Unavailable => "N/A".dimmed().to_string(),
+                                };
+                                flag_text
+                            }
                         };
                         let display = if let Some(ref u) = unit {
-                            format!("{} {}", val_str, u)
+                            format!("{} {}", display, u)
                         } else {
-                            val_str
+                            display
                         };
                         parts.push(format!("{}={}", title.bold().cyan(), display));
                     }
@@ -611,15 +587,6 @@ impl Renderer for FullCondensedRenderer {
                             crate::types::Severity::Error => "E".red().to_string(),
                         };
                         parts.push(format!("[{}] {}", sev, text));
-                    }
-                    DecodedField::Flag { title, value } => {
-                        let flag_text = match value {
-                            crate::types::FlagValue::Off => "OFF".red().to_string(),
-                            crate::types::FlagValue::On => "ON".green().to_string(),
-                            crate::types::FlagValue::Error => "ERR".white().bold().to_string(),
-                            crate::types::FlagValue::Unavailable => "N/A".dimmed().to_string(),
-                        };
-                        parts.push(format!("{}={}", title.bold().cyan(), flag_text));
                     }
                 }
             }
@@ -800,7 +767,7 @@ mod tests {
             title: "VIN".to_string(),
             outputs: vec![DecodedField::Value {
                 title: "Data".to_string(),
-                value: Numeric::Hex(vec![0x12, 0x34]),
+                value: Numeric::Hex(0x1234),
                 unit: None,
                 decimal_places: None,
             }],
@@ -862,9 +829,11 @@ mod tests {
         ] {
             let message = DecodedMessage {
                 title: "Test".to_string(),
-                outputs: vec![DecodedField::Flag {
+                outputs: vec![DecodedField::Value {
                     title: "Status".to_string(),
-                    value: flag_val.clone(),
+                    value: Numeric::Flag(flag_val.clone()),
+                    unit: None,
+                    decimal_places: None,
                 }],
                 updates: vec![],
                 assembled_message: assembled.clone(),
@@ -935,9 +904,11 @@ mod tests {
         ] {
             let message = DecodedMessage {
                 title: "Test".to_string(),
-                outputs: vec![DecodedField::Flag {
+                outputs: vec![DecodedField::Value {
                     title: "Status".to_string(),
-                    value: flag_val.clone(),
+                    value: Numeric::Flag(flag_val.clone()),
+                    unit: None,
+                    decimal_places: None,
                 }],
                 updates: vec![],
                 assembled_message: assembled.clone(),
@@ -989,9 +960,11 @@ mod tests {
                     unit: Some("km/h".to_string()),
                     decimal_places: None,
                 },
-                DecodedField::Flag {
+                DecodedField::Value {
                     title: "Cruise".to_string(),
-                    value: crate::types::FlagValue::On,
+                    value: Numeric::Flag(crate::types::FlagValue::On),
+                    unit: None,
+                    decimal_places: None,
                 },
             ],
             updates: vec![],
@@ -1114,9 +1087,11 @@ mod tests {
         let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF00, vec![], 0);
         let message = DecodedMessage {
             title: "Test".to_string(),
-            outputs: vec![DecodedField::Flag {
+            outputs: vec![DecodedField::Value {
                 title: "Engine".to_string(),
-                value: crate::types::FlagValue::On,
+                value: Numeric::Flag(crate::types::FlagValue::On),
+                unit: None,
+                decimal_places: None,
             }],
             updates: vec![],
             assembled_message: assembled,
@@ -1134,7 +1109,7 @@ mod tests {
             title: "VIN".to_string(),
             outputs: vec![DecodedField::Value {
                 title: "Data".to_string(),
-                value: Numeric::Hex(vec![0x12, 0x34]),
+                value: Numeric::Hex(0x1234),
                 unit: None,
                 decimal_places: None,
             }],
@@ -1247,9 +1222,11 @@ mod tests {
         ] {
             let message = DecodedMessage {
                 title: "Test".to_string(),
-                outputs: vec![DecodedField::Flag {
+                outputs: vec![DecodedField::Value {
                     title: "Status".to_string(),
-                    value: flag_val.clone(),
+                    value: Numeric::Flag(flag_val.clone()),
+                    unit: None,
+                    decimal_places: None,
                 }],
                 updates: vec![],
                 assembled_message: assembled.clone(),
@@ -1301,9 +1278,11 @@ mod tests {
                     unit: Some("km/h".to_string()),
                     decimal_places: None,
                 },
-                DecodedField::Flag {
+                DecodedField::Value {
                     title: "Cruise".to_string(),
-                    value: crate::types::FlagValue::On,
+                    value: Numeric::Flag(crate::types::FlagValue::On),
+                    unit: None,
+                    decimal_places: None,
                 },
             ],
             updates: vec![],
@@ -1427,9 +1406,11 @@ mod tests {
         let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF00, vec![], 0);
         let message = DecodedMessage {
             title: "Test".to_string(),
-            outputs: vec![DecodedField::Flag {
+            outputs: vec![DecodedField::Value {
                 title: "Engine".to_string(),
-                value: crate::types::FlagValue::On,
+                value: Numeric::Flag(crate::types::FlagValue::On),
+                unit: None,
+                decimal_places: None,
             }],
             updates: vec![],
             assembled_message: assembled,
@@ -1447,7 +1428,7 @@ mod tests {
             title: "VIN".to_string(),
             outputs: vec![DecodedField::Value {
                 title: "Data".to_string(),
-                value: Numeric::Hex(vec![0x12, 0x34]),
+                value: Numeric::Hex(0x1234),
                 unit: None,
                 decimal_places: None,
             }],

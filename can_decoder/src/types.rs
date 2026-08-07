@@ -148,8 +148,6 @@ pub enum DecodedField {
     },
     /// A text message (status, warning, error) from a device.
     StringMessage { severity: Severity, text: String },
-    /// A flag/switch state (on/off/error/unavailable).
-    Flag { title: String, value: FlagValue },
 }
 
 /// Numeric values that can be decoded from CAN data.
@@ -160,9 +158,11 @@ pub enum Numeric {
     /// Floating point number.
     Float(f64),
     /// Raw hex bytes (e.g., VIN, serial number).
-    Hex(Vec<u8>),
+    Hex(u64),
     /// Boolean value.
     Bool(bool),
+    /// A flag/switch state (on/off/error/unavailable).
+    Flag(FlagValue),
 }
 
 /// Severity levels for diagnostic and status messages.
@@ -384,9 +384,9 @@ mod tests {
         let cloned_f = f.clone();
         assert_eq!(cloned_f, Numeric::Float(3.14));
 
-        let h = Numeric::Hex(vec![0xAA, 0xBB]);
+        let h = Numeric::Hex(0xAABB);
         let cloned_h = h.clone();
-        assert_eq!(cloned_h, Numeric::Hex(vec![0xAA, 0xBB]));
+        assert_eq!(cloned_h, Numeric::Hex(0xAABB));
 
         let b = Numeric::Bool(true);
         let cloned_b = b.clone();
@@ -434,16 +434,22 @@ mod tests {
 
     #[test]
     fn decoded_field_flag_variant() {
-        let output = DecodedField::Flag {
+        let output = DecodedField::Value {
             title: "Status".to_string(),
-            value: FlagValue::On,
+            value: Numeric::Flag(FlagValue::On),
+            unit: None,
+            decimal_places: None,
         };
         match output {
-            DecodedField::Flag { ref title, value } => {
+            DecodedField::Value {
+                ref title,
+                value: Numeric::Flag(value),
+                ..
+            } => {
                 assert_eq!(title, "Status");
                 assert_eq!(value, FlagValue::On);
             }
-            _ => panic!("Expected Flag variant"),
+            _ => panic!("Expected Value with Numeric::Flag variant"),
         }
     }
 

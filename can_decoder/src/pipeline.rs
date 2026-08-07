@@ -339,15 +339,17 @@ mod tests {
         let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF00, vec![], 0);
         let message = DecodedMessage {
             title: "Status".to_string(),
-            outputs: vec![DecodedField::Flag {
+            outputs: vec![DecodedField::Value {
                 title: "Engine".to_string(),
-                value: crate::types::FlagValue::On,
+                value: Numeric::Flag(crate::types::FlagValue::On),
+                unit: None,
+                decimal_places: None,
             }],
             updates: vec![],
             assembled_message: assembled,
         };
         let result = renderer.render(&message).await.unwrap();
-        assert!(result.contains("\"value\": \"on\""));
+        assert!(result.contains("\"Flag\": \"on\""));
     }
 
     #[tokio::test]
@@ -358,7 +360,7 @@ mod tests {
             title: "VIN".to_string(),
             outputs: vec![DecodedField::Value {
                 title: "Data".to_string(),
-                value: Numeric::Hex(vec![0x12, 0x34, 0xAB]),
+                value: Numeric::Hex(0x1234AB),
                 unit: None,
                 decimal_places: None,
             }],
@@ -367,9 +369,7 @@ mod tests {
         };
         let result = renderer.render(&message).await.unwrap();
         assert!(result.contains("\"Hex\""));
-        assert!(result.contains("18"));
-        assert!(result.contains("52"));
-        assert!(result.contains("171"));
+        assert!(result.contains("1193131"));
     }
 
     #[tokio::test]
@@ -529,9 +529,11 @@ mod tests {
         ] {
             let message = DecodedMessage {
                 title: "Test".to_string(),
-                outputs: vec![DecodedField::Flag {
+                outputs: vec![DecodedField::Value {
                     title: "Status".to_string(),
-                    value: flag_val.clone(),
+                    value: Numeric::Flag(flag_val.clone()),
+                    unit: None,
+                    decimal_places: None,
                 }],
                 updates: vec![],
                 assembled_message: assembled.clone(),
