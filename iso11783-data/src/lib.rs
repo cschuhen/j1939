@@ -46,11 +46,6 @@ pub mod constants {
         pub use crate::pgn::*;
     }
 
-    #[cfg(feature = "isobus_params")]
-    pub mod isobus_params {
-        pub use crate::isobus_params::*;
-    }
-
     #[cfg(feature = "task_controller_ddi")]
     pub mod task_controller_ddi {
         pub use crate::task_controller_ddi::*;

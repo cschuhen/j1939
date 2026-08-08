@@ -1,5 +1,5 @@
 use crate::device_manager::DeviceManager;
-use crate::filter_editor::{FilterEditor, FilterEditorState, FieldType};
+use crate::filter_editor::{FieldType, FilterEditor, FilterEditorState};
 use crate::filter_engine::FilterEngine;
 use crate::filters::{
     DestFilter, DestNameFilter, FlagFilter, NumericFilter, PgnFilter, RegexFilter, SeverityFilter,
@@ -82,8 +82,14 @@ impl FilterWidget {
             FilterType::Dest => format!("dest:{}", self.input_text),
             FilterType::Numeric => format!("numeric:{}:{}", self.name, self.input_text),
             FilterType::Flag => format!("flag:{}={}", self.name, self.input_text),
-            FilterType::SourceName => format!("src-name:{:016X}", parse_hex_or_dec_u64(&self.input_text).unwrap_or(0)),
-            FilterType::DestName => format!("dest-name:{:016X}", parse_hex_or_dec_u64(&self.input_text).unwrap_or(0)),
+            FilterType::SourceName => format!(
+                "src-name:{:016X}",
+                parse_hex_or_dec_u64(&self.input_text).unwrap_or(0)
+            ),
+            FilterType::DestName => format!(
+                "dest-name:{:016X}",
+                parse_hex_or_dec_u64(&self.input_text).unwrap_or(0)
+            ),
             FilterType::Regex => format!("regex:{}", self.input_text),
         }
     }
@@ -108,24 +114,52 @@ impl FilterWidget {
                 Some(Box::new(SeverityFilter { severity }))
             }
             FilterType::Source => {
-                let sources: Vec<u8> = self.input_text.split(',').filter_map(|s| parse_hex_or_dec_u8(s.trim()).ok()).collect();
-                if sources.is_empty() { return None; }
+                let sources: Vec<u8> = self
+                    .input_text
+                    .split(',')
+                    .filter_map(|s| parse_hex_or_dec_u8(s.trim()).ok())
+                    .collect();
+                if sources.is_empty() {
+                    return None;
+                }
                 Some(Box::new(SourceFilter::from_list(sources)))
             }
             FilterType::Dest => {
-                let dests: Vec<u8> = self.input_text.split(',').filter_map(|s| parse_hex_or_dec_u8(s.trim()).ok()).collect();
-                if dests.is_empty() { return None; }
+                let dests: Vec<u8> = self
+                    .input_text
+                    .split(',')
+                    .filter_map(|s| parse_hex_or_dec_u8(s.trim()).ok())
+                    .collect();
+                if dests.is_empty() {
+                    return None;
+                }
                 Some(Box::new(DestFilter::from_list(dests)))
             }
             FilterType::Numeric => {
                 let title = self.name.clone();
                 if self.input_text.contains(',') {
-                    let exact_values: Vec<f64> = self.input_text.split(',').filter_map(|s| parse_hex_or_dec_f64(s.trim()).ok()).collect();
-                    if exact_values.is_empty() { return None; }
-                    Some(Box::new(NumericFilter { title, min: None, max: None, exact_values }))
+                    let exact_values: Vec<f64> = self
+                        .input_text
+                        .split(',')
+                        .filter_map(|s| parse_hex_or_dec_f64(s.trim()).ok())
+                        .collect();
+                    if exact_values.is_empty() {
+                        return None;
+                    }
+                    Some(Box::new(NumericFilter {
+                        title,
+                        min: None,
+                        max: None,
+                        exact_values,
+                    }))
                 } else {
                     let (min, max) = parse_range(&self.input_text);
-                    Some(Box::new(NumericFilter { title, min, max, exact_values: vec![] }))
+                    Some(Box::new(NumericFilter {
+                        title,
+                        min,
+                        max,
+                        exact_values: vec![],
+                    }))
                 }
             }
             FilterType::Flag => {
@@ -168,7 +202,9 @@ impl FilterWidget {
             FilterType::DestName => Some(FieldType::DstName),
             FilterType::Pgn => Some(FieldType::Pgn),
             FilterType::Title => Some(FieldType::Title),
-            FilterType::Severity | FilterType::Numeric | FilterType::Flag | FilterType::Regex => None,
+            FilterType::Severity | FilterType::Numeric | FilterType::Flag | FilterType::Regex => {
+                None
+            }
         }
     }
 }
@@ -195,9 +231,15 @@ fn parse_hex_or_dec_u64(s: &str) -> Result<u64, ()> {
 
 fn parse_range(s: &str) -> (Option<f64>, Option<f64>) {
     if let Some(stripped) = s.strip_prefix(">=") {
-        (Some(parse_hex_or_dec_f64(stripped).unwrap_or(f64::MIN)), None)
+        (
+            Some(parse_hex_or_dec_f64(stripped).unwrap_or(f64::MIN)),
+            None,
+        )
     } else if let Some(stripped) = s.strip_prefix("<=") {
-        (None, Some(parse_hex_or_dec_f64(stripped).unwrap_or(f64::MAX)))
+        (
+            None,
+            Some(parse_hex_or_dec_f64(stripped).unwrap_or(f64::MAX)),
+        )
     } else if let Some(pos) = s.find('-') {
         let min_val: f64 = parse_hex_or_dec_f64(&s[..pos]).unwrap_or(f64::MIN);
         let max_val: f64 = parse_hex_or_dec_f64(&s[pos + 1..]).unwrap_or(f64::MAX);
@@ -358,11 +400,13 @@ impl TuiApp {
         }
 
         // Update scroll manager with filtered count for viewport calculations
-        self.scroll_manager.set_num_messages(self.engine.filtered_count());
+        self.scroll_manager
+            .set_num_messages(self.engine.filtered_count());
     }
 
     pub fn apply_filters(&mut self) {
-        let filters: Vec<Box<dyn crate::traits::Filter>> = self.lhs_widgets
+        let filters: Vec<Box<dyn crate::traits::Filter>> = self
+            .lhs_widgets
             .iter()
             .filter_map(|w| w.build_filter())
             .collect();
@@ -381,7 +425,8 @@ impl TuiApp {
             self.selected_index = self.selected_index.min(filtered - 1);
         }
 
-        self.scroll_manager.set_num_messages(self.engine.filtered_count());
+        self.scroll_manager
+            .set_num_messages(self.engine.filtered_count());
     }
 
     pub fn scroll_down(&mut self, steps: usize) {
@@ -431,7 +476,8 @@ impl TuiApp {
             return;
         }
 
-        self.scroll_manager.set_num_messages(self.engine.filtered_count());
+        self.scroll_manager
+            .set_num_messages(self.engine.filtered_count());
 
         self.scroll_down(self.scroll_manager.num_rows - self.scroll_manager.look_ahead_bottom);
     }
@@ -1469,8 +1515,17 @@ mod tests {
 
         // Selection should be clamped to the filtered set (1 message matching "msg 0")
         let filtered = app.engine.filtered_count();
-        assert!(filtered > 0, "filtered_count should be > 0 but was {}", filtered);
-        assert!(app.selected_index < filtered, "selected_index {} >= filtered {}", app.selected_index, filtered);
+        assert!(
+            filtered > 0,
+            "filtered_count should be > 0 but was {}",
+            filtered
+        );
+        assert!(
+            app.selected_index < filtered,
+            "selected_index {} >= filtered {}",
+            app.selected_index,
+            filtered
+        );
     }
 
     #[test]
@@ -1532,11 +1587,20 @@ mod tests {
         let indices = app.engine.get_filtered_indices().to_vec();
         println!("indices: {:?}", indices);
         println!("selected_index: {}", app.selected_index);
-        println!("first_visible_message: {}", app.scroll_manager.first_visible_message);
+        println!(
+            "first_visible_message: {}",
+            app.scroll_manager.first_visible_message
+        );
         println!("num_messages: {}", app.scroll_manager.num_messages);
 
         let visible = app.get_visible_messages(10);
-        assert_eq!(visible.len(), 1, "expected 1 visible message but got {}, indices={:?}", visible.len(), indices);
+        assert_eq!(
+            visible.len(),
+            1,
+            "expected 1 visible message but got {}, indices={:?}",
+            visible.len(),
+            indices
+        );
     }
 
     #[test]

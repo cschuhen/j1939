@@ -87,7 +87,8 @@ impl Filter for NumericFilter {
                             if !self.exact_values.is_empty() {
                                 self.exact_values.contains(f)
                             } else {
-                                (self.min.is_none_or(|m| *f >= m)) && (self.max.is_none_or(|m| *f <= m))
+                                (self.min.is_none_or(|m| *f >= m))
+                                    && (self.max.is_none_or(|m| *f <= m))
                             }
                         }
                         _ => false,
@@ -120,7 +121,12 @@ impl Filter for FlagFilter {
 
     fn matches_sync(&self, message: &DecodedMessage) -> bool {
         message.outputs.iter().any(|output| {
-            if let DecodedField::Value { title, value: Numeric::Flag(value), .. } = output {
+            if let DecodedField::Value {
+                title,
+                value: Numeric::Flag(value),
+                ..
+            } = output
+            {
                 title == &self.title && *value == self.value
             } else {
                 false
@@ -225,7 +231,9 @@ pub struct SourceFilter {
 
 impl SourceFilter {
     pub fn new(source: u8) -> Self {
-        Self { sources: vec![source] }
+        Self {
+            sources: vec![source],
+        }
     }
 
     pub fn from_list(sources: Vec<u8>) -> Self {
@@ -274,7 +282,8 @@ impl Filter for DestFilter {
     }
 
     fn matches_sync(&self, message: &DecodedMessage) -> bool {
-        self.dests.contains(&message.assembled_message.destination())
+        self.dests
+            .contains(&message.assembled_message.destination())
     }
 }
 
@@ -518,7 +527,12 @@ impl FilterParser {
                     .split(',')
                     .map(|s| parse_hex_or_dec_f64(s.trim()))
                     .collect::<Result<Vec<_>, _>>()?;
-                Ok(Box::new(NumericFilter { title, min: None, max: None, exact_values }))
+                Ok(Box::new(NumericFilter {
+                    title,
+                    min: None,
+                    max: None,
+                    exact_values,
+                }))
             } else {
                 let (min, max) = if let Some(stripped) = range_str.strip_prefix(">=") {
                     (Some(parse_hex_or_dec_f64(stripped)?), None)
@@ -532,13 +546,24 @@ impl FilterParser {
                     let val: f64 = parse_hex_or_dec_f64(range_str)?;
                     (Some(val), Some(val))
                 };
-                Ok(Box::new(NumericFilter { title, min, max, exact_values: vec![] }))
+                Ok(Box::new(NumericFilter {
+                    title,
+                    min,
+                    max,
+                    exact_values: vec![],
+                }))
             }
         } else if let Some(rest) = expr.strip_prefix("source:") {
-            let sources: Vec<u8> = rest.split(',').map(|s| parse_hex_or_dec_u8(s)).collect::<Result<Vec<_>, _>>()?;
+            let sources: Vec<u8> = rest
+                .split(',')
+                .map(|s| parse_hex_or_dec_u8(s))
+                .collect::<Result<Vec<_>, _>>()?;
             Ok(Box::new(SourceFilter::from_list(sources)))
         } else if let Some(rest) = expr.strip_prefix("dest:") {
-            let dests: Vec<u8> = rest.split(',').map(|s| parse_hex_or_dec_u8(s)).collect::<Result<Vec<_>, _>>()?;
+            let dests: Vec<u8> = rest
+                .split(',')
+                .map(|s| parse_hex_or_dec_u8(s))
+                .collect::<Result<Vec<_>, _>>()?;
             Ok(Box::new(DestFilter::from_list(dests)))
         } else if let Some(rest) = expr.strip_prefix("src-name:") {
             let name: u64 = parse_hex_or_dec_u64(rest)?;

@@ -3,8 +3,7 @@ use crate::tui::app::{FilterType, Focus, InputMode, TuiApp};
 use crate::tui::column_editor_widget::ColumnEditorWidget;
 use crate::tui::columns::Column;
 use crate::tui::filter_editor_widget::FilterEditorWidget;
-use iso11783_data::strings::pgn as pgn_titles;
-use crate::types::{DecodedField, DecodedMessage, FlagValue, Numeric, Severity};
+use crate::types::{DecodedField, FlagValue, Numeric, Severity};
 use ratatui::{prelude::*, widgets::*};
 
 pub struct TuiRenderer {}
@@ -326,7 +325,10 @@ impl TuiRenderer {
                                 } else {
                                     "dest-name"
                                 };
-                                spans.push(Span::raw(format!("{}: {}", name_type, widget.input_text)));
+                                spans.push(Span::raw(format!(
+                                    "{}: {}",
+                                    name_type, widget.input_text
+                                )));
                                 if is_selected && !widget.enabled {
                                     spans.push(Span::styled(
                                         " [Enter to edit]",
@@ -424,29 +426,35 @@ impl TuiRenderer {
             None
         };
 
-        let enabled_cols: Vec<Column> = app.column_config.states.iter()
+        let enabled_cols: Vec<Column> = app
+            .column_config
+            .states
+            .iter()
             .filter(|c| c.enabled)
             .map(|c| c.column)
             .collect();
 
-        let header_cells: Vec<Cell> = enabled_cols.iter()
-            .map(|c| Cell::from(c.label()))
-            .collect();
+        let header_cells: Vec<Cell> = enabled_cols.iter().map(|c| Cell::from(c.label())).collect();
 
-        let column_widths: Vec<Constraint> = enabled_cols.iter()
-            .map(|c| c.constraint())
-            .collect();
+        let column_widths: Vec<Constraint> = enabled_cols.iter().map(|c| c.constraint()).collect();
 
         let global_start_time = app.global_start_time;
         let visible_msgs = app.get_visible_messages(viewport_height);
 
         let total_width = inner.width;
-        let fixed_width: u16 = enabled_cols.iter()
+        let fixed_width: u16 = enabled_cols
+            .iter()
             .filter(|c| **c != Column::Detail)
             .map(|c| c.base_width())
             .sum();
-        let num_gaps = if enabled_cols.len() > 1 { (enabled_cols.len() - 1) as u16 } else { 0 };
-        let detail_available = total_width.saturating_sub(fixed_width).saturating_sub(num_gaps);
+        let num_gaps = if enabled_cols.len() > 1 {
+            (enabled_cols.len() - 1) as u16
+        } else {
+            0
+        };
+        let detail_available = total_width
+            .saturating_sub(fixed_width)
+            .saturating_sub(num_gaps);
 
         let rows: Vec<Row> = visible_msgs
             .iter()
@@ -457,116 +465,31 @@ impl TuiRenderer {
                 let mut cells = Vec::new();
 
                 for col in &enabled_cols {
-                    let cell_text = match col {
-                        Column::AbsTime => formats::format_timestamp(msg.timestamp()),
-                        Column::Time => formats::format_elapsed_time(msg.timestamp(), global_start_time),
-                        Column::Src => format!("{:02X}", msg.source_address()),
-                        Column::Dest => format!("{:02X}", msg.dest_address()),
-                        Column::Pgn => format!("{:X}", msg.pgn()),
-                        Column::PgnName => {
-                            if let Some(pgn_name) = pgn_titles::lookup(msg.pgn()) {
-                                pgn_name.to_string()
-                            } else {
-                                String::new()
-                            }
-                        }
-                        Column::Title => msg.title.clone(),
-                        Column::Data => formats::format_data_hex(msg.data_bytes()),
-                        Column::Detail => self.build_detail_string(msg, detail_available.max(col.base_width())),
-                        Column::DetailCondensed => self.build_detail_condensed_string(msg, detail_available.max(col.base_width())),
-                    };
-                    cells.push(Cell::from(cell_text));
+                    let cell_text = col.format(
+                        msg,
+                        detail_available.max(col.base_width()),
+                        global_start_time,
+                    );
+                    let cell = Cell::new(cell_text);
+                    cells.push(cell);
                 }
 
                 if is_selected {
-                    Row::new(cells)
-                        .style(Style::default().bg(Color::DarkGray).fg(Color::White))
+                    Row::new(cells).style(Style::default().bg(Color::DarkGray).fg(Color::White))
                 } else {
                     Row::new(cells).style(Style::default().fg(Color::White))
                 }
             })
             .collect();
 
-        let header_row = Row::new(header_cells)
-            .style(Style::default().fg(Color::White).bg(Color::DarkGray));
+        let header_row =
+            Row::new(header_cells).style(Style::default().fg(Color::White).bg(Color::DarkGray));
 
         let table = Table::new(rows, column_widths)
             .header(header_row)
             .column_spacing(1);
 
         frame.render_widget(table, inner);
-    }
-
-    fn build_detail_string(&self, msg: &DecodedMessage, max_width: u16) -> String {
-        let mut parts = Vec::new();
-        for output in &msg.outputs {
-            match output {
-                DecodedField::Value {
-                    title, value, unit, ..
-                } => {
-                    if let Numeric::Flag(flag_value) = &value {
-                        let flag_str = match flag_value {
-                            FlagValue::Off => "OFF",
-                            FlagValue::On => "ON",
-                            FlagValue::Error => "ERR",
-                            FlagValue::Unavailable => "N/A",
-                        };
-                        parts.push(format!("{}={}", title, flag_str));
-                    } else {
-                        let val_str = formats::format_value(&value);
-                        if let Some(u) = unit {
-                            parts.push(format!("{}={} {}", title, val_str, u));
-                        } else {
-                            parts.push(format!("{}={}", title, val_str));
-                        }
-                    }
-                }
-                DecodedField::StringMessage { text, .. } => {
-                    parts.push(text.clone());
-                }
-            }
-        }
-        let detail = parts.join(", ");
-        if detail.len() > max_width as usize {
-            format!("{}...", &detail[..max_width as usize - 3])
-        } else {
-            detail
-        }
-    }
-
-    fn build_detail_condensed_string(&self, msg: &DecodedMessage, max_width: u16) -> String {
-        let mut parts = Vec::new();
-        for output in &msg.outputs {
-            match output {
-                DecodedField::Value { value, unit, .. } => {
-                    if let Numeric::Flag(flag_value) = &value {
-                        let flag_str = match flag_value {
-                            FlagValue::Off => "OFF",
-                            FlagValue::On => "ON",
-                            FlagValue::Error => "ERR",
-                            FlagValue::Unavailable => "N/A",
-                        };
-                        parts.push(flag_str.to_string());
-                    } else {
-                        let val_str = formats::format_value(&value);
-                        if let Some(u) = unit {
-                            parts.push(format!("{} {}", val_str, u));
-                        } else {
-                            parts.push(val_str);
-                        }
-                    }
-                }
-                DecodedField::StringMessage { text, .. } => {
-                    parts.push(text.clone());
-                }
-            }
-        }
-        let detail = parts.join(", ");
-        if detail.len() > max_width as usize {
-            format!("{}...", &detail[..max_width as usize - 3])
-        } else {
-            detail
-        }
     }
 
     fn render_rhs(&self, frame: &mut Frame, area: Rect, app: &mut TuiApp) {
@@ -625,18 +548,9 @@ impl TuiRenderer {
                 "  PGN:     {:X} ({})",
                 pgn_val, title_str
             )));
-            paragraphs.push(Line::from(format!(
-                "  CAN ID:  {:08X}",
-                can_id
-            )));
-            paragraphs.push(Line::from(format!(
-                "  Source:  {:02X}h",
-                source_addr
-            )));
-            paragraphs.push(Line::from(format!(
-                "  Dest:    {:02X}h",
-                dest_addr
-            )));
+            paragraphs.push(Line::from(format!("  CAN ID:  {:08X}", can_id)));
+            paragraphs.push(Line::from(format!("  Source:  {:02X}h", source_addr)));
+            paragraphs.push(Line::from(format!("  Dest:    {:02X}h", dest_addr)));
 
             // Try to resolve device name (msg borrow is now dropped)
             let src_name = app.device_manager.get_device(source_addr);

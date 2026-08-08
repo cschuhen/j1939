@@ -5,8 +5,7 @@
 /// - Text input field at top
 /// - Scrollable checkbox list in middle
 /// - Key hints bar at bottom
-
-use crate::filter_editor::{FilterEditor, FilterEditorState, FieldType, TextValidation};
+use crate::filter_editor::{FieldType, FilterEditor, FilterEditorState, TextValidation};
 use ratatui::prelude::*;
 use ratatui::widgets::{Paragraph, Widget};
 
@@ -25,7 +24,10 @@ impl Widget for FilterEditorWidget<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let modal_height = 20u16;
 
-        let is_name_filter = matches!(self.state.field_type, FieldType::SrcName | FieldType::DstName);
+        let is_name_filter = matches!(
+            self.state.field_type,
+            FieldType::SrcName | FieldType::DstName
+        );
         let modal_width = if is_name_filter {
             (area.width as f64 * 0.9).round() as u16
         } else {
@@ -45,7 +47,11 @@ impl Widget for FilterEditorWidget<'_> {
         // Background overlay (darken everything behind modal)
         for row in 0..area.height {
             for col in 0..area.width {
-                if !(x <= col && col < x + modal_area.width && y <= row && row < y + modal_area.height) {
+                if !(x <= col
+                    && col < x + modal_area.width
+                    && y <= row
+                    && row < y + modal_area.height)
+                {
                     buf[(col, row)].set_style(Style::default().bg(Color::Rgb(10, 10, 16)));
                 }
             }
@@ -68,12 +74,17 @@ impl Widget for FilterEditorWidget<'_> {
         for (i, ch) in title_text.chars().enumerate() {
             let pos = title_start + (i as u16);
             if pos < x + modal_area.width - 1 {
-                buf[(pos, y)].set_char(ch).set_style(Style::default().bg(Color::Rgb(30, 30, 46)).fg(Color::Cyan));
+                buf[(pos, y)]
+                    .set_char(ch)
+                    .set_style(Style::default().bg(Color::Rgb(30, 30, 46)).fg(Color::Cyan));
             }
         }
 
         // Inner area (inside border)
-        let inner = modal_area.inner(Margin { vertical: 1, horizontal: 1 });
+        let inner = modal_area.inner(Margin {
+            vertical: 1,
+            horizontal: 1,
+        });
 
         // Calculate layout within inner area:
         // - Text field: 2 lines (border + input)
@@ -81,7 +92,10 @@ impl Widget for FilterEditorWidget<'_> {
         // - Key hints: 1 line at bottom
         let text_field_height = 2u16;
         let key_hints_height = 1u16;
-        let list_area_height = inner.height.saturating_sub(text_field_height).saturating_sub(key_hints_height);
+        let list_area_height = inner
+            .height
+            .saturating_sub(text_field_height)
+            .saturating_sub(key_hints_height);
 
         // Text field area (top section)
         let text_area = Rect::new(
@@ -95,16 +109,14 @@ impl Widget for FilterEditorWidget<'_> {
 
         // Checkbox list area (middle section)
         let list_inner_top = text_area.y + text_area.height;
-        let remaining_height = inner.height.saturating_sub(text_field_height).saturating_sub(key_hints_height);
+        let remaining_height = inner
+            .height
+            .saturating_sub(text_field_height)
+            .saturating_sub(key_hints_height);
         let list_inner_height = list_area_height.min(remaining_height);
 
         if list_inner_height > 0 {
-            let list_area = Rect::new(
-                inner.x,
-                list_inner_top,
-                inner.width,
-                list_inner_height,
-            );
+            let list_area = Rect::new(inner.x, list_inner_top, inner.width, list_inner_height);
             self.render_checkbox_list(list_area, buf);
         }
 
@@ -142,11 +154,17 @@ impl FilterEditorWidget<'_> {
             let scroll_offset = 0usize;
 
             // Draw text before cursor (with scroll offset)
-            let chars_before: String = text.chars().skip(scroll_offset).take(self.state.cursor_pos.saturating_sub(scroll_offset)).collect();
+            let chars_before: String = text
+                .chars()
+                .skip(scroll_offset)
+                .take(self.state.cursor_pos.saturating_sub(scroll_offset))
+                .collect();
             for (i, ch) in chars_before.chars().enumerate() {
                 let pos_x = input_x + (i as u16);
                 if pos_x < area.x + area.width - 1 {
-                    buf[(pos_x, input_y)].set_char(ch).set_style(Style::default().bg(bg_color).fg(Color::White));
+                    buf[(pos_x, input_y)]
+                        .set_char(ch)
+                        .set_style(Style::default().bg(bg_color).fg(Color::White));
                 }
             }
 
@@ -155,19 +173,29 @@ impl FilterEditorWidget<'_> {
             let cursor_x = input_x + (cursor_offset as u16);
             if cursor_x < area.x + area.width - 1 && self.state.cursor_pos < text.len() {
                 let ch = text.chars().nth(self.state.cursor_pos).unwrap_or(' ');
-                buf[(cursor_x, input_y)].set_char(ch).set_style(Style::default().bg(Color::LightBlue).fg(Color::Black));
+                buf[(cursor_x, input_y)]
+                    .set_char(ch)
+                    .set_style(Style::default().bg(Color::LightBlue).fg(Color::Black));
             } else if cursor_x < area.x + area.width - 1 && self.state.cursor_pos == text.len() {
                 // Cursor at end of text (block cursor)
-                buf[(cursor_x, input_y)].set_char(' ').set_style(Style::default().bg(Color::LightBlue).fg(Color::Black));
+                buf[(cursor_x, input_y)]
+                    .set_char(' ')
+                    .set_style(Style::default().bg(Color::LightBlue).fg(Color::Black));
             }
 
             // Draw text after cursor
             if self.state.cursor_pos < text.len() {
-                let chars_after: String = text.chars().skip(self.state.cursor_pos + 1).take(max_text_width.saturating_sub(self.state.cursor_pos - scroll_offset)).collect();
+                let chars_after: String = text
+                    .chars()
+                    .skip(self.state.cursor_pos + 1)
+                    .take(max_text_width.saturating_sub(self.state.cursor_pos - scroll_offset))
+                    .collect();
                 for (i, ch) in chars_after.chars().enumerate() {
                     let pos_x = cursor_x + 1 + (i as u16);
                     if pos_x < area.x + area.width - 1 {
-                        buf[(pos_x, input_y)].set_char(ch).set_style(Style::default().bg(bg_color).fg(Color::White));
+                        buf[(pos_x, input_y)]
+                            .set_char(ch)
+                            .set_style(Style::default().bg(bg_color).fg(Color::White));
                     }
                 }
             }
@@ -177,7 +205,9 @@ impl FilterEditorWidget<'_> {
             for (i, ch) in display.chars().enumerate() {
                 let pos_x = input_x + (i as u16);
                 if pos_x < area.x + area.width - 1 {
-                    buf[(pos_x, input_y)].set_char(ch).set_style(Style::default().bg(bg_color).fg(Color::White));
+                    buf[(pos_x, input_y)]
+                        .set_char(ch)
+                        .set_style(Style::default().bg(bg_color).fg(Color::White));
                 }
             }
         }
@@ -187,16 +217,22 @@ impl FilterEditorWidget<'_> {
         if val_x < area.x + area.width - 1 {
             match &self.state.validation {
                 TextValidation::Valid => {
-                    buf[(val_x, input_y)].set_char('\u{2713}').set_style(Style::default().bg(bg_color).fg(Color::LightGreen));
+                    buf[(val_x, input_y)]
+                        .set_char('\u{2713}')
+                        .set_style(Style::default().bg(bg_color).fg(Color::LightGreen));
                 }
                 TextValidation::Invalid(msg) => {
-                    buf[(val_x, input_y)].set_char('\u{2717}').set_style(Style::default().bg(bg_color).fg(Color::LightRed));
+                    buf[(val_x, input_y)]
+                        .set_char('\u{2717}')
+                        .set_style(Style::default().bg(bg_color).fg(Color::LightRed));
                     let remaining = (area.x + area.width - 1).saturating_sub(val_x + 1);
                     let display: String = msg.chars().take(remaining as usize).collect();
                     for (i, ch) in display.chars().enumerate() {
                         let pos_x = val_x + 1 + (i as u16);
                         if pos_x < area.x + area.width - 1 {
-                            buf[(pos_x, input_y)].set_char(ch).set_style(Style::default().bg(bg_color).fg(Color::LightRed));
+                            buf[(pos_x, input_y)]
+                                .set_char(ch)
+                                .set_style(Style::default().bg(bg_color).fg(Color::LightRed));
                         }
                     }
                 }
@@ -220,7 +256,10 @@ impl FilterEditorWidget<'_> {
             buf[(x, area.y)].set_style(style);
         }
 
-        let inner = area.inner(Margin { vertical: 0, horizontal: 1 });
+        let inner = area.inner(Margin {
+            vertical: 0,
+            horizontal: 1,
+        });
         let visible_height = inner.height as usize;
 
         if self.state.options.is_empty() {
@@ -258,7 +297,9 @@ impl FilterEditorWidget<'_> {
                 } else {
                     Style::default().bg(bg_color).fg(Color::Gray)
                 };
-                buf[(inner.x, row_y)].set_char(check_char).set_style(check_style);
+                buf[(inner.x, row_y)]
+                    .set_char(check_char)
+                    .set_style(check_style);
 
                 // Space after checkbox
                 if inner.x + 1 < area.x + area.width {
@@ -303,10 +344,14 @@ impl FilterEditorWidget<'_> {
             // Scroll indicators (rightmost column)
             let indicator_x = area.x + area.width - 1;
             if i == 0 && start_idx > 0 {
-                buf[(indicator_x, row_y)].set_char('\u{25B2}').set_style(Style::default().bg(bg_color).fg(Color::Yellow));
+                buf[(indicator_x, row_y)]
+                    .set_char('\u{25B2}')
+                    .set_style(Style::default().bg(bg_color).fg(Color::Yellow));
             }
             if i == visible_height.saturating_sub(1) && end_idx < self.state.options.len() {
-                buf[(indicator_x, row_y)].set_char('\u{25BC}').set_style(Style::default().bg(bg_color).fg(Color::Yellow));
+                buf[(indicator_x, row_y)]
+                    .set_char('\u{25BC}')
+                    .set_style(Style::default().bg(bg_color).fg(Color::Yellow));
             }
         }
 
@@ -336,7 +381,9 @@ impl FilterEditorWidget<'_> {
             let remaining = (area.x + area.width - 1).saturating_sub(x);
             let display: String = hint.chars().take(remaining as usize).collect();
             for (i, ch) in display.chars().enumerate() {
-                buf[(x + (i as u16), area.y)].set_char(ch).set_style(Style::default().bg(bg_color).fg(color));
+                buf[(x + (i as u16), area.y)]
+                    .set_char(ch)
+                    .set_style(Style::default().bg(bg_color).fg(color));
             }
             x += display.len() as u16 + 2;
         }

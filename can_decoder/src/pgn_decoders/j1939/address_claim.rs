@@ -320,10 +320,7 @@ mod tests {
         if let Some(idx) = raw_idx {
             match &msg.outputs[idx] {
                 DecodedField::Value { value, .. } => {
-                    assert_eq!(
-                        *value,
-                        Numeric::Hex(0x6E830D46003E0080)
-                    );
+                    assert_eq!(*value, Numeric::Hex(0x6E830D46003E0080));
                 }
                 _ => panic!("Expected Raw NAME Value"),
             }
@@ -352,11 +349,22 @@ mod tests {
         let msg = result.unwrap();
 
         // Check Self Configurable flag is Off (it's the first Flag output)
-        let sc_idx = msg.outputs.iter().position(|o| matches!(o, DecodedField::Value { value: Numeric::Flag(..), .. }));
+        let sc_idx = msg.outputs.iter().position(|o| {
+            matches!(
+                o,
+                DecodedField::Value {
+                    value: Numeric::Flag(..),
+                    ..
+                }
+            )
+        });
         assert!(sc_idx.is_some());
         if let Some(idx) = sc_idx {
             match &msg.outputs[idx] {
-                DecodedField::Value { value: Numeric::Flag(value), .. } => {
+                DecodedField::Value {
+                    value: Numeric::Flag(value),
+                    ..
+                } => {
                     assert_eq!(*value, FlagValue::Off);
                 }
                 _ => panic!("Expected Self Configurable Flag"),
@@ -376,11 +384,22 @@ mod tests {
         let msg = result.unwrap();
 
         // Check Self Configurable flag is On (it's the first Flag output)
-        let sc_idx = msg.outputs.iter().position(|o| matches!(o, DecodedField::Value { value: Numeric::Flag(..), .. }));
+        let sc_idx = msg.outputs.iter().position(|o| {
+            matches!(
+                o,
+                DecodedField::Value {
+                    value: Numeric::Flag(..),
+                    ..
+                }
+            )
+        });
         assert!(sc_idx.is_some());
         if let Some(idx) = sc_idx {
             match &msg.outputs[idx] {
-                DecodedField::Value { value: Numeric::Flag(value), .. } => {
+                DecodedField::Value {
+                    value: Numeric::Flag(value),
+                    ..
+                } => {
                     assert_eq!(*value, FlagValue::On);
                 }
                 _ => panic!("Expected Self Configurable Flag"),

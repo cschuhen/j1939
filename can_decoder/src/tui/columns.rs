@@ -1,71 +1,8 @@
 use ratatui::layout::Constraint;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Column {
-    AbsTime,
-    Time,
-    Src,
-    Dest,
-    Pgn,
-    PgnName,
-    Title,
-    Data,
-    Detail,
-    DetailCondensed,
-}
+pub use crate::columns::Column;
 
 impl Column {
-    pub fn all() -> &'static [Self] {
-        &[
-            Self::AbsTime,
-            Self::Time,
-            Self::Src,
-            Self::Dest,
-            Self::Pgn,
-            Self::PgnName,
-            Self::Title,
-            Self::Data,
-            Self::Detail,
-            Self::DetailCondensed,
-        ]
-    }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::AbsTime => "Abs Time",
-            Self::Time => "Time",
-            Self::Src => "Src",
-            Self::Dest => "Dst",
-            Self::Pgn => "PGN",
-            Self::PgnName => "PGN Name",
-            Self::Title => "Title",
-            Self::Data => "Data",
-            Self::Detail => "Detail",
-            Self::DetailCondensed => "Detail Condensed",
-        }
-    }
-
-    pub fn default_enabled(self) -> bool {
-        match self {
-            Self::Time | Self::Src | Self::Dest | Self::Pgn | Self::Title | Self::Detail => true,
-            Self::AbsTime | Self::PgnName | Self::Data | Self::DetailCondensed => false,
-        }
-    }
-
-    pub fn base_width(self) -> u16 {
-        match self {
-            Self::AbsTime => 14,
-            Self::Time => 12,
-            Self::Src | Self::Dest => 3,
-            Self::Pgn => 6,
-            Self::PgnName => 20,
-            Self::Title => 15,
-            Self::Data => 24,
-            Self::Detail => 30,
-            Self::DetailCondensed => 30,
-        }
-    }
-
     pub fn constraint(self) -> Constraint {
         match self {
             Self::Detail | Self::DetailCondensed => Constraint::Min(self.base_width()),
@@ -131,10 +68,7 @@ impl ColumnConfig {
     }
 
     pub fn header_cells(&self) -> Vec<&str> {
-        self.enabled_columns()
-            .iter()
-            .map(|c| c.label())
-            .collect()
+        self.enabled_columns().iter().map(|c| c.label()).collect()
     }
 }
 
@@ -159,11 +93,37 @@ mod tests {
     #[test]
     fn test_default_enabled() {
         let config = ColumnConfig::new();
-        for col in &[Column::Time, Column::Src, Column::Dest, Column::Pgn, Column::Title, Column::Detail] {
-            assert!(config.states.iter().find(|s| s.column == *col).unwrap().enabled);
+        for col in &[
+            Column::Time,
+            Column::Src,
+            Column::Dest,
+            Column::Pgn,
+            Column::Title,
+            Column::Detail,
+        ] {
+            assert!(
+                config
+                    .states
+                    .iter()
+                    .find(|s| s.column == *col)
+                    .unwrap()
+                    .enabled
+            );
         }
-        for col in &[Column::AbsTime, Column::PgnName, Column::Data, Column::DetailCondensed] {
-            assert!(!config.states.iter().find(|s| s.column == *col).unwrap().enabled);
+        for col in &[
+            Column::AbsTime,
+            Column::PgnName,
+            Column::Data,
+            Column::DetailCondensed,
+        ] {
+            assert!(
+                !config
+                    .states
+                    .iter()
+                    .find(|s| s.column == *col)
+                    .unwrap()
+                    .enabled
+            );
         }
     }
 
@@ -171,10 +131,24 @@ mod tests {
     fn test_toggle() {
         let mut config = ColumnConfig::new();
         config.toggle(Column::PgnName);
-        assert!(config.states.iter().find(|s| s.column == Column::PgnName).unwrap().enabled);
-        
+        assert!(
+            config
+                .states
+                .iter()
+                .find(|s| s.column == Column::PgnName)
+                .unwrap()
+                .enabled
+        );
+
         config.toggle(Column::Time);
-        assert!(!config.states.iter().find(|s| s.column == Column::Time).unwrap().enabled);
+        assert!(
+            !config
+                .states
+                .iter()
+                .find(|s| s.column == Column::Time)
+                .unwrap()
+                .enabled
+        );
     }
 
     #[test]
@@ -182,10 +156,10 @@ mod tests {
         let mut config = ColumnConfig::new();
         config.toggle(Column::PgnName);
         config.toggle(Column::Data);
-        
+
         let enabled = config.enabled_columns();
         assert_eq!(enabled.len(), 8); // 6 default + 2 toggled
-        
+
         config.toggle(Column::Time);
         let enabled = config.enabled_columns();
         assert_eq!(enabled.len(), 7);
@@ -201,7 +175,7 @@ mod tests {
         let mut config = ColumnConfig::new();
         let constraints = config.get_constraints();
         assert_eq!(constraints.len(), 6); // default enabled count
-        
+
         config.toggle(Column::PgnName);
         config.toggle(Column::Data);
         let constraints = config.get_constraints();
@@ -212,7 +186,7 @@ mod tests {
     fn test_header_cells() {
         let mut config = ColumnConfig::new();
         config.toggle(Column::PgnName);
-        
+
         let cells = config.header_cells();
         assert_eq!(cells.len(), 7);
         assert!(cells.contains(&"PGN Name"));

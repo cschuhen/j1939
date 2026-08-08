@@ -1,15 +1,13 @@
 pub mod config;
 pub mod device_manager;
-/// Pure formatting utilities for display across renderers and GUIs.
-pub mod formats;
-/// Generic scroll manager for list views.
-pub mod scroll_manager;
 /// GUI-independent filter editor logic (modal state management).
 pub mod filter_editor;
 /// Filter engine: maintains all messages, computes filtered indices lazily.
 pub mod filter_engine;
 /// Filter implementations and filter expression parsing.
 pub mod filters;
+/// Pure formatting utilities for display across renderers and GUIs.
+pub mod formats;
 /// PGN decoder engine with YAML configuration support.
 pub mod pgn_decoder;
 /// J1939 PGN decoders submodules.
@@ -20,6 +18,8 @@ pub mod pipeline;
 pub mod proprietary;
 /// Output renderers (Console, JSON).
 pub mod renderers;
+/// Generic scroll manager for list views.
+pub mod scroll_manager;
 /// Input sources (SocketCAN, candump files).
 pub mod sources;
 /// J1939 Transport Protocol reassembly module.
@@ -28,6 +28,8 @@ pub mod tp_reassembler;
 pub mod traits;
 /// Data models for CAN frames, messages, and decoded output.
 pub mod types;
+
+pub mod columns;
 
 pub mod utils;
 

@@ -1,4 +1,4 @@
-use crate::filter_editor::{FilterOption, FieldType, RawValue};
+use crate::filter_editor::{FieldType, FilterOption, RawValue};
 use crate::traits::Filter;
 use crate::types::DecodedMessage;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -50,12 +50,16 @@ impl UniqueValueCache {
 
         // Source NAME — only format display string if key is new
         if let Some(name) = msg.source_name() {
-            self.src_names.entry(name).or_insert_with(|| format!("{:016X}", name));
+            self.src_names
+                .entry(name)
+                .or_insert_with(|| format!("{:016X}", name));
         }
 
         // Dest NAME — only format display string if key is new
         if let Some(name) = msg.dest_name() {
-            self.dst_names.entry(name).or_insert_with(|| format!("{:016X}", name));
+            self.dst_names
+                .entry(name)
+                .or_insert_with(|| format!("{:016X}", name));
         }
 
         // Titles — check first to avoid allocating Rc when title already seen
@@ -64,14 +68,13 @@ impl UniqueValueCache {
         }
     }
 
-
-
-
-
     /// Build FilterOption vec for a given field type from the cache.
     pub fn get_options(&self, field_type: FieldType) -> Vec<FilterOption> {
         match field_type {
-            FieldType::SourceAddr => self.source_addrs.iter().enumerate()
+            FieldType::SourceAddr => self
+                .source_addrs
+                .iter()
+                .enumerate()
                 .filter(|(_, &exists)| exists)
                 .map(|(addr, _)| FilterOption {
                     id: addr as u32,
@@ -80,7 +83,10 @@ impl UniqueValueCache {
                 })
                 .collect(),
 
-            FieldType::DestAddr => self.dest_addrs.iter().enumerate()
+            FieldType::DestAddr => self
+                .dest_addrs
+                .iter()
+                .enumerate()
                 .filter(|(_, &exists)| exists)
                 .map(|(addr, _)| FilterOption {
                     id: addr as u32,
@@ -89,41 +95,53 @@ impl UniqueValueCache {
                 })
                 .collect(),
 
-            FieldType::Pgn => self.pgns.iter().map(|&pgn| FilterOption {
-                id: pgn as u32,
-                display: crate::utils::render_pgn(pgn),
-                raw_value: RawValue::U32(pgn),
-            })
-            .collect(),
+            FieldType::Pgn => self
+                .pgns
+                .iter()
+                .map(|&pgn| FilterOption {
+                    id: pgn as u32,
+                    display: crate::utils::render_pgn(pgn),
+                    raw_value: RawValue::U32(pgn),
+                })
+                .collect(),
 
-            FieldType::SrcName => self.src_names.iter().map(|(&name, _)| {
-                FilterOption {
-                    id: name as u32, // Use lower 32 bits as stable ID
-                    //display: display.clone(),
-                    display: crate::utils::render_name(name),
-                    raw_value: RawValue::U64(name),
-                }
-            })
-            .collect(),
+            FieldType::SrcName => self
+                .src_names
+                .iter()
+                .map(|(&name, _)| {
+                    FilterOption {
+                        id: name as u32, // Use lower 32 bits as stable ID
+                        //display: display.clone(),
+                        display: crate::utils::render_name(name),
+                        raw_value: RawValue::U64(name),
+                    }
+                })
+                .collect(),
 
-            FieldType::DstName => self.dst_names.iter().map(|(&name, _)| {
-                FilterOption {
-                    id: name as u32,
-                    //display: display.clone(),
-                    display: crate::utils::render_name(name),
-                    raw_value: RawValue::U64(name),
-                }
-            })
-            .collect(),
+            FieldType::DstName => self
+                .dst_names
+                .iter()
+                .map(|(&name, _)| {
+                    FilterOption {
+                        id: name as u32,
+                        //display: display.clone(),
+                        display: crate::utils::render_name(name),
+                        raw_value: RawValue::U64(name),
+                    }
+                })
+                .collect(),
 
-            FieldType::Title => self.titles.iter().map(|title| {
-                FilterOption {
-                    id: title.as_ptr() as u32, // Use pointer as stable ID for Rc<str>
-                    display: title.to_string(),
-                    raw_value: RawValue::Title(title.clone()),
-                }
-            })
-            .collect(),
+            FieldType::Title => self
+                .titles
+                .iter()
+                .map(|title| {
+                    FilterOption {
+                        id: title.as_ptr() as u32, // Use pointer as stable ID for Rc<str>
+                        display: title.to_string(),
+                        raw_value: RawValue::Title(title.clone()),
+                    }
+                })
+                .collect(),
         }
     }
 }
@@ -552,7 +570,12 @@ mod tests {
                 unit: Some("rpm".to_string()),
                 decimal_places: None,
             }];
-            engine.add_message(make_message_with_outputs(0xEF00, *rpm as u8, &format!("msg {}", rpm), outputs));
+            engine.add_message(make_message_with_outputs(
+                0xEF00,
+                *rpm as u8,
+                &format!("msg {}", rpm),
+                outputs,
+            ));
         }
 
         // Filter RPM == 144 or 254 (hex: 0x90, 0xfe) — should match first two
@@ -579,7 +602,12 @@ mod tests {
                 unit: Some("rpm".to_string()),
                 decimal_places: None,
             }];
-            engine.add_message(make_message_with_outputs(0xEF00, *rpm as u8, &format!("msg {}", rpm), outputs));
+            engine.add_message(make_message_with_outputs(
+                0xEF00,
+                *rpm as u8,
+                &format!("msg {}", rpm),
+                outputs,
+            ));
         }
 
         // Filter RPM >= 0x90 (144) and <= 0xFE (254) — should match 144, 200, 254

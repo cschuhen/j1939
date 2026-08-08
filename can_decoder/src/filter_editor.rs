@@ -3,7 +3,6 @@
 /// This module contains all filter editor state management and data transformation
 /// with zero TUI dependencies. It is designed to be unit tested and reusable by
 /// other GUIs (e.g., GPUI).
-
 use std::rc::Rc;
 
 // ─── Field Types ─────────────────────────────────────────────────────────────
@@ -11,12 +10,12 @@ use std::rc::Rc;
 /// Represents the type of filter field being edited.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FieldType {
-    SourceAddr,   // u8 addresses (0-255)
-    DestAddr,     // u8 addresses (0-255)
-    SrcName,      // u64 NAME values
-    DstName,      // u64 NAME values
-    Pgn,          // u32 PGN values
-    Title,        // String titles (interned via Rc<str>)
+    SourceAddr, // u8 addresses (0-255)
+    DestAddr,   // u8 addresses (0-255)
+    SrcName,    // u64 NAME values
+    DstName,    // u64 NAME values
+    Pgn,        // u32 PGN values
+    Title,      // String titles (interned via Rc<str>)
 }
 
 impl FieldType {
@@ -375,7 +374,10 @@ impl FilterEditorState {
 
     /// Get the display string for a given option ID.
     pub fn get_option_display(&self, option_id: u32) -> Option<String> {
-        self.options.iter().find(|opt| opt.id == option_id).map(|opt| opt.display.clone())
+        self.options
+            .iter()
+            .find(|opt| opt.id == option_id)
+            .map(|opt| opt.display.clone())
     }
 
     /// Check if there are more items below the current scroll position.
@@ -411,7 +413,8 @@ impl FilterEditor {
 
         // Parse existing filter text and pre-check matching options
         if !current_filter_text.is_empty() {
-            let (validation, selected_ids) = self.update_from_text_impl(current_filter_text, &state.options);
+            let (validation, selected_ids) =
+                self.update_from_text_impl(current_filter_text, &state.options);
             state.validation = validation;
             state.selected_ids = selected_ids;
             state.text_input = current_filter_text.to_string();
@@ -428,7 +431,11 @@ impl FilterEditor {
     }
 
     /// Internal implementation of text → list sync.
-    fn update_from_text_impl(&self, text_input: &str, options: &[FilterOption]) -> (TextValidation, Vec<u32>) {
+    fn update_from_text_impl(
+        &self,
+        text_input: &str,
+        options: &[FilterOption],
+    ) -> (TextValidation, Vec<u32>) {
         if text_input.is_empty() {
             return (TextValidation::Valid, Vec::new());
         }
@@ -536,7 +543,11 @@ impl FilterEditor {
     }
 
     /// Find an option ID by comparing raw values against the given options list.
-    fn find_option_by_raw_value(&self, options: &[FilterOption], raw_value: &RawValue) -> Option<u32> {
+    fn find_option_by_raw_value(
+        &self,
+        options: &[FilterOption],
+        raw_value: &RawValue,
+    ) -> Option<u32> {
         for opt in options {
             if Self::raw_values_match(&opt.raw_value, raw_value) {
                 return Some(opt.id);
@@ -555,51 +566,52 @@ impl FilterEditor {
             _ => false,
         }
     }
-
-    /// Check if two RawValues match (accounting for field type).
-    fn matches_raw_value(&self, a: &RawValue, b: &RawValue) -> bool {
-        Self::raw_values_match(a, b)
-    }
 }
 
 // ─── Numeric Parsing Helpers ─────────────────────────────────────────────────
 
 /// Parse a decimal or hex string into u8.
 fn parse_hex_or_dec_u8(s: &str) -> Result<u8, String> {
-    s.trim().parse::<u8>().map_err(|_| format!("'{}'", s.trim()))
+    s.trim()
+        .parse::<u8>()
+        .map_err(|_| format!("'{}'", s.trim()))
         .or_else(|_| {
-            let stripped = s.trim()
+            let stripped = s
+                .trim()
                 .strip_prefix("0x")
                 .or_else(|| s.trim().strip_prefix("0X"))
                 .ok_or_else(|| format!("'{}'", s.trim()))?;
-            u8::from_str_radix(stripped, 16)
-                .map_err(|_| format!("'{}'", s.trim()))
+            u8::from_str_radix(stripped, 16).map_err(|_| format!("'{}'", s.trim()))
         })
 }
 
 /// Parse a decimal or hex string into u32.
 fn parse_hex_or_dec_u32(s: &str) -> Result<u32, String> {
-    s.trim().parse::<u32>().map_err(|_| format!("'{}'", s.trim()))
+    s.trim()
+        .parse::<u32>()
+        .map_err(|_| format!("'{}'", s.trim()))
         .or_else(|_| {
-            let stripped = s.trim()
+            let stripped = s
+                .trim()
                 .strip_prefix("0x")
                 .or_else(|| s.trim().strip_prefix("0X"))
                 .ok_or_else(|| format!("'{}'", s.trim()))?;
-            u32::from_str_radix(stripped, 16)
-                .map_err(|_| format!("'{}'", s.trim()))
+            u32::from_str_radix(stripped, 16).map_err(|_| format!("'{}'", s.trim()))
         })
 }
 
 /// Parse a decimal or hex string into u64.
 fn parse_hex_or_dec_u64(s: &str) -> Result<u64, String> {
-    s.trim().parse::<u64>().map_err(|_| format!("'{}'", s.trim()))
+    s.trim()
+        .parse::<u64>()
+        .map_err(|_| format!("'{}'", s.trim()))
         .or_else(|_| {
-            let stripped = s.trim()
+            let stripped = s
+                .trim()
                 .strip_prefix("0x")
                 .or_else(|| s.trim().strip_prefix("0X"))
                 .ok_or_else(|| format!("'{}'", s.trim()))?;
-            u64::from_str_radix(stripped, 16)
-                .map_err(|_| format!("'{}'", s.trim()))
+            u64::from_str_radix(stripped, 16).map_err(|_| format!("'{}'", s.trim()))
         })
 }
 
@@ -623,14 +635,26 @@ mod tests {
 
     #[test]
     fn test_parse_value_u8_decimal() {
-        assert_eq!(FieldType::SourceAddr.parse_value("144"), Ok(RawValue::U8(144)));
-        assert_eq!(FieldType::DestAddr.parse_value("255"), Ok(RawValue::U8(255)));
+        assert_eq!(
+            FieldType::SourceAddr.parse_value("144"),
+            Ok(RawValue::U8(144))
+        );
+        assert_eq!(
+            FieldType::DestAddr.parse_value("255"),
+            Ok(RawValue::U8(255))
+        );
     }
 
     #[test]
     fn test_parse_value_u8_hex() {
-        assert_eq!(FieldType::SourceAddr.parse_value("0x90"), Ok(RawValue::U8(144)));
-        assert_eq!(FieldType::DestAddr.parse_value("0xfe"), Ok(RawValue::U8(254)));
+        assert_eq!(
+            FieldType::SourceAddr.parse_value("0x90"),
+            Ok(RawValue::U8(144))
+        );
+        assert_eq!(
+            FieldType::DestAddr.parse_value("0xfe"),
+            Ok(RawValue::U8(254))
+        );
     }
 
     #[test]
@@ -652,8 +676,14 @@ mod tests {
 
     #[test]
     fn test_parse_value_u32() {
-        assert_eq!(FieldType::Pgn.parse_value("51968"), Ok(RawValue::U32(51968)));
-        assert_eq!(FieldType::Pgn.parse_value("0xCAF00"), Ok(RawValue::U32(0xCAF00)));
+        assert_eq!(
+            FieldType::Pgn.parse_value("51968"),
+            Ok(RawValue::U32(51968))
+        );
+        assert_eq!(
+            FieldType::Pgn.parse_value("0xCAF00"),
+            Ok(RawValue::U32(0xCAF00))
+        );
     }
 
     #[test]
@@ -669,7 +699,10 @@ mod tests {
 
     #[test]
     fn test_format_value_u8() {
-        assert_eq!(FieldType::SourceAddr.format_value(&RawValue::U8(144)), "144");
+        assert_eq!(
+            FieldType::SourceAddr.format_value(&RawValue::U8(144)),
+            "144"
+        );
     }
 
     #[test]
@@ -716,9 +749,21 @@ mod tests {
 
     fn make_test_options() -> Vec<FilterOption> {
         vec![
-            FilterOption { id: 0, display: "EngineECU".to_string(), raw_value: RawValue::U8(144) },
-            FilterOption { id: 1, display: "DisplayUnit".to_string(), raw_value: RawValue::U8(254) },
-            FilterOption { id: 2, display: "GPSModule".to_string(), raw_value: RawValue::U8(0) },
+            FilterOption {
+                id: 0,
+                display: "EngineECU".to_string(),
+                raw_value: RawValue::U8(144),
+            },
+            FilterOption {
+                id: 1,
+                display: "DisplayUnit".to_string(),
+                raw_value: RawValue::U8(254),
+            },
+            FilterOption {
+                id: 2,
+                display: "GPSModule".to_string(),
+                raw_value: RawValue::U8(0),
+            },
         ]
     }
 
@@ -887,7 +932,7 @@ mod tests {
         let options = make_test_options();
         let editor = FilterEditor::new(FieldType::SourceAddr);
         // "300" is out of range for u8
-        let (validation, selected_ids) = editor.update_from_text_impl("300", &options);
+        let (validation, _selected_ids) = editor.update_from_text_impl("300", &options);
         assert!(matches!(validation, TextValidation::Invalid(_)));
     }
 
@@ -1099,7 +1144,10 @@ mod tests {
 
     #[test]
     fn test_parse_hex_or_dec_u64_hex() {
-        assert_eq!(parse_hex_or_dec_u64("0x80000000000F2EEC").unwrap(), 0x80000000000F2EEC);
+        assert_eq!(
+            parse_hex_or_dec_u64("0x80000000000F2EEC").unwrap(),
+            0x80000000000F2EEC
+        );
     }
 
     // ─── Integration: open → update_from_text → reconstruct_text cycle ─────

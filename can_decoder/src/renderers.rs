@@ -443,8 +443,12 @@ impl Renderer for CondensedRenderer {
                                 let flag_text = match flag_value {
                                     crate::types::FlagValue::Off => "OFF".red().to_string(),
                                     crate::types::FlagValue::On => "ON".green().to_string(),
-                                    crate::types::FlagValue::Error => "ERR".white().bold().to_string(),
-                                    crate::types::FlagValue::Unavailable => "N/A".dimmed().to_string(),
+                                    crate::types::FlagValue::Error => {
+                                        "ERR".white().bold().to_string()
+                                    }
+                                    crate::types::FlagValue::Unavailable => {
+                                        "N/A".dimmed().to_string()
+                                    }
                                 };
                                 flag_text
                             }
@@ -567,8 +571,12 @@ impl Renderer for FullCondensedRenderer {
                                 let flag_text = match flag_value {
                                     crate::types::FlagValue::Off => "OFF".red().to_string(),
                                     crate::types::FlagValue::On => "ON".green().to_string(),
-                                    crate::types::FlagValue::Error => "ERR".white().bold().to_string(),
-                                    crate::types::FlagValue::Unavailable => "N/A".dimmed().to_string(),
+                                    crate::types::FlagValue::Error => {
+                                        "ERR".white().bold().to_string()
+                                    }
+                                    crate::types::FlagValue::Unavailable => {
+                                        "N/A".dimmed().to_string()
+                                    }
                                 };
                                 flag_text
                             }

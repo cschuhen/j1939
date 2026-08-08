@@ -1,4 +1,3 @@
-
 pub fn render_pgn(pgn: u32) -> String {
     match iso11783_data::strings::pgn::lookup(pgn) {
         Some(pgn_name) => format!("{:06x} {}({})", pgn, pgn_name, pgn),

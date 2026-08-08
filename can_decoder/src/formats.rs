@@ -1,6 +1,5 @@
 /// Pure formatting utilities for display across renderers and GUIs.
 /// These functions have no dependencies on TUI frameworks.
-
 use crate::types::{FlagValue, Numeric};
 
 /// Format a Numeric value into a human-readable string (no color codes).
@@ -54,6 +53,78 @@ pub fn format_data_hex(data: &[u8]) -> String {
         result.push_str(" ...");
     }
     result
+}
+
+pub fn build_detail_string(msg: &crate::types::DecodedMessage, max_width: u16) -> String {
+    let mut parts = Vec::new();
+    for output in &msg.outputs {
+        match output {
+            crate::types::DecodedField::Value {
+                title, value, unit, ..
+            } => {
+                if let Numeric::Flag(flag_value) = &value {
+                    let flag_str = match flag_value {
+                        FlagValue::Off => "OFF",
+                        FlagValue::On => "ON",
+                        FlagValue::Error => "ERR",
+                        FlagValue::Unavailable => "N/A",
+                    };
+                    parts.push(format!("{}={}", title, flag_str));
+                } else {
+                    let val_str = crate::formats::format_value(&value);
+                    if let Some(u) = unit {
+                        parts.push(format!("{}={} {}", title, val_str, u));
+                    } else {
+                        parts.push(format!("{}={}", title, val_str));
+                    }
+                }
+            }
+            crate::types::DecodedField::StringMessage { text, .. } => {
+                parts.push(text.clone());
+            }
+        }
+    }
+    let detail = parts.join(", ");
+    if detail.len() > max_width as usize {
+        format!("{}...", &detail[..max_width as usize - 3])
+    } else {
+        detail
+    }
+}
+
+pub fn build_detail_condensed_string(msg: &crate::types::DecodedMessage, max_width: u16) -> String {
+    let mut parts = Vec::new();
+    for output in &msg.outputs {
+        match output {
+            crate::types::DecodedField::Value { value, unit, .. } => {
+                if let Numeric::Flag(flag_value) = &value {
+                    let flag_str = match flag_value {
+                        FlagValue::Off => "OFF",
+                        FlagValue::On => "ON",
+                        FlagValue::Error => "ERR",
+                        FlagValue::Unavailable => "N/A",
+                    };
+                    parts.push(flag_str.to_string());
+                } else {
+                    let val_str = crate::formats::format_value(&value);
+                    if let Some(u) = unit {
+                        parts.push(format!("{} {}", val_str, u));
+                    } else {
+                        parts.push(val_str);
+                    }
+                }
+            }
+            crate::types::DecodedField::StringMessage { text, .. } => {
+                parts.push(text.clone());
+            }
+        }
+    }
+    let detail = parts.join(", ");
+    if detail.len() > max_width as usize {
+        format!("{}...", &detail[..max_width as usize - 3])
+    } else {
+        detail
+    }
 }
 
 #[cfg(test)]
@@ -120,7 +191,9 @@ mod tests {
         assert_eq!(format_data_hex(&[0xFF; 8]), "FF FF FF FF FF FF FF FF");
         assert_eq!(format_data_hex(&[0xFF; 9]), "FF FF FF FF FF FF FF FF ...");
         let mut repeated: Vec<u8> = Vec::new();
-        for _ in 0..5 { repeated.extend_from_slice(&[0xDE, 0xAD, 0xBE, 0xEF]); }
+        for _ in 0..5 {
+            repeated.extend_from_slice(&[0xDE, 0xAD, 0xBE, 0xEF]);
+        }
         assert_eq!(format_data_hex(&repeated), "DE AD BE EF DE AD BE EF ...");
     }
 }
