@@ -150,14 +150,7 @@ impl TaskControllerDecoder {
             decimal_places: None,
         });
 
-        // Field 3: RAW = raw i32_value (no unit)
-        msg.outputs.push(DecodedField::Value {
-            title: "RAW".to_string(),
-            value: Numeric::Int(data.value as i64),
-            unit: None,
-            decimal_places: None,
-        });
-
+        // Field 3: Value converted into physical units (if available)
         if let Some(info) = &ddi_info {
             // Field 4: DDI name (e.g., "Total Charge") = physical_value with unit
             if let Some(physical) =
@@ -194,6 +187,14 @@ impl TaskControllerDecoder {
                 decimal_places: None,
             });
         }
+
+        // Field 4: RAW = raw i32_value (no unit)
+        msg.outputs.push(DecodedField::Value {
+            title: "RAW".to_string(),
+            value: Numeric::Int(data.value as i64),
+            unit: None,
+            decimal_places: None,
+        });
 
         msg
     }
@@ -449,15 +450,8 @@ mod tests {
             _ => panic!("Expected Value for DDI"),
         }
 
-        match &msg.outputs[2] {
-            DecodedField::Value { title, .. } => {
-                assert_eq!(title, "RAW");
-            }
-            _ => panic!("Expected Value for RAW"),
-        }
-
         // Without proprietary handlers, standard lookup returns "65534 Proprietary DDI Range"
-        match &msg.outputs[3] {
+        match &msg.outputs[2] {
             DecodedField::Value { title, value, .. } => {
                 assert_eq!(title, "65534 Proprietary DDI Range");
                 if let Numeric::Float(v) = value {
@@ -467,6 +461,13 @@ mod tests {
                 }
             }
             _ => panic!("Expected Value for DDI info"),
+        }
+
+        match &msg.outputs[3] {
+            DecodedField::Value { title, .. } => {
+                assert_eq!(title, "RAW");
+            }
+            _ => panic!("Expected Value for RAW"),
         }
     }
 

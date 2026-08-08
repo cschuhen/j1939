@@ -1978,16 +1978,8 @@ pgns:
             _ => panic!("Expected DDI Value"),
         }
 
-        // Third output should be RAW
+        // Third output: without proprietary handlers, standard lookup returns DDI info name
         match &msg.outputs[2] {
-            DecodedField::Value { title, .. } => {
-                assert_eq!(title, "RAW");
-            }
-            _ => panic!("Expected RAW field"),
-        }
-
-        // Fourth output: without proprietary handlers, standard lookup returns DDI info name
-        match &msg.outputs[3] {
             DecodedField::Value { title, value, .. } => {
                 assert_eq!(title, "65534 Proprietary DDI Range");
                 if let Numeric::Float(v) = value {
@@ -1997,6 +1989,14 @@ pgns:
                 }
             }
             _ => panic!("Expected DDI info field"),
+        }
+
+        // Fourth output should be RAW
+        match &msg.outputs[3] {
+            DecodedField::Value { title, .. } => {
+                assert_eq!(title, "RAW");
+            }
+            _ => panic!("Expected RAW field"),
         }
     }
 
@@ -2047,7 +2047,7 @@ pgns:
                 _ => panic!("Expected Value"),
             }
 
-            match &msg.outputs[2] {
+            match &msg.outputs[3] {
                 DecodedField::Value { title, value, .. } => {
                     assert_eq!(title, "RAW");
                     if let Numeric::Int(v) = value {

@@ -1,5 +1,7 @@
 pub mod config;
 pub mod device_manager;
+/// Pure formatting utilities for display across renderers and GUIs.
+pub mod formats;
 /// Generic scroll manager for list views.
 pub mod scroll_manager;
 /// GUI-independent filter editor logic (modal state management).

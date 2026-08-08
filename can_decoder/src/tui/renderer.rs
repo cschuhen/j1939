@@ -1,5 +1,9 @@
+use crate::formats;
 use crate::tui::app::{FilterType, Focus, InputMode, TuiApp};
+use crate::tui::column_editor_widget::ColumnEditorWidget;
+use crate::tui::columns::Column;
 use crate::tui::filter_editor_widget::FilterEditorWidget;
+use iso11783_data::strings::pgn as pgn_titles;
 use crate::types::{DecodedField, DecodedMessage, FlagValue, Numeric, Severity};
 use ratatui::{prelude::*, widgets::*};
 
@@ -29,6 +33,13 @@ impl TuiRenderer {
         // Handle filter editor modal overlay
         if let Some(modal) = app.filter_editor.as_mut() {
             let widget = FilterEditorWidget::new(&mut modal.state, &modal.editor);
+            frame.render_widget(widget, area);
+            return;
+        }
+
+        // Handle column editor modal overlay
+        if let Some(modal) = app.column_editor.as_mut() {
+            let widget = ColumnEditorWidget::new(modal);
             frame.render_widget(widget, area);
             return;
         }
@@ -413,28 +424,29 @@ impl TuiRenderer {
             None
         };
 
+        let enabled_cols: Vec<Column> = app.column_config.states.iter()
+            .filter(|c| c.enabled)
+            .map(|c| c.column)
+            .collect();
+
+        let header_cells: Vec<Cell> = enabled_cols.iter()
+            .map(|c| Cell::from(c.label()))
+            .collect();
+
+        let column_widths: Vec<Constraint> = enabled_cols.iter()
+            .map(|c| c.constraint())
+            .collect();
+
+        let global_start_time = app.global_start_time;
         let visible_msgs = app.get_visible_messages(viewport_height);
 
-        let header_row = Row::new(vec![
-            Cell::from("Time"),
-            Cell::from("Src"),
-            Cell::from("Dst"),
-            Cell::from("PGN"),
-            Cell::from("PGN Name"),
-            Cell::from("Title"),
-            Cell::from("Detail"),
-        ])
-        .style(Style::default().fg(Color::White).bg(Color::DarkGray));
-
-        let column_widths = [
-            Constraint::Length(12),
-            Constraint::Length(3),
-            Constraint::Length(3),
-            Constraint::Length(6),
-            Constraint::Ratio(1, 7),
-            Constraint::Ratio(3, 7),
-            Constraint::Ratio(1, 7),
-        ];
+        let total_width = inner.width;
+        let fixed_width: u16 = enabled_cols.iter()
+            .filter(|c| **c != Column::Detail)
+            .map(|c| c.base_width())
+            .sum();
+        let num_gaps = if enabled_cols.len() > 1 { (enabled_cols.len() - 1) as u16 } else { 0 };
+        let detail_available = total_width.saturating_sub(fixed_width).saturating_sub(num_gaps);
 
         let rows: Vec<Row> = visible_msgs
             .iter()
@@ -442,37 +454,41 @@ impl TuiRenderer {
             .map(|(i, msg)| {
                 let is_selected = selected_local == Some(i);
 
-                let timestamp_str = format_timestamp(msg.timestamp());
-                let src_hex = format!("{:02X}", msg.source_address());
-                let dst_hex = format!("{:02X}", msg.dest_address());
-                let pgn_hex = format!("{:X}", msg.pgn());
-                let title = &msg.title;
+                let mut cells = Vec::new();
 
-                let detail_str = self.build_detail_string(msg);
+                for col in &enabled_cols {
+                    let cell_text = match col {
+                        Column::AbsTime => formats::format_timestamp(msg.timestamp()),
+                        Column::Time => formats::format_elapsed_time(msg.timestamp(), global_start_time),
+                        Column::Src => format!("{:02X}", msg.source_address()),
+                        Column::Dest => format!("{:02X}", msg.dest_address()),
+                        Column::Pgn => format!("{:X}", msg.pgn()),
+                        Column::PgnName => {
+                            if let Some(pgn_name) = pgn_titles::lookup(msg.pgn()) {
+                                pgn_name.to_string()
+                            } else {
+                                String::new()
+                            }
+                        }
+                        Column::Title => msg.title.clone(),
+                        Column::Data => formats::format_data_hex(msg.data_bytes()),
+                        Column::Detail => self.build_detail_string(msg, detail_available.max(col.base_width())),
+                        Column::DetailCondensed => self.build_detail_condensed_string(msg, detail_available.max(col.base_width())),
+                    };
+                    cells.push(Cell::from(cell_text));
+                }
 
                 if is_selected {
-                    Row::new(vec![
-                        Cell::from(timestamp_str),
-                        Cell::from(src_hex),
-                        Cell::from(dst_hex),
-                        Cell::from(pgn_hex),
-                        Cell::from(title.to_string()),
-                        Cell::from(detail_str),
-                    ])
-                    .style(Style::default().bg(Color::DarkGray).fg(Color::White))
+                    Row::new(cells)
+                        .style(Style::default().bg(Color::DarkGray).fg(Color::White))
                 } else {
-                    Row::new(vec![
-                        timestamp_str,
-                        src_hex,
-                        dst_hex,
-                        pgn_hex,
-                        title.to_string(),
-                        detail_str,
-                    ])
-                    .style(Style::default().fg(Color::White))
+                    Row::new(cells).style(Style::default().fg(Color::White))
                 }
             })
             .collect();
+
+        let header_row = Row::new(header_cells)
+            .style(Style::default().fg(Color::White).bg(Color::DarkGray));
 
         let table = Table::new(rows, column_widths)
             .header(header_row)
@@ -481,9 +497,9 @@ impl TuiRenderer {
         frame.render_widget(table, inner);
     }
 
-    fn build_detail_string(&self, msg: &DecodedMessage) -> String {
+    fn build_detail_string(&self, msg: &DecodedMessage, max_width: u16) -> String {
         let mut parts = Vec::new();
-        for output in msg.outputs.iter().take(2) {
+        for output in &msg.outputs {
             match output {
                 DecodedField::Value {
                     title, value, unit, ..
@@ -497,7 +513,7 @@ impl TuiRenderer {
                         };
                         parts.push(format!("{}={}", title, flag_str));
                     } else {
-                        let val_str = format_value(&value);
+                        let val_str = formats::format_value(&value);
                         if let Some(u) = unit {
                             parts.push(format!("{}={} {}", title, val_str, u));
                         } else {
@@ -511,8 +527,43 @@ impl TuiRenderer {
             }
         }
         let detail = parts.join(", ");
-        if detail.len() > 30 {
-            format!("{}...", &detail[..27])
+        if detail.len() > max_width as usize {
+            format!("{}...", &detail[..max_width as usize - 3])
+        } else {
+            detail
+        }
+    }
+
+    fn build_detail_condensed_string(&self, msg: &DecodedMessage, max_width: u16) -> String {
+        let mut parts = Vec::new();
+        for output in &msg.outputs {
+            match output {
+                DecodedField::Value { value, unit, .. } => {
+                    if let Numeric::Flag(flag_value) = &value {
+                        let flag_str = match flag_value {
+                            FlagValue::Off => "OFF",
+                            FlagValue::On => "ON",
+                            FlagValue::Error => "ERR",
+                            FlagValue::Unavailable => "N/A",
+                        };
+                        parts.push(flag_str.to_string());
+                    } else {
+                        let val_str = formats::format_value(&value);
+                        if let Some(u) = unit {
+                            parts.push(format!("{} {}", val_str, u));
+                        } else {
+                            parts.push(val_str);
+                        }
+                    }
+                }
+                DecodedField::StringMessage { text, .. } => {
+                    parts.push(text.clone());
+                }
+            }
+        }
+        let detail = parts.join(", ");
+        if detail.len() > max_width as usize {
+            format!("{}...", &detail[..max_width as usize - 3])
         } else {
             detail
         }
@@ -568,7 +619,7 @@ impl TuiRenderer {
             paragraphs.push(Line::from("").style(Style::default()));
             paragraphs.push(Line::from("Metadata:").style(Style::default().fg(Color::Cyan).bold()));
 
-            let timestamp = format_timestamp(timestamp_val);
+            let timestamp = formats::format_timestamp(timestamp_val);
             paragraphs.push(Line::from(format!("  Time:    {}", timestamp)));
             paragraphs.push(Line::from(format!(
                 "  PGN:     {:X} ({})",
@@ -638,7 +689,7 @@ impl TuiRenderer {
                                         .style(Style::default().fg(Color::Green).bold()),
                                 );
 
-                                let val_str = format_value(&value);
+                                let val_str = formats::format_value(&value);
                                 paragraphs.push(Line::from(format!("    Value:   {}", val_str)));
 
                                 if let Some(u) = unit {
@@ -753,25 +804,4 @@ impl TuiRenderer {
 
         (popup_area, content)
     }
-}
-
-fn format_value(value: &Numeric) -> String {
-    match value {
-        Numeric::Int(i) => format!("{}", i),
-        Numeric::Float(f) => format!("{:.4}", f),
-        Numeric::Hex(h) => format!("0x{:X}", h),
-        Numeric::Bool(b) => format!("{}", b),
-        Numeric::Flag(flag_value) => match flag_value {
-            FlagValue::Off => "OFF".to_string(),
-            FlagValue::On => "ON".to_string(),
-            FlagValue::Error => "ERR".to_string(),
-            FlagValue::Unavailable => "N/A".to_string(),
-        },
-    }
-}
-
-fn format_timestamp(timestamp: u64) -> String {
-    let seconds = timestamp / 1_000_000;
-    let usec = timestamp % 1_000_000;
-    format!("{}.{}", seconds, format!("{:06}", usec))
 }

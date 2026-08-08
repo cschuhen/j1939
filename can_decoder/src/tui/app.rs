@@ -6,12 +6,19 @@ use crate::filters::{
     SourceFilter, SourceNameFilter, TitleFilter,
 };
 use crate::scroll_manager::MessageScrollManager;
+use crate::tui::columns::ColumnConfig;
 use crate::types::{DecodedMessage, FlagValue, Severity};
 use ratatui::layout::Rect;
 
 pub struct FilterEditorModal {
     pub state: FilterEditorState,
     pub editor: FilterEditor,
+}
+
+pub struct ColumnEditorModal {
+    pub config: ColumnConfig,
+    pub selected_index: usize,
+    pub confirmed: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -246,6 +253,15 @@ pub struct TuiApp {
 
     /// Which LHS widget index is being edited by the modal.
     pub editing_widget_index: usize,
+
+    /// Column configuration popup (None = not open).
+    pub column_editor: Option<ColumnEditorModal>,
+
+    /// Persistent column configuration for the main message view.
+    pub column_config: ColumnConfig,
+
+    /// Timestamp of the very first unfiltered message (microseconds since epoch).
+    pub global_start_time: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -291,6 +307,9 @@ impl TuiApp {
             layout_vertical: false,
             filter_editor: None,
             editing_widget_index: 0,
+            column_editor: None,
+            column_config: ColumnConfig::new(),
+            global_start_time: None,
         }
     }
 
@@ -323,6 +342,10 @@ impl TuiApp {
             // Engine doesn't have a pop_front, so we clear and rebuild without the oldest
             // For simplicity, just skip adding when at capacity (oldest messages are less relevant)
             return;
+        }
+
+        if self.global_start_time.is_none() {
+            self.global_start_time = Some(message.timestamp());
         }
 
         self.engine.add_message(message);
@@ -613,6 +636,28 @@ impl TuiApp {
         }
     }
 
+    /// Open the column configuration popup.
+    pub fn open_column_editor(&mut self) {
+        if self.column_editor.is_some() {
+            return;
+        }
+        let config = ColumnConfig::new();
+        self.column_editor = Some(ColumnEditorModal {
+            config,
+            selected_index: 0,
+            confirmed: false,
+        });
+    }
+
+    /// Close the column editor popup.
+    pub fn close_column_editor(&mut self, apply: bool) {
+        if let Some(modal) = self.column_editor.take() {
+            if apply {
+                self.column_config = modal.config;
+            }
+        }
+    }
+
     /// Handle a key event while the modal editor is open.
     /// Returns true if the key was consumed by the modal (should not propagate to main handler).
     pub fn handle_modal_key(&mut self, key: &str) -> bool {
@@ -828,13 +873,32 @@ impl TuiApp {
             }
         }
 
+        // Route keys through filter editor modal if it's open (only Esc/Enter propagate)
+        if self.filter_editor.is_some() {
+            match &key {
+                TuiKey::Esc | TuiKey::Enter | TuiKey::Char('\n') => {}
+                _ => {
+                    return;
+                }
+            }
+        }
+
         match key {
             TuiKey::CtrlC | TuiKey::Char('q') => {}
             TuiKey::F(1) => self.toggle_lhs(),
             TuiKey::F(2) => self.toggle_rhs(),
             TuiKey::F(3) => self.toggle_error_log(),
             TuiKey::F(4) => self.toggle_layout(),
+            TuiKey::F(5) => {
+                if self.column_editor.is_none() {
+                    self.open_column_editor();
+                }
+            }
             TuiKey::Esc => {
+                if let Some(_) = self.column_editor {
+                    self.close_column_editor(false);
+                    return;
+                }
                 if self.input_mode == InputMode::TextInput {
                     self.apply_filters();
                     self.exit_text_mode();
@@ -866,7 +930,14 @@ impl TuiApp {
             }
             TuiKey::Up => match self.focus {
                 Focus::Main => {
-                    self.scroll_up(1);
+                    if self.column_editor.is_some() {
+                        let idx = self.column_editor.as_mut().unwrap().selected_index;
+                        if idx > 0 {
+                            self.column_editor.as_mut().unwrap().selected_index = idx - 1;
+                        }
+                    } else {
+                        self.scroll_up(1);
+                    }
                 }
                 Focus::Lhs => {
                     if self.input_mode == InputMode::TextInput {
@@ -882,7 +953,16 @@ impl TuiApp {
             },
             TuiKey::Down => match self.focus {
                 Focus::Main => {
-                    self.scroll_down(1);
+                    if let Some(ref mut modal) = self.column_editor {
+                        let cols_len = modal.config.states.len();
+                        if cols_len > 0 {
+                            if modal.selected_index < cols_len - 1 {
+                                modal.selected_index += 1;
+                            }
+                        }
+                    } else {
+                        self.scroll_down(1);
+                    }
                 }
                 Focus::Lhs => {
                     if self.input_mode == InputMode::TextInput {
@@ -905,7 +985,13 @@ impl TuiApp {
                 }
             }
             TuiKey::Space => {
-                if self.focus == Focus::Lhs && self.input_mode == InputMode::Navigation {
+                if let Some(ref mut modal) = self.column_editor {
+                    let cols = &mut modal.config.states;
+                    if !cols.is_empty() {
+                        let idx = modal.selected_index.min(cols.len() - 1);
+                        cols[idx].enabled = !cols[idx].enabled;
+                    }
+                } else if self.focus == Focus::Lhs && self.input_mode == InputMode::Navigation {
                     let widget = &mut self.lhs_widgets[self.active_lhs_widget];
                     if !widget.enabled {
                         widget.enabled = true;
@@ -919,6 +1005,10 @@ impl TuiApp {
                 }
             }
             TuiKey::Enter => {
+                if self.column_editor.is_some() {
+                    self.close_column_editor(true);
+                    return;
+                }
                 if self.focus == Focus::Lhs && self.input_mode == InputMode::TextInput {
                     // Check if this widget supports the modal editor
                     let widget = &self.lhs_widgets[self.active_lhs_widget];
@@ -985,7 +1075,7 @@ impl TuiApp {
         };
         let layout_hint = if self.layout_vertical { "VERT" } else { "HORZ" };
         format!(
-            " {} | {} | {} | {} | Filters:{} | Msgs:{}/{} | [F1:LHS] [F2:RHS] [F3:Log] [F4:Layout] [Tab:Nxt] [Space:Stream] [Ctrl+C/q:Quit]",
+            " {} | {} | {} | {} | Filters:{} | Msgs:{}/{} | [F1:LHS] [F2:RHS] [F3:Log] [F4:Layout] [F5:Cols] [Tab:Nxt] [Space:Stream] [Ctrl+C/q:Quit]",
             focus_str,
             mode_str,
             stream_str,
