@@ -27,6 +27,11 @@ impl StatusBar {
             .flex_row()
             .items_center()
             .px_4()
-            .child(div().text_sm().text_color(gpui::rgb(0xCCCCCC)).child(self.text.clone()))
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(gpui::rgb(0xCCCCCC))
+                    .child(self.text.clone()),
+            )
     }
 }

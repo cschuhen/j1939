@@ -2,23 +2,24 @@ mod gpui;
 
 use std::sync::Arc;
 
+use ::gpui::WindowOptions;
+use ::gpui::{AppContext, Application, Bounds, Size, WindowBounds};
 use anyhow::Result;
 use can_decoder::config::validate_proprietary_definitions;
-use can_decoder::Cli;
 use can_decoder::device_manager::DeviceManager;
 use can_decoder::filters::CompositeFilter;
-use can_decoder::pipeline::Pipeline;
 use can_decoder::pgn_decoder::J1939Decoder;
+use can_decoder::pipeline::Pipeline;
 use can_decoder::sources::{CandumpFileSource, SocketCanSource};
 use can_decoder::traits::Source;
 use can_decoder::types::DecodedMessage;
+use can_decoder::Cli;
 use clap::Parser;
-use ::gpui::WindowOptions;
-use ::gpui::{Application, AppContext, Bounds, Size, WindowBounds};
 use tokio::sync::mpsc;
 
 fn build_pipeline(cli: &Cli) -> Result<(Pipeline, mpsc::UnboundedReceiver<DecodedMessage>)> {
-    let proprietary_defs = validate_proprietary_definitions(&cli.shared.use_proprietary_ddi_definitions);
+    let proprietary_defs =
+        validate_proprietary_definitions(&cli.shared.use_proprietary_ddi_definitions);
 
     let mut pipeline = Pipeline::new();
 
@@ -85,9 +86,7 @@ fn main() -> Result<()> {
 
     let rt = tokio::runtime::Runtime::new()?;
 
-    let msg_rx = rt.block_on(async {
-        build_pipeline(&cli).map(|(_, rx)| rx)
-    })?;
+    let msg_rx = rt.block_on(async { build_pipeline(&cli).map(|(_, rx)| rx) })?;
 
     let _rt = Box::leak(Box::new(rt));
 
@@ -98,7 +97,10 @@ fn main() -> Result<()> {
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(Bounds {
                     origin: Default::default(),
-                    size: Size { width: 1200.0.into(), height: 800.0.into() },
+                    size: Size {
+                        width: 1200.0.into(),
+                        height: 800.0.into(),
+                    },
                 })),
                 titlebar: Some(::gpui::TitlebarOptions {
                     title: Some("can_decoder GPUI".into()),
@@ -111,7 +113,8 @@ fn main() -> Result<()> {
             },
             move |_window, cx| {
                 let message_list = cx.new(|_| gpui::components::message_list::MessageList::new());
-                let main_view = gpui::renderer::MainView::new(app_state.clone(), msg_rx, message_list);
+                let main_view =
+                    gpui::renderer::MainView::new(app_state.clone(), msg_rx, message_list);
                 cx.new(|_| main_view)
             },
         );

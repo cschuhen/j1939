@@ -1,7 +1,4 @@
-use gpui::{
-    div, prelude::*, px, Entity, FocusHandle, IntoElement,
-    ParentElement, Render, SharedString, Styled, Window,
-};
+use gpui::{div, prelude::*, px, FocusHandle, IntoElement, Render, SharedString, Styled, Window};
 
 use std::sync::Arc;
 
@@ -59,7 +56,7 @@ impl FilterWidget {
 }
 
 impl Render for FilterWidget {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let enabled = self.enabled;
         let input_text = self.input_text.clone();
         let label = self.label.clone();
@@ -98,9 +95,7 @@ impl Render for FilterWidget {
                     .bg(gpui::rgb(0x1a1a2e))
                     .overflow_hidden()
                     .when(enabled, |this| this)
-                    .when(!enabled, |this| {
-                        this.opacity(0.5).cursor_not_allowed()
-                    })
+                    .when(!enabled, |this| this.opacity(0.5).cursor_not_allowed())
                     .child(
                         div()
                             .w_full()
@@ -110,9 +105,7 @@ impl Render for FilterWidget {
                             .text_xs()
                             .font_family("monospace")
                             .text_color(gpui::rgb(0xcccccc))
-                            .when(!enabled, |this| {
-                                this.text_color(gpui::rgb(0x666666))
-                            })
+                            .when(!enabled, |this| this.text_color(gpui::rgb(0x666666)))
                             .child(input_text),
                     ),
             )

@@ -6,7 +6,9 @@
 use can_decoder::columns::Column;
 use can_decoder::formats::{build_detail_string, format_elapsed_time};
 use can_decoder::types::DecodedMessage;
-use gpui::{div, prelude::*, ElementId, IntoElement, ParentElement, Render, ScrollStrategy, Styled, Window};
+use gpui::{
+    div, prelude::*, ElementId, IntoElement, ParentElement, Render, ScrollStrategy, Styled, Window,
+};
 
 // Re-export uniform_list for use in render()
 pub fn make_uniform_list<R>(
@@ -30,11 +32,59 @@ const DEFAULT_COLUMNS: &[Column] = &[
     Column::Detail,
 ];
 
+/// Filter criteria for message filtering.
+#[derive(Debug, Clone)]
+pub struct MessageFilter {
+    pub source_addr: Option<u8>,
+    pub dest_addr: Option<u8>,
+    pub pgn: Option<u32>,
+    pub title_contains: Option<String>,
+}
+
+impl Default for MessageFilter {
+    fn default() -> Self {
+        Self {
+            source_addr: None,
+            dest_addr: None,
+            pgn: None,
+            title_contains: None,
+        }
+    }
+}
+
+impl MessageFilter {
+    /// Check if a message matches this filter.
+    pub fn matches(&self, msg: &DecodedMessage) -> bool {
+        if let Some(src) = self.source_addr {
+            if msg.source_address() != src {
+                return false;
+            }
+        }
+        if let Some(dst) = self.dest_addr {
+            if msg.dest_address() != dst {
+                return false;
+            }
+        }
+        if let Some(pgn) = self.pgn {
+            if msg.pgn() != pgn {
+                return false;
+            }
+        }
+        if let Some(ref pattern) = self.title_contains {
+            if !msg.title.contains(pattern.as_str()) {
+                return false;
+            }
+        }
+        true
+    }
+}
+
 /// Message list state — owns the message buffer and selection.
 pub struct MessageList {
     pub messages: Vec<DecodedMessage>,
     pub selected_index: Option<usize>,
     global_start_time: Option<u64>,
+    filter: MessageFilter,
 }
 
 impl MessageList {
@@ -44,6 +94,7 @@ impl MessageList {
             messages: Vec::new(),
             selected_index: None,
             global_start_time: None,
+            filter: MessageFilter::default(),
         }
     }
 
@@ -59,6 +110,16 @@ impl MessageList {
     pub fn clear_messages(&mut self) {
         self.messages.clear();
         self.selected_index = None;
+    }
+
+    /// Set the filter criteria and reapply to visible messages.
+    pub fn set_filter(&mut self, filter: MessageFilter) {
+        self.filter = filter;
+    }
+
+    /// Get the current filter.
+    pub fn filter(&self) -> &MessageFilter {
+        &self.filter
     }
 
     /// Scroll to the last message.
@@ -93,27 +154,56 @@ impl MessageList {
 
     /// Toggle selection on current row (select/deselect).
     pub fn toggle_selection(&mut self) {
-        self.selected_index = if self.selected_index.is_some() { None } else { Some(0) };
+        self.selected_index = if self.selected_index.is_some() {
+            None
+        } else {
+            Some(0)
+        };
     }
 
     /// Get the currently selected message.
     pub fn selected_message(&self) -> Option<&DecodedMessage> {
         self.selected_index.and_then(|i| self.messages.get(i))
     }
+
+    /// Get filtered messages based on current filter criteria.
+    pub fn get_filtered_messages(&self) -> Vec<&DecodedMessage> {
+        if self.filter.source_addr.is_none()
+            && self.filter.dest_addr.is_none()
+            && self.filter.pgn.is_none()
+            && self.filter.title_contains.is_none()
+        {
+            self.messages.iter().collect()
+        } else {
+            self.messages
+                .iter()
+                .filter(|m| self.filter.matches(m))
+                .collect()
+        }
+    }
 }
 
 impl Render for MessageList {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let messages = self.messages.clone();
-        let selected_index = self.selected_index;
-        let global_start_time = self.global_start_time;
+        let filter = self.filter.clone();
 
-        let is_selected = selected_index;
-        make_uniform_list("message_list", messages.len(), move |range, _window, _cx| {
-            range
-                .map(|ix| render_row(&messages[ix], is_selected.map_or(false, |s| ix == s)))
-                .collect()
-        })
+        let filtered_indices: Vec<usize> = (0..messages.len())
+            .filter(|&ix| filter.matches(&messages[ix]))
+            .collect();
+
+        make_uniform_list(
+            "message_list",
+            filtered_indices.len(),
+            move |range, _window, _cx| {
+                range
+                    .map(|fi| {
+                        let msg_ix = filtered_indices[fi];
+                        render_row(&messages[msg_ix], false)
+                    })
+                    .collect()
+            },
+        )
         .size_full()
     }
 }
@@ -129,7 +219,7 @@ fn render_row(msg: &DecodedMessage, is_selected: bool) -> impl IntoElement {
     let mut parts = Vec::new();
     for col in DEFAULT_COLUMNS {
         let value = match *col {
-            Column::Time => format_elapsed_time(msg.timestamp(), global_start_time_for_msg(msg)),
+            Column::Time => format_elapsed_time(msg.timestamp(), None),
             Column::Src => format!("{:02X}", msg.source_address()),
             Column::Dest => format!("{:02X}", msg.dest_address()),
             Column::Pgn => format!("{:X}", msg.pgn()),
@@ -163,9 +253,4 @@ fn render_row(msg: &DecodedMessage, is_selected: bool) -> impl IntoElement {
                 })
                 .child(row_text),
         )
-}
-
-/// Get global start time from the first message, or None.
-fn global_start_time_for_msg(msg: &DecodedMessage) -> Option<u64> {
-    Some(msg.timestamp())
 }
