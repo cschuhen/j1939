@@ -242,6 +242,14 @@ fn render_row(msg: &DecodedMessage, is_selected: bool) -> impl IntoElement {
         .flex_row()
         .px_3()
         .items_center()
+        .cursor_pointer()
+        .hover(|this| {
+            this.bg(if is_selected {
+                gpui::rgb(0x1f4570)
+            } else {
+                gpui::rgb(0x1a2a4f)
+            })
+        })
         .child(
             div()
                 .text_xs()

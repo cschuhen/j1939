@@ -8,8 +8,8 @@ use std::sync::Arc;
 use can_decoder::types::DecodedMessage;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    div, px, AppContext, Context, Entity, InteractiveElement, IntoElement, ParentElement, Render,
-    Styled, Window,
+    div, px, AppContext, Context, Entity, FocusHandle, InteractiveElement, IntoElement,
+    ParentElement, Render, Styled, Window,
 };
 use j1939_async::Id;
 use tokio::sync::mpsc;
@@ -29,6 +29,7 @@ pub struct MainView {
     msg_rx: Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<DecodedMessage>>>,
     message_list: Entity<MessageList>,
     receiver_started: bool,
+    focus_handle: FocusHandle,
 }
 
 impl MainView {
@@ -36,12 +37,14 @@ impl MainView {
         app_state: AppState,
         msg_rx: mpsc::UnboundedReceiver<DecodedMessage>,
         message_list: Entity<MessageList>,
+        cx: &mut Context<Self>,
     ) -> Self {
         MainView {
             app_state,
             msg_rx: Arc::new(tokio::sync::Mutex::new(msg_rx)),
             message_list,
             receiver_started: false,
+            focus_handle: cx.focus_handle(),
         }
     }
 
@@ -95,7 +98,7 @@ impl FilterPanel {
 }
 
 impl Render for FilterPanel {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let widget_entities = self.widgets.clone();
 
         div()
@@ -389,7 +392,7 @@ fn format_value(value: &can_decoder::types::Numeric, decimal_places: Option<u8>)
 }
 
 impl Render for MainView {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         // Start message receiver on first render
         if !self.receiver_started {
             self.start_message_receiver(&cx);
@@ -412,6 +415,7 @@ impl Render for MainView {
             panel.selected_message = selected_msg;
         });
 
+        window.focus(&self.focus_handle);
         div()
             .flex_col()
             .size_full()

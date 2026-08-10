@@ -91,6 +91,8 @@ fn main() -> Result<()> {
     let _rt = Box::leak(Box::new(rt));
 
     Application::new().run(move |cx| {
+        gpui::keybindings::configure_keybindings(cx);
+
         let app_state = gpui::app_state::AppState::new(&Default::default());
 
         let _ = cx.open_window(
@@ -113,9 +115,9 @@ fn main() -> Result<()> {
             },
             move |_window, cx| {
                 let message_list = cx.new(|_| gpui::components::message_list::MessageList::new());
-                let main_view =
-                    gpui::renderer::MainView::new(app_state.clone(), msg_rx, message_list);
-                cx.new(|_| main_view)
+                cx.new(|cx| {
+                    gpui::renderer::MainView::new(app_state.clone(), msg_rx, message_list, cx)
+                })
             },
         );
 
