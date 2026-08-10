@@ -1,6 +1,6 @@
 use gpui::{
-    div, prelude::*, px, FocusHandle, InteractiveElement, IntoElement, MouseButton, ParentElement,
-    Render, SharedString, Styled, Window,
+    div, prelude::*, px, FocusHandle, InteractiveElement, IntoElement, KeyDownEvent, MouseButton,
+    ParentElement, Render, SharedString, Styled, Window,
 };
 
 use std::sync::Arc;
@@ -10,6 +10,7 @@ use can_decoder::filter_editor::FieldType;
 pub struct FilterWidget {
     field_type: FieldType,
     input_text: String,
+    cursor_pos: usize,
     enabled: bool,
     focus_handle: FocusHandle,
     label: SharedString,
@@ -21,6 +22,7 @@ impl FilterWidget {
         Self {
             field_type,
             input_text: String::new(),
+            cursor_pos: 0,
             enabled: true,
             focus_handle: cx.focus_handle(),
             label,
@@ -45,10 +47,36 @@ impl FilterWidget {
     }
 
     pub fn set_input_text(&mut self, text: String, cx: &mut Context<Self>) {
+        let len = text.len();
         if self.input_text != text {
             self.input_text = text;
+            self.cursor_pos = len;
             cx.notify();
         }
+    }
+
+    pub fn append_char(&mut self, ch: char, cx: &mut Context<Self>) {
+        if !self.enabled {
+            return;
+        }
+        let pos = self.cursor_pos.min(self.input_text.len());
+        self.input_text.insert(pos, ch);
+        self.cursor_pos += 1;
+        cx.notify();
+    }
+
+    pub fn delete_char(&mut self, cx: &mut Context<Self>) {
+        if !self.enabled || self.input_text.is_empty() {
+            return;
+        }
+        let pos = self.cursor_pos.min(self.input_text.len());
+        if pos > 0 {
+            self.input_text.remove(pos - 1);
+            self.cursor_pos -= 1;
+        } else if pos < self.input_text.len() {
+            self.input_text.remove(pos);
+        }
+        cx.notify();
     }
 
     pub fn label(&self) -> &SharedString {
@@ -65,6 +93,7 @@ impl Render for FilterWidget {
         let label = self.label.clone();
         let input_text = self.input_text.clone();
         let enabled = self.enabled;
+        let cursor_pos = self.cursor_pos;
 
         div()
             .flex_col()
@@ -136,6 +165,22 @@ impl Render for FilterWidget {
                         gpui::rgb(0x111122)
                     })
                     .overflow_hidden()
+                    .cursor_pointer()
+                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _event, window, cx| {
+                        this.focus_handle.focus(window, cx);
+                    }))
+                    .on_key_down(cx.listener(move |this, event: &KeyDownEvent, _window, cx| {
+                        let key = event.keystroke.key.as_str();
+                        if key == "backspace" {
+                            this.delete_char(cx);
+                        } else if key.len() == 1 && !event.keystroke.modifiers.secondary() {
+                            if let Some(ch) = key.chars().next() {
+                                if ch.is_ascii_graphic() || ch == ' ' {
+                                    this.append_char(ch, cx);
+                                }
+                            }
+                        }
+                    }))
                     .child(
                         div()
                             .w_full()
@@ -152,7 +197,12 @@ impl Render for FilterWidget {
                             .child(if input_text.is_empty() {
                                 format!("Filter by {}", self.field_type.label())
                             } else {
-                                input_text
+                                let display = if cursor_pos < input_text.len() {
+                                    format!("{}|{}", &input_text[..cursor_pos], &input_text[cursor_pos..])
+                                } else {
+                                    format!("{}|", input_text)
+                                };
+                                display
                             }),
                     ),
             )

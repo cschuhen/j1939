@@ -430,7 +430,7 @@ The following rendering logic is shared between TUI and GPUI:
 | Task | Details | Dependencies | Status |
 |------|---------|--------------|--------|
 | Create `FilterWidget` entity model | One entity per filter type with state management | Phase 2 | ✅ COMPLETE — FilterWidget struct with field_type, input_text, enabled, focus_handle, label fields. Methods: new(), toggle_enabled(), is_enabled(), set_input_text(). |
-| Implement filter widget views | Toggle button + text input for each filter | Phase 3 | 🚧 IN PROGRESS — Toggle button (ON/OFF) added with hover effects, visual enabled/disabled states (color-coded). Text input display placeholder when empty. |
+| Implement filter widget views | Toggle button + text input for each filter | Phase 3 | 🚧 IN PROGRESS — Toggle button (ON/OFF) with hover effects, visual enabled/disabled states. Text input functional: click to focus, type characters, Backspace to delete, cursor shown with | character. |
 | Build LHS dockable panel | ManagedView implementing dock system | Phase 3 | ⏳ PENDING — FilterPanel exists as simple div container, not yet using GPUI dock system. |
 | Wire filters to FilterEngine | Enable/disable filters, update input text → re-evaluate | Phase 3 | ⏳ PENDING |
 | Implement filter editor modal | GPUI anchored popup for complex filter editing (Numeric, Flag) | Phase 3 | ⏳ PENDING |
