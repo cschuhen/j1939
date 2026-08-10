@@ -1,20 +1,20 @@
-//! Application state entity for GPUI frontend.
+//! Application state for GPUI frontend.
+//!
+//! Holds shared references to core subsystems (pipeline, device manager, filter engine).
 
-use gpui::Entity;
 use std::path::PathBuf;
 
-/// Root application state entity.
-/// Holds shared references to core subsystems (pipeline, device manager, filter engine).
+/// Root application state.
 pub struct AppState {
     pub config_dir: PathBuf,
 }
 
 impl AppState {
-    /// Create a new AppState entity.
-    /// TODO: Initialize pipeline, device_manager, filter_engine here (Phase 1 Step 5)
-    pub fn new(_config_dir: &PathBuf) -> Entity<Self> {
-        // Stub — will use proper GPUI entity creation in Phase 1 Step 5
-        // For now, return a minimal entity handle
-        unreachable!("AppState::new requires App context from GPUI window callback")
+    /// Create a new AppState.
+    /// TODO (Phase 2): Add FilterEngine, DeviceManager, ScrollManager references
+    pub fn new(config_dir: &PathBuf) -> Self {
+        AppState {
+            config_dir: config_dir.clone(),
+        }
     }
 }
