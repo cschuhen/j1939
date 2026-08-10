@@ -5,6 +5,7 @@
 use std::path::PathBuf;
 
 /// Root application state.
+#[derive(Clone)]
 pub struct AppState {
     pub config_dir: PathBuf,
 }

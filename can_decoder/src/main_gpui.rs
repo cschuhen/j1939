@@ -93,7 +93,6 @@ fn main() -> Result<()> {
 
     Application::new().run(move |cx| {
         let app_state = gpui::app_state::AppState::new(&Default::default());
-        let main_view = gpui::renderer::MainView::new(app_state, msg_rx);
 
         let _ = cx.open_window(
             WindowOptions {
@@ -110,8 +109,14 @@ fn main() -> Result<()> {
                 show: true,
                 ..Default::default()
             },
-            move |_window, cx| cx.new(|_| main_view),
+            move |_window, cx| {
+                let message_list = cx.new(|_| gpui::components::message_list::MessageList::new());
+                let main_view = gpui::renderer::MainView::new(app_state.clone(), msg_rx, message_list);
+                cx.new(|_| main_view)
+            },
         );
+
+        let _ = cx;
     });
 
     eprintln!("\nShutting down...");
