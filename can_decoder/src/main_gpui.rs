@@ -14,7 +14,7 @@ use can_decoder::traits::Source;
 use can_decoder::types::DecodedMessage;
 use clap::Parser;
 use ::gpui::WindowOptions;
-use ::gpui::{AppContext, Application, IntoElement, Render, Styled};
+use ::gpui::{Application, AppContext, Bounds, Size, WindowBounds};
 use tokio::sync::mpsc;
 
 fn build_pipeline(cli: &Cli) -> Result<(Pipeline, mpsc::UnboundedReceiver<DecodedMessage>)> {
@@ -71,16 +71,6 @@ fn build_pipeline(cli: &Cli) -> Result<(Pipeline, mpsc::UnboundedReceiver<Decode
     Ok((pipeline, msg_rx))
 }
 
-struct MainView {
-    _msg_rx: mpsc::UnboundedReceiver<DecodedMessage>,
-}
-
-impl Render for MainView {
-    fn render(&mut self, _window: &mut ::gpui::Window, _cx: &mut ::gpui::Context<Self>) -> impl ::gpui::IntoElement {
-        ::gpui::div().size_full().into_any_element()
-    }
-}
-
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
@@ -102,9 +92,10 @@ fn main() -> Result<()> {
     let _rt = Box::leak(Box::new(rt));
 
     Application::new().run(move |cx| {
-        use ::gpui::{Bounds, Size, WindowBounds};
+        let app_state = gpui::app_state::AppState::new(&Default::default());
+        let main_view = gpui::renderer::MainView::new(app_state, msg_rx);
 
-        cx.open_window(
+        let _ = cx.open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(Bounds {
                     origin: Default::default(),
@@ -119,9 +110,7 @@ fn main() -> Result<()> {
                 show: true,
                 ..Default::default()
             },
-            |_window, cx| {
-                cx.new(|_cx| MainView { _msg_rx: msg_rx })
-            },
+            move |_window, cx| cx.new(|_| main_view),
         );
     });
 
