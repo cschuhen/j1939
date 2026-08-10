@@ -30,3 +30,10 @@ unicode-width = "0.2.2"
 thiserror = "2.0.18"
 ratatui = "0.30.2"
 crossterm = "0.29.0"
+
+# GPUI native GUI (pre-1.0, accept breaking changes)
+gpui = "0.2"
+
+[[bin]]
+name = "can_decoder_gpui"
+path = "src/main_gpui.rs"
