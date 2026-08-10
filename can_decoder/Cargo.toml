@@ -31,8 +31,9 @@ thiserror = "2.0.18"
 ratatui = "0.30.2"
 crossterm = "0.29.0"
 
-# GPUI native GUI (pre-1.0, accept breaking changes)
-gpui = "0.2"
+# GPUI native GUI (from Zed mainline, same commit as rgitui)
+gpui = { git = "https://github.com/zed-industries/zed.git", rev = "f3fb4e04aa85dbbde6e83d28f231fc452cd8863f" }
+gpui_platform = { git = "https://github.com/zed-industries/zed.git", rev = "f3fb4e04aa85dbbde6e83d28f231fc452cd8863f", features = ["font-kit", "x11", "wayland"] }
 
 [[bin]]
 name = "can_decoder_gpui"

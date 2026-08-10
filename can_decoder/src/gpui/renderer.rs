@@ -415,7 +415,7 @@ impl Render for MainView {
             panel.selected_message = selected_msg;
         });
 
-        window.focus(&self.focus_handle);
+        window.focus(&self.focus_handle, cx);
         div()
             .flex_col()
             .size_full()

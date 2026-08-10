@@ -1,15 +1,18 @@
 # can_decoder GPUI Design Document
 
-## Status (checked 2026-08-10)
+## Status (checked 2026-08-11)
 
 | Phase | Status |
 |-------|--------|
 | Phase 1 — Foundation & Skeleton | ✅ COMPLETE (module structure, actions, stubs, binary entry point, three-panel layout all working) |
-| Phase 2 — Message List & Core Display | 🚧 IN PROGRESS (UniformList rendering, message receiving, row selection implemented; keyboard navigation pending) |
+| Phase 2 — Message List & Core Display | 🚧 IN PROGRESS (UniformList rendering, message receiving, row selection implemented; keyboard navigation with FocusHandle now wired) |
 | Phase 3 — Filter Widgets & Dockable LHS | ⏳ PENDING |
 | Phase 4 — Detail Panel & RHS Dock | ⏳ PENDING |
 | Phase 5 — Status Bar, Modals & Polish | ⏳ PENDING |
 | Phase 6 — Docking UX & Persistence | ⏳ PENDING |
+
+### GPUI Version Note (2026-08-11)
+✅ MIGRATED: Now using Zed mainline git dependency at rev `f3fb4e04aa85dbbde6e83d28f231fc452cd8863f` (same as rgitUI). Breaking changes fixed: `Application::new()` → `application()`, `window.focus(handle)` → `window.focus(handle, cx)`. See GPUI Version Evaluation section for full analysis.
 
 ---
 
@@ -678,3 +681,65 @@ Implement functionality in managable steps and for each step:
 - URL: https://github.com/Auto-Explore/GitComet.git
 - Uses a git hash version of gpui-ce (a fork of Zed's gpui)
 
+
+---
+
+## GPUI Version Evaluation (2026-08-11)
+
+### Current State
+- **can_decoder** uses `gpui = "0.2"` from crates.io — released ~10 months ago
+- This is the stable pre-1.0 release, which means it will not receive further updates
+- Several API limitations encountered: no built-in TextInput, UniformList `'static` closure restrictions, focus handling complexity
+
+### Option A: Zed Mainline (RGitUI's approach)
+- **Source**: `https://github.com/zed-industries/zed.git` at rev `f3fb4e04aa85dbbde6e83d28f231fc452cd8863f`
+- **Packages**: `gpui` + `gpui_platform` (with features: font-kit, x11, wayland)
+- **Pros**:
+  - Directly tracks Zed editor development — the primary consumer of GPUI
+  - Most up-to-date with official GPUI roadmap and 1.0 preparation
+  - Active development with regular commits from Zed team
+  - Best documentation alignment with future gpui.rs releases
+  - rgitui is a mature, production-quality application using this approach
+- **Cons**:
+  - Breaking changes between Zed commits (expected for pre-1.0)
+  - Must pin to specific git rev for reproducibility
+  - Requires `[patch.crates-io]` or direct git dependency in Cargo.toml
+
+### Option B: GPUI-CE Fork (GitComet's approach)
+- **Source**: `https://github.com/Havunen/gpui-ce.git` at rev `f5c044833b803206ebc5c91a10361ec28f389c3b`
+- **Note**: This is a fork of `gpui-ce/gpui-ce` (GPUI Community Edition)
+- **Packages**: `gpui` + `gpui_platform` (with feature: font-kit)
+- **Pros**:
+  - Community-maintained fork focused on independence from Zed
+  - Claims to be a drop-in replacement for mainline GPUI
+  - Tracks upstream Zed changes and treats mismatches as bugs
+  - Has patch block support for compatibility with crates.io consumers
+  - Active community via Discord
+- **Cons**:
+  - Smaller community and less proven than mainline approach
+  - Fork may diverge from Zed's official direction
+  - gpui-ce organization has its own ecosystem (gpui-component compatibility)
+  - Less documentation alignment with future gpui.rs
+
+### Recommendation: Option A — Zed Mainline (RGitUI's approach)
+
+**Rationale**:
+1. **Closer to GPUI 1.0**: The Zed mainline branch is the canonical source for GPUI development. When GPUI 1.0 releases, it will come from this repository.
+2. **Proven in production**: rgitui demonstrates that this approach works reliably for a complex Git client application.
+3. **Better long-term maintenance**: Following Zed's official track means fewer compatibility surprises when GPUI 1.0 ships.
+4. **API maturity**: The git version likely includes fixes and improvements not yet in the 0.2 crates.io release, potentially resolving our current limitations (TextInput, focus handling, UniformList callbacks).
+
+**Migration plan**:
+1. Update `Cargo.toml` to use git dependency:
+   ```toml
+   gpui = { git = "https://github.com/zed-industries/zed.git", rev = "f3fb4e04aa85dbbde6e83d28f231fc452cd8863f" }
+   gpui_platform = { git = "https://github.com/zed-industries/zed.git", rev = "f3fb4e04aa85dbbde6e83d28f231fc452cd8863f", features = ["font-kit", "x11", "wayland"] }
+   ```
+2. Test build and verify all GPUI APIs still work
+3. Address any breaking changes (likely minor API signature updates)
+4. Re-evaluate focus handling, TextInput alternatives, and UniformList patterns with the newer API
+
+**Risk assessment**:
+- **Medium risk**: Pre-1.0 git versions will have breaking changes, but pinning to a specific rev mitigates this
+- **Mitigation**: Start with rgitUI's known-working commit; upgrade incrementally if needed
+- **Impact**: Requires updating imports and possibly method signatures, but architecture remains compatible

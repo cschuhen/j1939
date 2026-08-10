@@ -3,7 +3,8 @@ mod gpui;
 use std::sync::Arc;
 
 use ::gpui::WindowOptions;
-use ::gpui::{AppContext, Application, Bounds, Size, WindowBounds};
+use ::gpui::{AppContext, Bounds, Size, WindowBounds};
+use gpui_platform::application;
 use anyhow::Result;
 use can_decoder::config::validate_proprietary_definitions;
 use can_decoder::device_manager::DeviceManager;
@@ -90,7 +91,7 @@ fn main() -> Result<()> {
 
     let _rt = Box::leak(Box::new(rt));
 
-    Application::new().run(move |cx| {
+    application().run(move |cx| {
         gpui::keybindings::configure_keybindings(cx);
 
         let app_state = gpui::app_state::AppState::new(&Default::default());
