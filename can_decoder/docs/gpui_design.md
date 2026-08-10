@@ -5,8 +5,8 @@
 | Phase | Status |
 |-------|--------|
 | Phase 1 — Foundation & Skeleton | ✅ COMPLETE (module structure, actions, stubs, binary entry point, three-panel layout all working) |
-| Phase 2 — Message List & Core Display | 🚧 IN PROGRESS (UniformList rendering, message receiving, row selection implemented; keyboard navigation with FocusHandle now wired) |
-| Phase 3 — Filter Widgets & Dockable LHS | ⏳ PENDING |
+| Phase 2 — Message List & Core Display | ✅ COMPLETE (UniformList, message receiving, row selection, keyboard navigation with FocusHandle fully wired) |
+| Phase 3 — Filter Widgets & Dockable LHS | 🚧 IN PROGRESS |
 | Phase 4 — Detail Panel & RHS Dock | ⏳ PENDING |
 | Phase 5 — Status Bar, Modals & Polish | ⏳ PENDING |
 | Phase 6 — Docking UX & Persistence | ⏳ PENDING |
@@ -419,24 +419,24 @@ The following rendering logic is shared between TUI and GPUI:
 | Implement row rendering | Styled text runs per column (using shared `columns.rs`) | Phase 2 | ✅ COMPLETE — `render_row()` function formats Time, Src, Dest, Pgn, Title, Detail columns using shared `formats::format_elapsed_time`, `build_detail_string`. Monospace font, selection highlighting with bg color. |
 | Add scroll handling | `UniformListScrollHandle` + keyboard navigation (↑/↓) | Phase 2 | ✅ COMPLETE — `scroll_to_end()` method on MessageList. Keyboard nav methods: `select_prev()`, `select_next()`, `toggle_selection()`. |
 | Implement selection | Click/Enter to select a row, highlight selected row | Phase 2 | ✅ COMPLETE — `selected_index: Option<usize>` tracks current selection. Selected rows get blue bg (0x1a3a5f) with white text. `selected_message()` accessor. |
-| Add keymap for list navigation | Up/down arrows, page up/down, enter, space | Phase 2 | ⏳ PENDING — Action handlers defined in keybindings.rs but not yet wired to MessageList methods. |
+| Add keymap for list navigation | Up/down arrows, page up/down, enter, space | Phase 2 | ✅ COMPLETE — FocusHandle added to MainView, window.focus() called in render(), .on_action() handlers wired for ScrollUp/ScrollDown/SelectRow. |
 
-**Deliverables**: Functional message list with UniformList virtualization, message receiving from pipeline, row selection with highlighting. Keyboard navigation stubs in place (keymap wiring pending).
+**Deliverables**: Functional message list with UniformList virtualization, message receiving from pipeline, row selection with highlighting, keyboard navigation fully operational.
 
-### Phase 3: Filter Widgets & Dockable LHS (Weeks 5-6) ⏳ PENDING
+### Phase 3: Filter Widgets & Dockable LHS (Weeks 5-6) 🚧 IN PROGRESS
 
 **Goal**: Implement filter widgets in a dockable LHS panel.
 
 | Task | Details | Dependencies | Status |
 |------|---------|--------------|--------|
-| Create `FilterWidget` entity model | One entity per filter type with state management | Phase 2 | ⏳ PENDING |
-| Implement filter widget views | Toggle button + text input for each filter | Phase 3 | ⏳ PENDING |
-| Build LHS dockable panel | ManagedView implementing dock system | Phase 3 | ⏳ PENDING |
+| Create `FilterWidget` entity model | One entity per filter type with state management | Phase 2 | ✅ COMPLETE — FilterWidget struct with field_type, input_text, enabled, focus_handle, label fields. Methods: new(), toggle_enabled(), is_enabled(), set_input_text(). |
+| Implement filter widget views | Toggle button + text input for each filter | Phase 3 | 🚧 IN PROGRESS — Toggle button (ON/OFF) added with hover effects, visual enabled/disabled states (color-coded). Text input display placeholder when empty. |
+| Build LHS dockable panel | ManagedView implementing dock system | Phase 3 | ⏳ PENDING — FilterPanel exists as simple div container, not yet using GPUI dock system. |
 | Wire filters to FilterEngine | Enable/disable filters, update input text → re-evaluate | Phase 3 | ⏳ PENDING |
 | Implement filter editor modal | GPUI anchored popup for complex filter editing (Numeric, Flag) | Phase 3 | ⏳ PENDING |
 | Add F1 keybinding | Toggle first filter widget focus/enable | Phase 3 | ⏳ PENDING |
 
-**Deliverables**: Dockable LHS with working filter widgets, same functionality as TUI.
+**Deliverables**: Filter widgets with toggle functionality and visual state indicators. Dockable panel wiring pending.
 
 ### Phase 4: Detail Panel & RHS Dock (Weeks 7-8) ⏳ PENDING
 
