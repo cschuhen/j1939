@@ -1,6 +1,6 @@
 use gpui::{
-    div, prelude::*, px, FocusHandle, InteractiveElement, IntoElement, KeyDownEvent, MouseButton,
-    ParentElement, Render, SharedString, Styled, Window,
+    div, prelude::*, px, FocusHandle, Focusable, InteractiveElement, IntoElement, KeyDownEvent,
+    MouseButton, ParentElement, Render, SharedString, Styled, Window,
 };
 
 use std::sync::Arc;
@@ -88,6 +88,12 @@ impl FilterWidget {
     }
 }
 
+impl Focusable for FilterWidget {
+    fn focus_handle(&self, _cx: &gpui::App) -> FocusHandle {
+        self.focus_handle.clone()
+    }
+}
+
 impl Render for FilterWidget {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let label = self.label.clone();
@@ -150,6 +156,7 @@ impl Render for FilterWidget {
             )
             .child(
                 div()
+                    .relative()
                     .w_full()
                     .h(px(22.0))
                     .border_1()
