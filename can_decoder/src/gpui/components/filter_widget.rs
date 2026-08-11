@@ -19,7 +19,10 @@ pub struct FilterWidget {
 impl FilterWidget {
     pub fn new(field_type: FieldType, cx: &mut Context<Self>) -> Self {
         let label = SharedString::from(Arc::from(field_type.label()));
-        eprintln!("[FilterWidget] creating widget for field_type: {:?}", field_type);
+        eprintln!(
+            "[FilterWidget] creating widget for field_type: {:?}",
+            field_type
+        );
         Self {
             field_type,
             input_text: String::new(),
@@ -102,14 +105,29 @@ impl Render for FilterWidget {
         let enabled = self.enabled;
         let cursor_pos = self.cursor_pos;
 
-        eprintln!("[FilterWidget] rendering for '{}', enabled={}, text='{}'", 
-            self.field_type.label(), enabled, input_text);
+        eprintln!(
+            "[FilterWidget] rendering for '{}', enabled={}, text='{}'",
+            self.field_type.label(),
+            enabled,
+            input_text
+        );
 
         div()
             .relative()
             .flex_col()
             .w_full()
             .mb(px(8.0))
+            .cursor_pointer()
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _event, window, cx| {
+                    eprintln!(
+                        "[FilterWidget] ROOT mouse_down on '{}'",
+                        this.field_type.label()
+                    );
+                    this.focus_handle.focus(window, cx);
+                }),
+            )
             .child(
                 div()
                     .flex_row()
@@ -150,13 +168,15 @@ impl Render for FilterWidget {
                                 gpui::rgb(0x3a1a1a)
                             })
                             .hover(|this| {
-                                this.bg(gpui::rgb(0x2a4a3e))
-                                    .text_color(gpui::rgb(0xaaddaa))
+                                this.bg(gpui::rgb(0x2a4a3e)).text_color(gpui::rgb(0xaaddaa))
                             })
                             .child(if enabled { "ON" } else { "OFF" })
-                            .on_mouse_down(MouseButton::Left, cx.listener(move |this, _event, _window, cx| {
-                                this.toggle_enabled(cx);
-                            })),
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(move |this, _event, _window, cx| {
+                                    this.toggle_enabled(cx);
+                                }),
+                            ),
                     ),
             )
             .child(
@@ -178,17 +198,26 @@ impl Render for FilterWidget {
                     })
                     .overflow_hidden()
                     .cursor_pointer()
-                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _event, window, cx| {
-                        eprintln!("[FilterWidget] mouse_down on {}, enabled={}", this.field_type.label(), this.enabled);
-                        this.focus_handle.focus(window, cx);
-                        eprintln!("[FilterWidget] focus_handle.focus() called");
-                    }))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _event, window, cx| {
+                            eprintln!(
+                                "[FilterWidget] mouse_down on {}, enabled={}",
+                                this.field_type.label(),
+                                this.enabled
+                            );
+                            this.focus_handle.focus(window, cx);
+                            eprintln!("[FilterWidget] focus_handle.focus() called");
+                        }),
+                    )
                     .on_key_down(cx.listener(move |this, event: &KeyDownEvent, _window, cx| {
                         let key = event.keystroke.key.as_str();
-                        eprintln!("[FilterWidget] key_down: key='{}', chars={}, shift={}", 
-                            key, 
+                        eprintln!(
+                            "[FilterWidget] key_down: key='{}', chars={}, shift={}",
+                            key,
                             if key.len() == 1 { "YES" } else { "NO" },
-                            event.keystroke.modifiers.shift);
+                            event.keystroke.modifiers.shift
+                        );
                         if key == "backspace" {
                             eprintln!("[FilterWidget] deleting char");
                             this.delete_char(cx);
@@ -218,7 +247,11 @@ impl Render for FilterWidget {
                                 format!("Filter by {}", self.field_type.label())
                             } else {
                                 let display = if cursor_pos < input_text.len() {
-                                    format!("{}|{}", &input_text[..cursor_pos], &input_text[cursor_pos..])
+                                    format!(
+                                        "{}|{}",
+                                        &input_text[..cursor_pos],
+                                        &input_text[cursor_pos..]
+                                    )
                                 } else {
                                     format!("{}|", input_text)
                                 };

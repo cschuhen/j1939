@@ -8,18 +8,16 @@ use std::sync::Arc;
 use can_decoder::types::DecodedMessage;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    div, px, AppContext, Context, Entity, FocusHandle, InteractiveElement, IntoElement, MouseButton,
+    div, px, AppContext, Context, Entity, FocusHandle, InteractiveElement, IntoElement,
     ParentElement, Render, Styled, Window,
 };
 use j1939_async::Id;
 use tokio::sync::mpsc;
 
 use super::app_state::AppState;
-use super::components::filter_widget::FilterWidget;
+use super::components::filter_panel::FilterPanel as NewFilterPanel;
 use super::components::message_list::MessageList;
 use super::components::status_bar::StatusBar;
-
-use can_decoder::filter_editor::FieldType;
 
 use super::keybindings::{ScrollDown, ScrollUp, SelectRow};
 
@@ -28,6 +26,7 @@ pub struct MainView {
     app_state: AppState,
     msg_rx: Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<DecodedMessage>>>,
     message_list: Entity<MessageList>,
+    filter_panel: Entity<NewFilterPanel>,
     receiver_started: bool,
     focus_handle: FocusHandle,
 }
@@ -39,10 +38,12 @@ impl MainView {
         message_list: Entity<MessageList>,
         cx: &mut Context<Self>,
     ) -> Self {
+        let filter_panel = cx.new(|cx| NewFilterPanel::new(message_list.clone(), cx));
         MainView {
             app_state,
             msg_rx: Arc::new(tokio::sync::Mutex::new(msg_rx)),
             message_list,
+            filter_panel,
             receiver_started: false,
             focus_handle: cx.focus_handle(),
         }
@@ -57,83 +58,22 @@ impl MainView {
 
         let msg_rx = self.msg_rx.clone();
         let message_list = self.message_list.clone();
+        let filter_panel = self.filter_panel.clone();
 
         // Spawn a Tokio task that receives messages and updates GPUI state
         cx.spawn(async move |_this, cx| {
             let mut rx = msg_rx.lock().await;
             while let Some(msg) = rx.recv().await {
                 let _timestamp = msg.timestamp();
-                let _ = message_list.update(cx, |list, _cx| {
+                message_list.update(cx, |list, _cx| {
                     list.add_message(msg);
+                });
+                filter_panel.update(cx, |panel, cx| {
+                    panel.update_from_messages(cx);
                 });
             }
         })
         .detach();
-    }
-}
-
-/// LHS filter panel — dockable container for filter widgets.
-pub struct FilterPanel {
-    widgets: Vec<Entity<FilterWidget>>,
-}
-
-impl FilterPanel {
-    fn new(cx: &mut Context<Self>) -> Self {
-        let field_types = vec![
-            FieldType::SourceAddr,
-            FieldType::DestAddr,
-            FieldType::Pgn,
-            FieldType::Title,
-            FieldType::SrcName,
-            FieldType::DstName,
-        ];
-
-        let widgets: Vec<Entity<FilterWidget>> = field_types
-            .into_iter()
-            .map(|ft| cx.new(|cx| FilterWidget::new(ft, cx)))
-            .collect();
-
-        Self { widgets }
-    }
-}
-
-impl Render for FilterPanel {
-    fn render(&mut self, _window: &mut Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let widget_entities = self.widgets.clone();
-
-        eprintln!("[FilterPanel] rendering {} widgets", self.widgets.len());
-
-        div()
-            .w_72()
-            .flex_col()
-            .bg(gpui::rgb(0x1a1a2e))
-            .border_r_1()
-            .border_color(gpui::rgb(0x333355))
-            .cursor_pointer()
-            .on_mouse_down(MouseButton::Left, |_event, _window, _cx| {
-                eprintln!("[FilterPanel] ROOT DIV mouse_down captured!");
-            })
-            .child(
-                div()
-                    .h_6()
-                    .w_full()
-                    .bg(gpui::rgb(0x2a2a4e))
-                    .flex_row()
-                    .items_center()
-                    .px_3()
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(gpui::rgb(0xaaaaee))
-                            .child(" Filters "),
-                    ),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .p_3()
-                    .children(widget_entities.into_iter().map(|w| w.into_element())),
-            )
     }
 }
 
@@ -164,6 +104,7 @@ impl Render for DetailPanel {
         let msg = self.selected_message.clone();
 
         div()
+            .h_full()
             .w_80()
             .flex_col()
             .bg(gpui::rgb(0x1a1a2e))
@@ -412,43 +353,44 @@ impl Render for MainView {
         // and wired via cx.on_action() when the GPUI keymap system is fully configured (Phase 2 completion).
         // MessageList provides select_prev(), select_next(), toggle_selection() methods ready for wiring.
 
-        let filter_panel: Entity<FilterPanel> = cx.new(FilterPanel::new);
-        let message_list_entity = self.message_list.clone();
+        let filter_panel = self.filter_panel.clone();
         let detail_panel: Entity<DetailPanel> = cx.new(DetailPanel::new);
 
-        let selected_msg = message_list_entity.read(cx).selected_message().cloned();
+        let selected_msg = self.message_list.read(cx).selected_message().cloned();
         detail_panel.update(cx, |panel, _cx| {
             panel.selected_message = selected_msg;
         });
 
         window.focus(&self.focus_handle, cx);
         div()
+            .flex()
             .flex_col()
             .size_full()
             .bg(gpui::rgb(0x0f0f23))
             .child(top_bar.render())
             .child(
                 div()
+                    .flex()
                     .flex_row()
-                    .size_full()
+                    .flex_1()
                     .child(filter_panel)
-                    .child(message_list_entity.clone())
+                    .child(self.message_list.clone())
                     .child(detail_panel),
             )
             .child(bottom_bar.render())
             .on_action(cx.listener(|this, _: &ScrollUp, _window, cx| {
-                this.message_list.update(cx, |list, _cx| {
-                    list.select_prev();
+                this.message_list.update(cx, |list, cx| {
+                    list.select_prev(cx);
                 });
             }))
             .on_action(cx.listener(|this, _: &ScrollDown, _window, cx| {
-                this.message_list.update(cx, |list, _cx| {
-                    list.select_next();
+                this.message_list.update(cx, |list, cx| {
+                    list.select_next(cx);
                 });
             }))
             .on_action(cx.listener(|this, _: &SelectRow, _window, cx| {
-                this.message_list.update(cx, |list, _cx| {
-                    list.toggle_selection();
+                this.message_list.update(cx, |list, cx| {
+                    list.toggle_selection(cx);
                 });
             }))
     }

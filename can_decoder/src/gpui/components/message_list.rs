@@ -7,7 +7,8 @@ use can_decoder::columns::Column;
 use can_decoder::formats::{build_detail_string, format_elapsed_time};
 use can_decoder::types::DecodedMessage;
 use gpui::{
-    div, prelude::*, ElementId, IntoElement, ParentElement, Render, ScrollStrategy, Styled, Window,
+    div, prelude::*, ElementId, Entity, IntoElement, MouseButton, ParentElement, Render,
+    ScrollStrategy, Styled, Window,
 };
 
 // Re-export uniform_list for use in render()
@@ -38,7 +39,7 @@ pub struct MessageFilter {
     pub source_addr: Option<u8>,
     pub dest_addr: Option<u8>,
     pub pgn: Option<u32>,
-    pub title_contains: Option<String>,
+    pub title_contains: Vec<String>,
 }
 
 impl Default for MessageFilter {
@@ -47,7 +48,7 @@ impl Default for MessageFilter {
             source_addr: None,
             dest_addr: None,
             pgn: None,
-            title_contains: None,
+            title_contains: Vec::new(),
         }
     }
 }
@@ -70,8 +71,13 @@ impl MessageFilter {
                 return false;
             }
         }
-        if let Some(ref pattern) = self.title_contains {
-            if !msg.title.contains(pattern.as_str()) {
+        if !self.title_contains.is_empty() {
+            let title_lower = msg.title.to_lowercase();
+            if !self
+                .title_contains
+                .iter()
+                .any(|pattern| title_lower.contains(&pattern.to_lowercase()))
+            {
                 return false;
             }
         }
@@ -131,7 +137,7 @@ impl MessageList {
     }
 
     /// Move selection up by one row.
-    pub fn select_prev(&mut self) {
+    pub fn select_prev(&mut self, cx: &mut gpui::Context<Self>) {
         if self.selected_index.is_none() && !self.messages.is_empty() {
             self.selected_index = Some(self.messages.len() - 1);
         } else if let Some(idx) = self.selected_index {
@@ -139,10 +145,11 @@ impl MessageList {
                 self.selected_index = Some(idx - 1);
             }
         }
+        cx.notify();
     }
 
     /// Move selection down by one row.
-    pub fn select_next(&mut self) {
+    pub fn select_next(&mut self, cx: &mut gpui::Context<Self>) {
         if self.selected_index.is_none() && !self.messages.is_empty() {
             self.selected_index = Some(0);
         } else if let Some(idx) = self.selected_index {
@@ -150,15 +157,17 @@ impl MessageList {
                 self.selected_index = Some(idx + 1);
             }
         }
+        cx.notify();
     }
 
     /// Toggle selection on current row (select/deselect).
-    pub fn toggle_selection(&mut self) {
+    pub fn toggle_selection(&mut self, cx: &mut gpui::Context<Self>) {
         self.selected_index = if self.selected_index.is_some() {
             None
         } else {
             Some(0)
         };
+        cx.notify();
     }
 
     /// Get the currently selected message.
@@ -171,7 +180,7 @@ impl MessageList {
         if self.filter.source_addr.is_none()
             && self.filter.dest_addr.is_none()
             && self.filter.pgn.is_none()
-            && self.filter.title_contains.is_none()
+            && self.filter.title_contains.is_empty()
         {
             self.messages.iter().collect()
         } else {
@@ -184,7 +193,7 @@ impl MessageList {
 }
 
 impl Render for MessageList {
-    fn render(&mut self, _window: &mut Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let messages = self.messages.clone();
         let filter = self.filter.clone();
 
@@ -192,6 +201,8 @@ impl Render for MessageList {
             .filter(|&ix| filter.matches(&messages[ix]))
             .collect();
 
+        let selected_index = self.selected_index;
+        let entity: Entity<Self> = cx.entity().clone();
         make_uniform_list(
             "message_list",
             filtered_indices.len(),
@@ -199,17 +210,27 @@ impl Render for MessageList {
                 range
                     .map(|fi| {
                         let msg_ix = filtered_indices[fi];
-                        render_row(&messages[msg_ix], false)
+                        let is_selected = Some(msg_ix) == selected_index;
+                        let entity = entity.clone();
+                        render_row(&messages[msg_ix], is_selected, move |_, _, cx| {
+                            entity.update(cx, |list, _| {
+                                list.selected_index = Some(msg_ix);
+                            });
+                        })
                     })
                     .collect()
             },
         )
-        .size_full()
+        .flex_grow()
     }
 }
 
 /// Render a single message row with column formatting.
-fn render_row(msg: &DecodedMessage, is_selected: bool) -> impl IntoElement {
+fn render_row(
+    msg: &DecodedMessage,
+    is_selected: bool,
+    on_click: impl Fn(&gpui::MouseDownEvent, &mut Window, &mut gpui::App) + 'static,
+) -> impl IntoElement {
     let bg_color = if is_selected {
         gpui::rgb(0x1a3a5f)
     } else {
@@ -250,6 +271,7 @@ fn render_row(msg: &DecodedMessage, is_selected: bool) -> impl IntoElement {
                 gpui::rgb(0x1a2a4f)
             })
         })
+        .on_mouse_down(MouseButton::Left, on_click)
         .child(
             div()
                 .text_xs()

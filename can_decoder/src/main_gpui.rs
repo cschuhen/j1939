@@ -4,7 +4,6 @@ use std::sync::Arc;
 
 use ::gpui::WindowOptions;
 use ::gpui::{AppContext, Bounds, Size, WindowBounds};
-use gpui_platform::application;
 use anyhow::Result;
 use can_decoder::config::validate_proprietary_definitions;
 use can_decoder::device_manager::DeviceManager;
@@ -16,6 +15,7 @@ use can_decoder::traits::Source;
 use can_decoder::types::DecodedMessage;
 use can_decoder::Cli;
 use clap::Parser;
+use gpui_platform::application;
 use tokio::sync::mpsc;
 
 fn build_pipeline(cli: &Cli) -> Result<(Pipeline, mpsc::UnboundedReceiver<DecodedMessage>)> {
