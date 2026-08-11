@@ -8,7 +8,7 @@ use std::sync::Arc;
 use can_decoder::types::DecodedMessage;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    div, px, AppContext, Context, Entity, FocusHandle, InteractiveElement, IntoElement,
+    div, px, AppContext, Context, Entity, FocusHandle, InteractiveElement, IntoElement, MouseButton,
     ParentElement, Render, Styled, Window,
 };
 use j1939_async::Id;
@@ -109,6 +109,10 @@ impl Render for FilterPanel {
             .bg(gpui::rgb(0x1a1a2e))
             .border_r_1()
             .border_color(gpui::rgb(0x333355))
+            .cursor_pointer()
+            .on_mouse_down(MouseButton::Left, |_event, _window, _cx| {
+                eprintln!("[FilterPanel] ROOT DIV mouse_down captured!");
+            })
             .child(
                 div()
                     .h_6()

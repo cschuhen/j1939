@@ -106,6 +106,7 @@ impl Render for FilterWidget {
             self.field_type.label(), enabled, input_text);
 
         div()
+            .relative()
             .flex_col()
             .w_full()
             .mb(px(8.0))
