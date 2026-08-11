@@ -174,15 +174,23 @@ impl Render for FilterWidget {
                     .overflow_hidden()
                     .cursor_pointer()
                     .on_mouse_down(MouseButton::Left, cx.listener(|this, _event, window, cx| {
+                        eprintln!("[FilterWidget] mouse_down on {}, enabled={}", this.field_type.label(), this.enabled);
                         this.focus_handle.focus(window, cx);
+                        eprintln!("[FilterWidget] focus_handle.focus() called");
                     }))
                     .on_key_down(cx.listener(move |this, event: &KeyDownEvent, _window, cx| {
                         let key = event.keystroke.key.as_str();
+                        eprintln!("[FilterWidget] key_down: key='{}', chars={}, shift={}", 
+                            key, 
+                            if key.len() == 1 { "YES" } else { "NO" },
+                            event.keystroke.modifiers.shift);
                         if key == "backspace" {
+                            eprintln!("[FilterWidget] deleting char");
                             this.delete_char(cx);
                         } else if key.len() == 1 && !event.keystroke.modifiers.secondary() {
                             if let Some(ch) = key.chars().next() {
                                 if ch.is_ascii_graphic() || ch == ' ' {
+                                    eprintln!("[FilterWidget] appending char: '{}'", ch);
                                     this.append_char(ch, cx);
                                 }
                             }
