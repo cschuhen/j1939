@@ -19,6 +19,7 @@ pub struct FilterWidget {
 impl FilterWidget {
     pub fn new(field_type: FieldType, cx: &mut Context<Self>) -> Self {
         let label = SharedString::from(Arc::from(field_type.label()));
+        eprintln!("[FilterWidget] creating widget for field_type: {:?}", field_type);
         Self {
             field_type,
             input_text: String::new(),
@@ -100,6 +101,9 @@ impl Render for FilterWidget {
         let input_text = self.input_text.clone();
         let enabled = self.enabled;
         let cursor_pos = self.cursor_pos;
+
+        eprintln!("[FilterWidget] rendering for '{}', enabled={}, text='{}'", 
+            self.field_type.label(), enabled, input_text);
 
         div()
             .flex_col()

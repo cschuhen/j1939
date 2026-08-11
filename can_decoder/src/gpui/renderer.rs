@@ -101,6 +101,8 @@ impl Render for FilterPanel {
     fn render(&mut self, _window: &mut Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let widget_entities = self.widgets.clone();
 
+        eprintln!("[FilterPanel] rendering {} widgets", self.widgets.len());
+
         div()
             .w_72()
             .flex_col()
