@@ -275,7 +275,7 @@ impl CandumpFileSource {
     fn read_file(path: &PathBuf) -> Result<Vec<RawFrame>, Box<dyn Error + Send + Sync>> {
         let file = File::open(path)?;
         let reader = BufReader::new(file);
-        let mut frames = Vec::new();
+        let mut frames = Vec::with_capacity(50000);
 
         for (line_num, line_result) in reader.lines().enumerate() {
             match line_result {
@@ -324,8 +324,6 @@ impl Source for CandumpFileSource {
 
             match frames_result {
                 Ok(frames) => {
-                    println!("[{}] Loaded {} frames", name, frames.len());
-
                     for (i, frame) in frames.iter().enumerate() {
                         if tx.send(frame.clone()).is_err() {
                             println!("[{}] Channel closed after {} frames.", name, i);
@@ -333,7 +331,7 @@ impl Source for CandumpFileSource {
                         }
                     }
 
-                    println!("[{}] Finished sending all frames.", name);
+                    println!("[{}] Finished sending all {} frames", name, frames.len());
                     Ok(())
                 }
                 Err(e) => {

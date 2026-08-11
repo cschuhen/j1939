@@ -63,14 +63,22 @@ impl MainView {
         // Spawn a Tokio task that receives messages and updates GPUI state
         cx.spawn(async move |_this, cx| {
             let mut rx = msg_rx.lock().await;
+
             while let Some(msg) = rx.recv().await {
-                let _timestamp = msg.timestamp();
                 message_list.update(cx, |list, _cx| {
-                    list.add_message(msg);
+                    list.add_message(msg.clone());
                 });
-                filter_panel.update(cx, |panel, cx| {
-                    panel.update_from_messages(cx);
+
+                filter_panel.update(cx, |panel, _cx| {
+                    panel.add_message(&msg);
                 });
+
+                if (rx.len() % 1000) == 0 {
+                    filter_panel.update(cx, |panel, cx| {
+                        panel.rebuild_items();
+                        cx.notify();
+                    });
+                }
             }
         })
         .detach();

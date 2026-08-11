@@ -75,6 +75,14 @@ pub struct FilterPanel {
     expanded_name_details: Option<u64>,
     items: Vec<FilterItem>,
     message_list: Option<Entity<super::message_list::MessageList>>,
+
+    // Incremental state tracking - updated per-message instead of rescanning all messages
+    source_addrs: std::collections::BTreeSet<u8>,
+    dest_addrs: std::collections::BTreeSet<u8>,
+    pgns: std::collections::BTreeSet<u32>,
+    titles: std::collections::BTreeSet<String>,
+    source_names: std::collections::BTreeSet<u64>,
+    dest_names: std::collections::BTreeSet<u64>,
 }
 
 impl FilterPanel {
@@ -98,39 +106,32 @@ impl FilterPanel {
             expanded_name_details: None,
             items,
             message_list: Some(message_list),
+
+            source_addrs: std::collections::BTreeSet::new(),
+            dest_addrs: std::collections::BTreeSet::new(),
+            pgns: std::collections::BTreeSet::new(),
+            titles: std::collections::BTreeSet::new(),
+            source_names: std::collections::BTreeSet::new(),
+            dest_names: std::collections::BTreeSet::new(),
         }
     }
 
-    /// Update filter options from the current messages.
-    pub fn update_from_messages(&mut self, cx: &mut Context<Self>) {
-        let Some(msg_list) = self.message_list.as_ref() else {
-            return;
-        };
+    /// Add a single message to the incremental filter state.
+    pub fn add_message(&mut self, msg: &can_decoder::types::DecodedMessage) {
+        self.source_addrs.insert(msg.source_address());
+        self.dest_addrs.insert(msg.dest_address());
+        self.pgns.insert(msg.pgn());
+        self.titles.insert(msg.title.clone());
+        if let Some(name) = msg.source_name() {
+            self.source_names.insert(name);
+        }
+        if let Some(name) = msg.dest_name() {
+            self.dest_names.insert(name);
+        }
+    }
 
-        // Read unique values from message list first
-        let mut source_addrs: std::collections::BTreeSet<u8> = std::collections::BTreeSet::new();
-        let mut dest_addrs: std::collections::BTreeSet<u8> = std::collections::BTreeSet::new();
-        let mut pgns: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
-        let mut titles: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-        let mut source_names: std::collections::BTreeSet<u64> = std::collections::BTreeSet::new();
-        let mut dest_names: std::collections::BTreeSet<u64> = std::collections::BTreeSet::new();
-
-        msg_list.update(cx, |msg_list, _cx| {
-            for msg in &msg_list.messages {
-                source_addrs.insert(msg.source_address());
-                dest_addrs.insert(msg.dest_address());
-                pgns.insert(msg.pgn());
-                titles.insert(msg.title.clone());
-                if let Some(name) = msg.source_name() {
-                    source_names.insert(name);
-                }
-                if let Some(name) = msg.dest_name() {
-                    dest_names.insert(name);
-                }
-            }
-        });
-
-        // Now update self.items (no borrow conflict)
+    /// Rebuild items list from incremental state (only when sections expand/collapse).
+    pub fn rebuild_items(&mut self) {
         self.items.clear();
 
         for section in FilterSection::all_sections() {
@@ -142,7 +143,7 @@ impl FilterPanel {
 
             match *section {
                 FilterSection::SourceAddr => {
-                    for addr in &source_addrs {
+                    for addr in &self.source_addrs {
                         self.items.push(FilterItem::FilterOption(FilterOptionData {
                             section: *section,
                             label: SharedString::from(format!("{}", addr)),
@@ -151,7 +152,7 @@ impl FilterPanel {
                     }
                 }
                 FilterSection::DestAddr => {
-                    for addr in &dest_addrs {
+                    for addr in &self.dest_addrs {
                         self.items.push(FilterItem::FilterOption(FilterOptionData {
                             section: *section,
                             label: SharedString::from(format!("{}", addr)),
@@ -160,7 +161,7 @@ impl FilterPanel {
                     }
                 }
                 FilterSection::Pgn => {
-                    for pgn in &pgns {
+                    for pgn in &self.pgns {
                         self.items.push(FilterItem::FilterOption(FilterOptionData {
                             section: *section,
                             label: SharedString::from(can_decoder::utils::render_pgn(*pgn)),
@@ -169,7 +170,7 @@ impl FilterPanel {
                     }
                 }
                 FilterSection::Title => {
-                    for title in &titles {
+                    for title in &self.titles {
                         self.items.push(FilterItem::FilterOption(FilterOptionData {
                             section: *section,
                             label: SharedString::from(title.clone()),
@@ -178,7 +179,7 @@ impl FilterPanel {
                     }
                 }
                 FilterSection::SourceName => {
-                    for name in &source_names {
+                    for name in &self.source_names {
                         self.items.push(FilterItem::FilterOption(FilterOptionData {
                             section: *section,
                             label: SharedString::from(can_decoder::utils::render_name(*name)),
@@ -187,7 +188,7 @@ impl FilterPanel {
                     }
                 }
                 FilterSection::DestName => {
-                    for name in &dest_names {
+                    for name in &self.dest_names {
                         self.items.push(FilterItem::FilterOption(FilterOptionData {
                             section: *section,
                             label: SharedString::from(can_decoder::utils::render_name(*name)),
@@ -197,7 +198,30 @@ impl FilterPanel {
                 }
             }
         }
+    }
 
+    /// Update filter options from the current messages (initial population or explicit refresh).
+    pub fn update_from_messages(&mut self, cx: &mut Context<Self>) {
+        let Some(msg_list) = self.message_list.as_ref() else {
+            return;
+        };
+
+        msg_list.update(cx, |msg_list, _cx| {
+            for msg in &msg_list.messages {
+                self.source_addrs.insert(msg.source_address());
+                self.dest_addrs.insert(msg.dest_address());
+                self.pgns.insert(msg.pgn());
+                self.titles.insert(msg.title.clone());
+                if let Some(name) = msg.source_name() {
+                    self.source_names.insert(name);
+                }
+                if let Some(name) = msg.dest_name() {
+                    self.dest_names.insert(name);
+                }
+            }
+        });
+
+        self.rebuild_items();
         cx.notify();
     }
 
