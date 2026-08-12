@@ -5,7 +5,7 @@
 | Phase | Status |
 |-------|--------|
 | Phase 1 — Foundation & Skeleton | ✅ COMPLETE (module structure, actions, stubs, binary entry point, three-panel layout all working) |
-| Phase 2 — Message List & Core Display | ✅ COMPLETE (UniformList, message receiving, row selection; keyboard navigation FIXED via track_focus; shared FilterEngine integrated; ColumnConfig with toggle panel) |
+| Phase 2 — Message List & Core Display | ✅ COMPLETE (UniformList, message receiving, row selection; keyboard navigation working via track_focus + key_context("MessageList"); page up/down keys functional; auto-scroll on arrow key nav; shared FilterEngine integrated; ColumnConfig with toggle panel) |
 | Phase 3 — Filter Widgets & Dockable LHS | 🚧 IN PROGRESS (FilterPanel with checkbox-based flat list using incremental BTreeSet state tracking; not yet dockable; filters wired to MessageList) |
 | Phase 4 — Detail Panel & RHS Dock | ⏳ PENDING |
 | Phase 5 — Status Bar, Modals & Polish | ⏳ PENDING |
@@ -13,13 +13,10 @@
 
 ### Critical Issues (2026-08-12)
 
-1. **Keyboard bindings** ✅ FIXED: Added `.track_focus(&self.focus_handle)` to root div in MainView render, enabling GPUI's keymap system to dispatch actions properly.
-
-1. **Keyboard bindings not working**: Actions are defined in `keybindings.rs` and `.on_action()` handlers exist on MainView, but no keystrokes trigger any actions. GPUI's context/keymap system is not properly wired — bindings have `None` context which should be global, but focus handling prevents them from firing. Currently mouse-only interface.
-
-2. **FilterEngine code duplication**: GPUI has its own `MessageFilter` struct in `message_list.rs` with inline filter evaluation logic, instead of using the shared `filter_engine.rs::FilterEngine` and `UniqueValueCache`. This duplicates message storage, filtering, and unique value tracking that already exists in the TUI's shared layer.
-
-3. **Hardcoded columns**: GPUI uses a hardcoded `DEFAULT_COLUMNS` constant in `message_list.rs` instead of reusing the TUI's `ColumnConfig` from `columns.rs`. Users cannot toggle columns (AbsTime, PgnName, Data, DetailCondensed) as they can in the TUI app.
+1. **Keyboard bindings** ✅ FIXED: Added `.track_focus(&self.focus_handle)` to root div. Actions moved to MessageList div with `.key_context("MessageList")` so they fire when focus is inside list items. Page keys use correct GPUI names `"pageup"`/`"pagedown"`.
+2. **Auto-scroll on navigation** ✅ FIXED: Added `UniformListScrollHandle` to MessageList. Arrow key navigation now auto-scrolls to keep selected item visible in viewport via `ensure_selected_visible()`.
+3. ~~**FilterEngine code duplication**~~ ✅ RESOLVED: MessageList uses shared FilterEngine from filter_engine.rs
+4. ~~**Hardcoded columns**~~ ✅ FIXED: ColumnConfig with ColumnTogglePanel popup (Ctrl+Shift+C)
 
 ### GPUI Version Note (2026-08-11)
 ✅ MIGRATED: Now using Zed mainline git dependency at rev `f3fb4e04aa85dbbde6e83d28f231fc452cd8863f` (same as rgitUI). Breaking changes fixed: `Application::new()` → `application()`, `window.focus(handle)` → `window.focus(handle, cx)`. See GPUI Version Evaluation section for full analysis.
@@ -540,9 +537,13 @@ impl MessageList {
 
 ### 3. Fix Keyboard Bindings ✅ COMPLETE
 
-**Status**: Fixed in this session. Added `.track_focus(&self.focus_handle)` to root div in `MainView::render()` (`renderer.rs:400`). This ensures GPUI's keymap system can dispatch actions through the focus path. The fix pattern was discovered by studying rgitui's implementation which uses the same approach.
+**Status**: Fixed in this session. Added `.track_focus(&self.focus_handle)` to root div in `MainView::render()`. Actions (ScrollUp, ScrollDown, SelectRow) moved from MainView to MessageList div where `.key_context("MessageList")` is set, so they fire when focus is inside list items. Page keys use correct GPUI names `"pageup"`/`"pagedown"`.
 
-### 4. Implement Detail Panel Content (NEW — Phase 4)
+### 4. Auto-Scroll on Navigation ✅ COMPLETE
+
+**Status**: Implemented in this session. Added `UniformListScrollHandle` to MessageList struct. Arrow key navigation (`select_prev`/`select_next`) now calls `ensure_selected_visible()` which uses `scroll_to_item()` to keep the selected item visible in viewport. Page up/down also scrolls to selected item after jumping.
+
+### 5. Implement Detail Panel Content (NEW — Phase 4)
 
 **Current State**:
 - `DetailPanel` exists as a stub with header bar and "No message selected" placeholder
@@ -554,7 +555,7 @@ impl MessageList {
 - Implement hex dump view with color-coded bytes
 - Show device info from DeviceManager (NAME resolution)
 
-### 5. Implement Dockable Panel System
+### 6. Implement Dockable Panel System
 
 **Current State**:
 - FilterPanel and DetailPanel are simple div containers with fixed widths (w_72, w_80)
@@ -593,7 +594,8 @@ src/gpui/
     │                               — ✅ Uses shared FilterEngine from filter_engine.rs
     │                               — ✅ ColumnConfig from columns.rs with toggle panel support
     │                               — ✅ Row rendering with selection highlighting
-    │                               — ✅ Keyboard nav methods (select_prev/next, toggle_selection)
+    │                               — ✅ Keyboard nav: arrow keys + page up/down + auto-scroll via UniformListScrollHandle
+    │                               — ✅ Actions wired on MessageList div (key_context "MessageList")
     ├── filter_panel.rs             — 🚧 FilterPanel with checkbox-based flat list (~370 lines)
     │                               — ✅ Incremental BTreeSet state tracking (add_message per message)
     │                               — ✅ Section headers: SourceAddr, DestAddr, PGN, Title, SourceName, DestName
@@ -750,7 +752,7 @@ path = "src/main_gpui.rs"
 | AppState stub | `src/gpui/app_state.rs` | 21 | 🚧 Stub — skeleton struct with Clone derive, TODO: pipeline/device_manager/filter_engine init |
 | MainView Render impl | `src/gpui/renderer.rs` | ~455 | ✅ Complete — three-panel flexbox layout + message receiving via cx.spawn() + keyboard bindings working |
 | FilterPanel | `src/gpui/components/filter_panel.rs` | 370 | ✅ Complete — Checkbox-based flat list with incremental BTreeSet state tracking, section headers, click-to-expand for NAME details. Filters propagate to MessageList via apply_to_message_list(). Not yet dockable. |
-| MessageList view | `src/gpui/components/message_list.rs` | ~295 | ✅ Uses shared FilterEngine from filter_engine.rs (no duplication). ColumnConfig from columns.rs with toggle panel support. UniformList rendering, selection state, scroll handling. |
+| MessageList view | `src/gpui/components/message_list.rs` | ~295 | ✅ Uses shared FilterEngine from filter_engine.rs (no duplication). ColumnConfig from columns.rs with toggle panel support. UniformList rendering, selection state, scroll handling. Keyboard nav: arrow keys + page up/down + auto-scroll to selected item via UniformListScrollHandle. Actions wired on MessageList div with key_context("MessageList"). |
 | StatusBar stub | `src/gpui/components/status_bar.rs` | 32 | 🚧 Stub — TODO: mode/device count display |
 | Binary entry point | `src/main_gpui.rs` | ~130 | ✅ Complete — full pipeline wiring, Tokio runtime, GPUI window with MessageList entity. |
 | ColumnTogglePanel | `src/gpui/components/column_toggle_panel.rs` | 219 | ✅ NEW — Popup panel for toggling column visibility using shared ColumnConfig |
@@ -766,21 +768,22 @@ path = "src/main_gpui.rs"
 
 ### Next Steps (Priority Order)
 
-1. ~~**Fix keyboard bindings**~~ ✅ Done — track_focus added to root div
+1. ~~**Fix keyboard bindings**~~ ✅ Done — track_focus + key_context("MessageList") on MessageList div
 2. ~~**Incorporate FilterEngine**~~ ✅ Done — MessageList uses shared FilterEngine
 3. ~~**Add column selection**~~ ✅ Done — ColumnConfig + ColumnTogglePanel implemented
-4. **Implement `DetailPanel` content** — Show decoded message details, hex dump, device info for selected row
-5. **Filter list scrolling in FilterPanel** — Use UniformList for filter options when many values exist
-6. **Resize(width) of filter and detail panels** — Make panel widths adjustable
-7. **Dockable panel system** — Implement ManagedView trait for LHS/RHS panels
-8. **Status bar polish** — Mode indicator, device count display
+4. ~~**Page keys + auto-scroll**~~ ✅ Done — pageup/pagedown key names fixed, UniformListScrollHandle with ensure_selected_visible()
+5. **Implement `DetailPanel` content** — Show decoded message details, hex dump, device info for selected row
+6. **Filter list scrolling in FilterPanel** — Use UniformList for filter options when many values exist
+7. **Resize(width) of filter and detail panels** — Make panel widths adjustable
+8. **Dockable panel system** — Implement ManagedView trait for LHS/RHS panels
+9. **Status bar polish** — Mode indicator, device count display
 
 ### Pending Phases
 
 | Phase | Description | Dependency |
 |-------|-------------|------------|
 | ~~Phase 1~~ | ~~Foundation & Skeleton~~ | — | ✅ COMPLETE |
-| ~~Phase 2~~ | ~~Message List & Core Display~~ | Phase 1 completion | ✅ COMPLETE (keyboard bindings fixed, FilterEngine integrated, ColumnConfig added) |
+| ~~Phase 2~~ | ~~Message List & Core Display~~ | Phase 1 completion | ✅ COMPLETE (keyboard nav working: arrow keys + page up/down + auto-scroll; FilterEngine integrated; ColumnConfig with toggle panel) |
 | Phase 3 | Filter Widgets & Dockable LHS | Phase 2 | 🚧 IN PROGRESS (FilterPanel UI complete; dockable panel pending) |
 | Phase 4 | Detail Panel & RHS Dock | Phase 3 | ⏳ PENDING |
 | Phase 5 | Status Bar, Modals & Polish | Phase 4 | ⏳ PENDING |
