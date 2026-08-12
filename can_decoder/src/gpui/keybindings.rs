@@ -25,12 +25,12 @@ use gpui::{App, KeyBinding};
 /// Configure default keybindings for the GPUI frontend.
 pub fn configure_keybindings(cx: &mut App) {
     cx.bind_keys(vec![
-        KeyBinding::new("up", ScrollUp, Some("App")),
-        KeyBinding::new("down", ScrollDown, Some("App")),
-        KeyBinding::new("page_up", ScrollUp, Some("App")),
-        KeyBinding::new("page_down", ScrollDown, Some("App")),
-        KeyBinding::new("enter", SelectRow, Some("App")),
-        KeyBinding::new("space", SelectRow, Some("App")),
+        KeyBinding::new("up", ScrollUp, Some("MessageList")),
+        KeyBinding::new("down", ScrollDown, Some("MessageList")),
+        KeyBinding::new("pageup", ScrollUp, Some("MessageList")),
+        KeyBinding::new("pagedown", ScrollDown, Some("MessageList")),
+        KeyBinding::new("enter", SelectRow, Some("MessageList")),
+        KeyBinding::new("space", SelectRow, Some("MessageList")),
         KeyBinding::new("ctrl+c", Quit, Some("App")),
         KeyBinding::new("ctrl+l", ClearMessages, Some("App")),
         KeyBinding::new("ctrl+shift+c", ToggleColumns, Some("App")),

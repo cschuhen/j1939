@@ -4,6 +4,7 @@
 //! row selection, and column formatting using shared columns.rs.
 //! Uses shared FilterEngine for message storage and filtering.
 
+use crate::gpui::keybindings::{ScrollDown, ScrollUp, SelectRow};
 use can_decoder::columns::{Column, ColumnConfig};
 use can_decoder::filter_editor::FieldType;
 use can_decoder::filter_engine::FilterEngine;
@@ -33,6 +34,7 @@ pub struct MessageList {
     pub selected_index: Option<usize>,
     global_start_time: Option<u64>,
     pub column_config: ColumnConfig,
+    scroll_handle: gpui::UniformListScrollHandle,
 }
 
 impl MessageList {
@@ -43,6 +45,7 @@ impl MessageList {
             selected_index: None,
             global_start_time: None,
             column_config: ColumnConfig::default(),
+            scroll_handle: gpui::UniformListScrollHandle::new(),
         }
     }
 
@@ -53,6 +56,7 @@ impl MessageList {
             selected_index: None,
             global_start_time: None,
             column_config,
+            scroll_handle: gpui::UniformListScrollHandle::new(),
         }
     }
 
@@ -123,44 +127,6 @@ impl MessageList {
         }
     }
 
-    /// Move selection up by one row in the filtered list.
-    pub fn select_prev(&mut self, cx: &mut gpui::Context<Self>) {
-        let filtered_indices = self.engine.get_filtered_indices();
-        if filtered_indices.is_empty() {
-            return;
-        }
-
-        if self.selected_index.is_none() {
-            self.selected_index = Some(*filtered_indices.last().unwrap());
-        } else if let Some(global_idx) = self.selected_index {
-            if let Some(pos_in_filtered) = filtered_indices.iter().position(|&i| i == global_idx) {
-                if pos_in_filtered > 0 {
-                    self.selected_index = Some(*filtered_indices.get(pos_in_filtered - 1).unwrap());
-                }
-            }
-        }
-        cx.notify();
-    }
-
-    /// Move selection down by one row in the filtered list.
-    pub fn select_next(&mut self, cx: &mut gpui::Context<Self>) {
-        let filtered_indices = self.engine.get_filtered_indices();
-        if filtered_indices.is_empty() {
-            return;
-        }
-
-        if self.selected_index.is_none() {
-            self.selected_index = Some(*filtered_indices.first().unwrap());
-        } else if let Some(global_idx) = self.selected_index {
-            if let Some(pos_in_filtered) = filtered_indices.iter().position(|&i| i == global_idx) {
-                if pos_in_filtered + 1 < filtered_indices.len() {
-                    self.selected_index = Some(*filtered_indices.get(pos_in_filtered + 1).unwrap());
-                }
-            }
-        }
-        cx.notify();
-    }
-
     /// Toggle selection on current row (select/deselect).
     pub fn toggle_selection(&mut self, cx: &mut gpui::Context<Self>) {
         let filtered_indices = self.engine.get_filtered_indices();
@@ -200,6 +166,106 @@ impl MessageList {
     ) -> Vec<can_decoder::filter_editor::FilterOption> {
         self.engine.get_unique_options(field_type)
     }
+
+    /// Get the scroll handle for programmatic scrolling.
+    pub fn scroll_handle(&self) -> &gpui::UniformListScrollHandle {
+        &self.scroll_handle
+    }
+
+    /// Scroll to make the selected item visible in the viewport.
+    pub fn ensure_selected_visible(&mut self, cx: &mut gpui::Context<Self>) {
+        if let Some(global_idx) = self.selected_index {
+            let filtered_indices = self.engine.get_filtered_indices();
+            if let Some(pos_in_filtered) = filtered_indices.iter().position(|&i| i == global_idx) {
+                self.scroll_handle
+                    .scroll_to_item(pos_in_filtered, ScrollStrategy::Top);
+            }
+        }
+        cx.notify();
+    }
+
+    /// Move selection up by one row and ensure it's visible.
+    pub fn select_prev(&mut self, cx: &mut gpui::Context<Self>) {
+        let filtered_indices = self.engine.get_filtered_indices();
+        if filtered_indices.is_empty() {
+            return;
+        }
+
+        if self.selected_index.is_none() {
+            self.selected_index = Some(*filtered_indices.last().unwrap());
+        } else if let Some(global_idx) = self.selected_index {
+            if let Some(pos_in_filtered) = filtered_indices.iter().position(|&i| i == global_idx) {
+                if pos_in_filtered > 0 {
+                    self.selected_index = Some(*filtered_indices.get(pos_in_filtered - 1).unwrap());
+                }
+            }
+        }
+        self.ensure_selected_visible(cx);
+    }
+
+    /// Move selection down by one row and ensure it's visible.
+    pub fn select_next(&mut self, cx: &mut gpui::Context<Self>) {
+        let filtered_indices = self.engine.get_filtered_indices();
+        if filtered_indices.is_empty() {
+            return;
+        }
+
+        if self.selected_index.is_none() {
+            self.selected_index = Some(*filtered_indices.first().unwrap());
+        } else if let Some(global_idx) = self.selected_index {
+            if let Some(pos_in_filtered) = filtered_indices.iter().position(|&i| i == global_idx) {
+                if pos_in_filtered + 1 < filtered_indices.len() {
+                    self.selected_index = Some(*filtered_indices.get(pos_in_filtered + 1).unwrap());
+                }
+            }
+        }
+        self.ensure_selected_visible(cx);
+    }
+
+    /// Move selection up by one viewport page.
+    pub fn select_page_up(&mut self, cx: &mut gpui::Context<Self>) {
+        let filtered_indices = self.engine.get_filtered_indices();
+        if filtered_indices.is_empty() {
+            return;
+        }
+
+        let page_size = 10;
+        let target_pos = if let Some(global_idx) = self.selected_index {
+            if let Some(pos_in_filtered) = filtered_indices.iter().position(|&i| i == global_idx) {
+                (pos_in_filtered as isize - page_size as isize).max(0) as usize
+            } else {
+                0
+            }
+        } else {
+            0
+        };
+
+        self.selected_index = Some(*filtered_indices.get(target_pos).unwrap());
+        self.ensure_selected_visible(cx);
+    }
+
+    /// Move selection down by one viewport page.
+    pub fn select_page_down(&mut self, cx: &mut gpui::Context<Self>) {
+        let filtered_indices = self.engine.get_filtered_indices();
+        if filtered_indices.is_empty() {
+            return;
+        }
+
+        let page_size = 10;
+        let target_pos = if let Some(global_idx) = self.selected_index {
+            if let Some(pos_in_filtered) = filtered_indices.iter().position(|&i| i == global_idx) {
+                (pos_in_filtered as isize + page_size as isize)
+                    .min(filtered_indices.len() as isize - 1) as usize
+            } else {
+                0
+            }
+        } else {
+            0
+        };
+
+        self.selected_index = Some(*filtered_indices.get(target_pos).unwrap());
+        self.ensure_selected_visible(cx);
+    }
 }
 
 impl Render for MessageList {
@@ -207,6 +273,7 @@ impl Render for MessageList {
         let selected_index = self.selected_index;
         let entity: Entity<Self> = cx.entity().clone();
         let column_config = self.column_config.clone();
+        let scroll_handle = self.scroll_handle.clone();
 
         // Get filtered indices (this will auto-recompute if dirty)
         let filtered_indices = self.engine.get_filtered_indices().to_vec();
@@ -217,26 +284,46 @@ impl Render for MessageList {
             .filter_map(|&idx| self.engine.get_message_by_global_index(idx).cloned())
             .collect();
 
-        make_uniform_list(
-            "message_list",
-            messages.len(),
-            move |range, _window, _cx| {
-                range
-                    .map(|fi| {
-                        let msg = &messages[fi];
-                        let global_idx = filtered_indices[fi];
-                        let is_selected = Some(global_idx) == selected_index;
-                        let entity = entity.clone();
-                        render_row(msg, is_selected, column_config.clone(), move |_, _, cx| {
-                            entity.update(cx, |list, _| {
-                                list.selected_index = Some(global_idx);
-                            });
-                        })
-                    })
-                    .collect()
-            },
-        )
-        .flex_grow()
+        div()
+            .key_context("MessageList")
+            .track_focus(&cx.focus_handle())
+            .child(
+                make_uniform_list(
+                    "message_list",
+                    messages.len(),
+                    move |range, _window, _cx| {
+                        range
+                            .map(|fi| {
+                                let msg = &messages[fi];
+                                let global_idx = filtered_indices[fi];
+                                let is_selected = Some(global_idx) == selected_index;
+                                let entity = entity.clone();
+                                render_row(
+                                    msg,
+                                    is_selected,
+                                    column_config.clone(),
+                                    move |_, _, cx| {
+                                        entity.update(cx, |list, _| {
+                                            list.selected_index = Some(global_idx);
+                                        });
+                                    },
+                                )
+                            })
+                            .collect()
+                    },
+                )
+                .track_scroll(&scroll_handle)
+                .flex_grow(),
+            )
+            .on_action(cx.listener(|this, _: &ScrollUp, _window, cx| {
+                this.select_prev(cx);
+            }))
+            .on_action(cx.listener(|this, _: &ScrollDown, _window, cx| {
+                this.select_next(cx);
+            }))
+            .on_action(cx.listener(|this, _: &SelectRow, _window, cx| {
+                this.toggle_selection(cx);
+            }))
     }
 }
 

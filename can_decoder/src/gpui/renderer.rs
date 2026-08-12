@@ -20,7 +20,7 @@ use super::components::filter_panel::FilterPanel as NewFilterPanel;
 use super::components::message_list::MessageList;
 use super::components::status_bar::StatusBar;
 
-use super::keybindings::{ClearMessages, ScrollDown, ScrollUp, SelectRow, ToggleColumns};
+use super::keybindings::{ClearMessages, ToggleColumns};
 
 /// Root view — three-panel layout with status bars.
 pub struct MainView {
@@ -385,10 +385,6 @@ impl Render for MainView {
         let top_bar = StatusBar::new("can_decoder GPUI | Press Ctrl+Q to quit".into(), true);
         let bottom_bar = StatusBar::new(format!("{} messages received", msg_count).into(), false);
 
-        // Keyboard navigation actions (ScrollUp, ScrollDown, SelectRow) are defined in keybindings.rs
-        // and wired via cx.on_action() when the GPUI keymap system is fully configured (Phase 2 completion).
-        // MessageList provides select_prev(), select_next(), toggle_selection() methods ready for wiring.
-
         let filter_panel = self.filter_panel.clone();
         let detail_panel: Entity<DetailPanel> = cx.new(DetailPanel::new);
 
@@ -424,21 +420,6 @@ impl Render for MainView {
                         .child(self.column_toggle_panel.clone().unwrap()),
                 )
             })
-            .on_action(cx.listener(|this, _: &ScrollUp, _window, cx| {
-                this.message_list.update(cx, |list, cx| {
-                    list.select_prev(cx);
-                });
-            }))
-            .on_action(cx.listener(|this, _: &ScrollDown, _window, cx| {
-                this.message_list.update(cx, |list, cx| {
-                    list.select_next(cx);
-                });
-            }))
-            .on_action(cx.listener(|this, _: &SelectRow, _window, cx| {
-                this.message_list.update(cx, |list, cx| {
-                    list.toggle_selection(cx);
-                });
-            }))
             .on_action(cx.listener(|_this, _: &ClearMessages, _window, cx| {
                 // TODO: Implement clear messages functionality
                 cx.notify();
