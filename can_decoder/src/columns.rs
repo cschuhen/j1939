@@ -104,3 +104,57 @@ impl Column {
         }
     }
 }
+
+#[derive(Debug, Clone)]
+pub struct ColumnState {
+    pub column: Column,
+    pub enabled: bool,
+}
+
+impl ColumnState {
+    pub fn new(column: Column) -> Self {
+        Self {
+            column,
+            enabled: column.default_enabled(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ColumnConfig {
+    pub states: Vec<ColumnState>,
+}
+
+impl Default for ColumnConfig {
+    fn default() -> Self {
+        let mut states = Vec::new();
+        for col in Column::all() {
+            states.push(ColumnState::new(*col));
+        }
+        Self { states }
+    }
+}
+
+impl ColumnConfig {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn enabled_columns(&self) -> Vec<Column> {
+        self.states
+            .iter()
+            .filter(|s| s.enabled)
+            .map(|s| s.column)
+            .collect()
+    }
+
+    pub fn toggle(&mut self, column: Column) {
+        if let Some(state) = self.states.iter_mut().find(|s| s.column == column) {
+            state.enabled = !state.enabled;
+        }
+    }
+
+    pub fn enabled_column_states(&self) -> Vec<&ColumnState> {
+        self.states.iter().filter(|s| s.enabled).collect()
+    }
+}

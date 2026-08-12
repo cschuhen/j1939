@@ -4,7 +4,6 @@ use gpui::{
     ParentElement, Render, SharedString, Styled, Window,
 };
 
-use super::message_list::MessageFilter;
 use can_decoder::filter_editor::FieldType;
 
 /// Filter sections that can be expanded/collapsed.
@@ -76,7 +75,9 @@ pub struct FilterPanel {
     items: Vec<FilterItem>,
     message_list: Option<Entity<super::message_list::MessageList>>,
 
-    // Incremental state tracking - updated per-message instead of rescanning all messages
+    // Incremental state tracking — updated per-message via apply_to_message_list.
+    // FilterPanel maintains its own view of unique values for the checkbox UI,
+    // while the actual filtering logic lives in MessageList's shared FilterEngine.
     source_addrs: std::collections::BTreeSet<u8>,
     dest_addrs: std::collections::BTreeSet<u8>,
     pgns: std::collections::BTreeSet<u32>,
@@ -116,7 +117,7 @@ impl FilterPanel {
         }
     }
 
-    /// Add a single message to the incremental filter state.
+    /// Add a single message to update the filter panel's unique value tracking.
     pub fn add_message(&mut self, msg: &can_decoder::types::DecodedMessage) {
         self.source_addrs.insert(msg.source_address());
         self.dest_addrs.insert(msg.dest_address());
@@ -202,25 +203,6 @@ impl FilterPanel {
 
     /// Update filter options from the current messages (initial population or explicit refresh).
     pub fn update_from_messages(&mut self, cx: &mut Context<Self>) {
-        let Some(msg_list) = self.message_list.as_ref() else {
-            return;
-        };
-
-        msg_list.update(cx, |msg_list, _cx| {
-            for msg in &msg_list.messages {
-                self.source_addrs.insert(msg.source_address());
-                self.dest_addrs.insert(msg.dest_address());
-                self.pgns.insert(msg.pgn());
-                self.titles.insert(msg.title.clone());
-                if let Some(name) = msg.source_name() {
-                    self.source_names.insert(name);
-                }
-                if let Some(name) = msg.dest_name() {
-                    self.dest_names.insert(name);
-                }
-            }
-        });
-
         self.rebuild_items();
         cx.notify();
     }
@@ -256,7 +238,7 @@ impl FilterPanel {
         }
     }
 
-    /// Build a MessageFilter from active_filters and apply it to the message list.
+    /// Apply active filters to the message list using FilterEngine.
     pub fn apply_to_message_list(&mut self, cx: &mut Context<Self>) {
         let mut source_addr = None;
         let mut dest_addr = None;
@@ -273,12 +255,7 @@ impl FilterPanel {
 
         if let Some(ref msg_list) = self.message_list {
             msg_list.update(cx, |list, _cx| {
-                list.set_filter(MessageFilter {
-                    source_addr,
-                    dest_addr,
-                    pgn,
-                    title_contains: self.selected_titles.clone(),
-                });
+                list.set_filter(source_addr, dest_addr, pgn, self.selected_titles.clone());
             });
         }
     }

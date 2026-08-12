@@ -15,20 +15,24 @@ actions!(
     can_decoder_gpui,
     [SelectRow, EditFilterInput, CancelFilterEdit]
 );
-actions!(can_decoder_gpui, [ToggleLayout, ClearMessages, Quit]);
+actions!(
+    can_decoder_gpui,
+    [ToggleLayout, ClearMessages, Quit, ToggleColumns]
+);
 
 use gpui::{App, KeyBinding};
 
 /// Configure default keybindings for the GPUI frontend.
 pub fn configure_keybindings(cx: &mut App) {
     cx.bind_keys(vec![
-        KeyBinding::new("up", ScrollUp, None),
-        KeyBinding::new("down", ScrollDown, None),
-        KeyBinding::new("page_up", ScrollUp, None),
-        KeyBinding::new("page_down", ScrollDown, None),
-        KeyBinding::new("enter", SelectRow, None),
-        KeyBinding::new("space", SelectRow, None),
-        KeyBinding::new("ctrl+c", Quit, None),
-        KeyBinding::new("ctrl+l", ClearMessages, None),
+        KeyBinding::new("up", ScrollUp, Some("App")),
+        KeyBinding::new("down", ScrollDown, Some("App")),
+        KeyBinding::new("page_up", ScrollUp, Some("App")),
+        KeyBinding::new("page_down", ScrollDown, Some("App")),
+        KeyBinding::new("enter", SelectRow, Some("App")),
+        KeyBinding::new("space", SelectRow, Some("App")),
+        KeyBinding::new("ctrl+c", Quit, Some("App")),
+        KeyBinding::new("ctrl+l", ClearMessages, Some("App")),
+        KeyBinding::new("ctrl+shift+c", ToggleColumns, Some("App")),
     ])
 }

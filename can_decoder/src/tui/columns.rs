@@ -1,6 +1,6 @@
 use ratatui::layout::Constraint;
 
-pub use crate::columns::Column;
+pub use crate::columns::{Column, ColumnConfig};
 
 impl Column {
     pub fn constraint(self) -> Constraint {
@@ -11,63 +11,20 @@ impl Column {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct ColumnState {
-    pub column: Column,
-    pub enabled: bool,
+pub trait ColumnConfigExt {
+    fn get_constraints(&self) -> Vec<Constraint>;
+    fn header_cells(&self) -> Vec<&str>;
 }
 
-impl ColumnState {
-    pub fn new(column: Column) -> Self {
-        Self {
-            column,
-            enabled: column.default_enabled(),
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct ColumnConfig {
-    pub states: Vec<ColumnState>,
-}
-
-impl Default for ColumnConfig {
-    fn default() -> Self {
-        let mut states = Vec::new();
-        for col in Column::all() {
-            states.push(ColumnState::new(*col));
-        }
-        Self { states }
-    }
-}
-
-impl ColumnConfig {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn enabled_columns(&self) -> Vec<Column> {
-        self.states
-            .iter()
-            .filter(|s| s.enabled)
-            .map(|s| s.column)
-            .collect()
-    }
-
-    pub fn toggle(&mut self, column: Column) {
-        if let Some(state) = self.states.iter_mut().find(|s| s.column == column) {
-            state.enabled = !state.enabled;
-        }
-    }
-
-    pub fn get_constraints(&self) -> Vec<Constraint> {
+impl ColumnConfigExt for ColumnConfig {
+    fn get_constraints(&self) -> Vec<Constraint> {
         self.enabled_columns()
             .iter()
             .map(|c| c.constraint())
             .collect()
     }
 
-    pub fn header_cells(&self) -> Vec<&str> {
+    fn header_cells(&self) -> Vec<&str> {
         self.enabled_columns().iter().map(|c| c.label()).collect()
     }
 }
@@ -184,6 +141,8 @@ mod tests {
 
     #[test]
     fn test_header_cells() {
+        use crate::tui::columns::ColumnConfigExt;
+
         let mut config = ColumnConfig::new();
         config.toggle(Column::PgnName);
 

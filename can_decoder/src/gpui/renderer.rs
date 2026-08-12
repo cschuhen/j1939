@@ -15,11 +15,12 @@ use j1939_async::Id;
 use tokio::sync::mpsc;
 
 use super::app_state::AppState;
+use super::components::column_toggle_panel::ColumnTogglePanel;
 use super::components::filter_panel::FilterPanel as NewFilterPanel;
 use super::components::message_list::MessageList;
 use super::components::status_bar::StatusBar;
 
-use super::keybindings::{ScrollDown, ScrollUp, SelectRow};
+use super::keybindings::{ClearMessages, ScrollDown, ScrollUp, SelectRow, ToggleColumns};
 
 /// Root view — three-panel layout with status bars.
 pub struct MainView {
@@ -27,6 +28,7 @@ pub struct MainView {
     msg_rx: Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<DecodedMessage>>>,
     message_list: Entity<MessageList>,
     filter_panel: Entity<NewFilterPanel>,
+    column_toggle_panel: Option<Entity<ColumnTogglePanel>>,
     receiver_started: bool,
     focus_handle: FocusHandle,
 }
@@ -44,8 +46,34 @@ impl MainView {
             msg_rx: Arc::new(tokio::sync::Mutex::new(msg_rx)),
             message_list,
             filter_panel,
+            column_toggle_panel: None,
             receiver_started: false,
             focus_handle: cx.focus_handle(),
+        }
+    }
+
+    /// Show or hide the column toggle panel.
+    fn toggle_columns(&mut self, cx: &mut Context<Self>) {
+        if let Some(panel) = self.column_toggle_panel.take() {
+            cx.notify();
+        } else {
+            let message_list = self.message_list.clone();
+            let panel = cx.new(|cx| {
+                let config = message_list.read(cx).column_config().clone();
+                ColumnTogglePanel::new(config, cx)
+            });
+            self.column_toggle_panel = Some(panel);
+            cx.notify();
+        }
+    }
+
+    /// Update column configuration from the toggle panel to MessageList.
+    fn update_columns_from_panel(&mut self, cx: &mut Context<Self>) {
+        if let Some(panel) = &self.column_toggle_panel {
+            let config = panel.read(cx).column_config().clone();
+            self.message_list.update(cx, |list, _| {
+                list.column_config = config;
+            });
         }
     }
 
@@ -353,7 +381,7 @@ impl Render for MainView {
             self.start_message_receiver(&cx);
         }
 
-        let msg_count = self.message_list.read(cx).messages.len();
+        let msg_count = self.message_list.read(cx).total_count();
         let top_bar = StatusBar::new("can_decoder GPUI | Press Ctrl+Q to quit".into(), true);
         let bottom_bar = StatusBar::new(format!("{} messages received", msg_count).into(), false);
 
@@ -369,8 +397,9 @@ impl Render for MainView {
             panel.selected_message = selected_msg;
         });
 
-        window.focus(&self.focus_handle, cx);
         div()
+            .track_focus(&self.focus_handle)
+            .key_context("App")
             .flex()
             .flex_col()
             .size_full()
@@ -386,6 +415,15 @@ impl Render for MainView {
                     .child(detail_panel),
             )
             .child(bottom_bar.render())
+            .when(self.column_toggle_panel.is_some(), |this| {
+                this.child(
+                    div()
+                        .absolute()
+                        .top(px(40.0))
+                        .left(px(250.0))
+                        .child(self.column_toggle_panel.clone().unwrap()),
+                )
+            })
             .on_action(cx.listener(|this, _: &ScrollUp, _window, cx| {
                 this.message_list.update(cx, |list, cx| {
                     list.select_prev(cx);
@@ -400,6 +438,18 @@ impl Render for MainView {
                 this.message_list.update(cx, |list, cx| {
                     list.toggle_selection(cx);
                 });
+            }))
+            .on_action(cx.listener(|_this, _: &ClearMessages, _window, cx| {
+                // TODO: Implement clear messages functionality
+                cx.notify();
+            }))
+            .on_action(cx.listener(|this, _: &ToggleColumns, window, cx| {
+                this.toggle_columns(cx);
+                if let Some(panel) = &this.column_toggle_panel {
+                    window.focus(&panel.read(cx).focus_handle(), cx);
+                } else {
+                    window.focus(&this.focus_handle, cx);
+                }
             }))
     }
 }
