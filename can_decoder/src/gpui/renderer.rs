@@ -20,7 +20,7 @@ use super::components::filter_panel::FilterPanel as NewFilterPanel;
 use super::components::message_list::MessageList;
 use super::components::status_bar::StatusBar;
 
-use super::keybindings::{ClearMessages, ToggleColumns};
+use super::keybindings::{ClearMessages, PageDown, PageUp, ScrollDown, ScrollUp, SelectRow, ToggleColumns};
 
 /// Root view — three-panel layout with status bars.
 pub struct MainView {
@@ -393,9 +393,9 @@ impl Render for MainView {
             panel.selected_message = selected_msg;
         });
 
+        self.focus_handle.focus(window, cx);
         div()
             .track_focus(&self.focus_handle)
-            .key_context("App")
             .flex()
             .flex_col()
             .size_full()
@@ -405,6 +405,7 @@ impl Render for MainView {
                 div()
                     .flex()
                     .flex_row()
+                    .h_0()
                     .flex_1()
                     .child(filter_panel)
                     .child(self.message_list.clone())
@@ -420,6 +421,31 @@ impl Render for MainView {
                         .child(self.column_toggle_panel.clone().unwrap()),
                 )
             })
+            .on_action(cx.listener(|this, _: &ScrollUp, _window, cx| {
+                this.message_list.update(cx, |list, cx| {
+                    list.select_prev(cx);
+                });
+            }))
+            .on_action(cx.listener(|this, _: &ScrollDown, _window, cx| {
+                this.message_list.update(cx, |list, cx| {
+                    list.select_next(cx);
+                });
+            }))
+            .on_action(cx.listener(|this, _: &PageUp, _window, cx| {
+                this.message_list.update(cx, |list, cx| {
+                    list.select_page_up(cx);
+                });
+            }))
+            .on_action(cx.listener(|this, _: &PageDown, _window, cx| {
+                this.message_list.update(cx, |list, cx| {
+                    list.select_page_down(cx);
+                });
+            }))
+            .on_action(cx.listener(|this, _: &SelectRow, _window, cx| {
+                this.message_list.update(cx, |list, cx| {
+                    list.toggle_selection(cx);
+                });
+            }))
             .on_action(cx.listener(|_this, _: &ClearMessages, _window, cx| {
                 // TODO: Implement clear messages functionality
                 cx.notify();

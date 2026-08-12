@@ -4,7 +4,7 @@
 //! row selection, and column formatting using shared columns.rs.
 //! Uses shared FilterEngine for message storage and filtering.
 
-use crate::gpui::keybindings::{ScrollDown, ScrollUp, SelectRow};
+use crate::gpui::keybindings::{PageDown, PageUp, ScrollDown, ScrollUp, SelectRow};
 use can_decoder::columns::{Column, ColumnConfig};
 use can_decoder::filter_editor::FieldType;
 use can_decoder::filter_engine::FilterEngine;
@@ -172,18 +172,6 @@ impl MessageList {
         &self.scroll_handle
     }
 
-    /// Scroll to make the selected item visible in the viewport.
-    pub fn ensure_selected_visible(&mut self, cx: &mut gpui::Context<Self>) {
-        if let Some(global_idx) = self.selected_index {
-            let filtered_indices = self.engine.get_filtered_indices();
-            if let Some(pos_in_filtered) = filtered_indices.iter().position(|&i| i == global_idx) {
-                self.scroll_handle
-                    .scroll_to_item(pos_in_filtered, ScrollStrategy::Top);
-            }
-        }
-        cx.notify();
-    }
-
     /// Move selection up by one row and ensure it's visible.
     pub fn select_prev(&mut self, cx: &mut gpui::Context<Self>) {
         let filtered_indices = self.engine.get_filtered_indices();
@@ -191,16 +179,27 @@ impl MessageList {
             return;
         }
 
-        if self.selected_index.is_none() {
-            self.selected_index = Some(*filtered_indices.last().unwrap());
+        let new_idx = if self.selected_index.is_none() {
+            *filtered_indices.last().unwrap()
         } else if let Some(global_idx) = self.selected_index {
             if let Some(pos_in_filtered) = filtered_indices.iter().position(|&i| i == global_idx) {
                 if pos_in_filtered > 0 {
-                    self.selected_index = Some(*filtered_indices.get(pos_in_filtered - 1).unwrap());
+                    *filtered_indices.get(pos_in_filtered - 1).unwrap()
+                } else {
+                    global_idx
                 }
+            } else {
+                *filtered_indices.last().unwrap()
             }
+        } else {
+            *filtered_indices.last().unwrap()
+        };
+
+        self.selected_index = Some(new_idx);
+        if let Some(pos_in_filtered) = filtered_indices.iter().position(|&i| i == new_idx) {
+            self.scroll_handle.scroll_to_item(pos_in_filtered, ScrollStrategy::Center);
         }
-        self.ensure_selected_visible(cx);
+        cx.notify();
     }
 
     /// Move selection down by one row and ensure it's visible.
@@ -210,16 +209,27 @@ impl MessageList {
             return;
         }
 
-        if self.selected_index.is_none() {
-            self.selected_index = Some(*filtered_indices.first().unwrap());
+        let new_idx = if self.selected_index.is_none() {
+            *filtered_indices.first().unwrap()
         } else if let Some(global_idx) = self.selected_index {
             if let Some(pos_in_filtered) = filtered_indices.iter().position(|&i| i == global_idx) {
                 if pos_in_filtered + 1 < filtered_indices.len() {
-                    self.selected_index = Some(*filtered_indices.get(pos_in_filtered + 1).unwrap());
+                    *filtered_indices.get(pos_in_filtered + 1).unwrap()
+                } else {
+                    global_idx
                 }
+            } else {
+                *filtered_indices.first().unwrap()
             }
+        } else {
+            *filtered_indices.first().unwrap()
+        };
+
+        self.selected_index = Some(new_idx);
+        if let Some(pos_in_filtered) = filtered_indices.iter().position(|&i| i == new_idx) {
+            self.scroll_handle.scroll_to_item(pos_in_filtered, ScrollStrategy::Center);
         }
-        self.ensure_selected_visible(cx);
+        cx.notify();
     }
 
     /// Move selection up by one viewport page.
@@ -240,8 +250,12 @@ impl MessageList {
             0
         };
 
-        self.selected_index = Some(*filtered_indices.get(target_pos).unwrap());
-        self.ensure_selected_visible(cx);
+        let new_idx = *filtered_indices.get(target_pos).unwrap();
+        self.selected_index = Some(new_idx);
+        if let Some(pos_in_filtered) = filtered_indices.iter().position(|&i| i == new_idx) {
+            self.scroll_handle.scroll_to_item(pos_in_filtered, ScrollStrategy::Center);
+        }
+        cx.notify();
     }
 
     /// Move selection down by one viewport page.
@@ -263,8 +277,12 @@ impl MessageList {
             0
         };
 
-        self.selected_index = Some(*filtered_indices.get(target_pos).unwrap());
-        self.ensure_selected_visible(cx);
+        let new_idx = *filtered_indices.get(target_pos).unwrap();
+        self.selected_index = Some(new_idx);
+        if let Some(pos_in_filtered) = filtered_indices.iter().position(|&i| i == new_idx) {
+            self.scroll_handle.scroll_to_item(pos_in_filtered, ScrollStrategy::Center);
+        }
+        cx.notify();
     }
 }
 
@@ -285,8 +303,10 @@ impl Render for MessageList {
             .collect();
 
         div()
-            .key_context("MessageList")
-            .track_focus(&cx.focus_handle())
+            .flex()
+            .flex_col()
+            .flex_grow()
+            .size_full()
             .child(
                 make_uniform_list(
                     "message_list",
@@ -320,6 +340,12 @@ impl Render for MessageList {
             }))
             .on_action(cx.listener(|this, _: &ScrollDown, _window, cx| {
                 this.select_next(cx);
+            }))
+            .on_action(cx.listener(|this, _: &PageUp, _window, cx| {
+                this.select_page_up(cx);
+            }))
+            .on_action(cx.listener(|this, _: &PageDown, _window, cx| {
+                this.select_page_down(cx);
             }))
             .on_action(cx.listener(|this, _: &SelectRow, _window, cx| {
                 this.toggle_selection(cx);
