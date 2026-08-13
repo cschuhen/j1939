@@ -9,7 +9,14 @@ use gpui::actions;
 // Define all actions using the actions! macro (GPUI 0.2.x pattern)
 actions!(
     can_decoder_gpui,
-    [ToggleFilter, NextScreenMode, ScrollUp, ScrollDown, PageUp, PageDown]
+    [
+        ToggleFilter,
+        NextScreenMode,
+        ScrollUp,
+        ScrollDown,
+        PageUp,
+        PageDown
+    ]
 );
 actions!(
     can_decoder_gpui,
@@ -17,7 +24,13 @@ actions!(
 );
 actions!(
     can_decoder_gpui,
-    [ToggleLayout, ClearMessages, Quit, ToggleColumns]
+    [
+        ToggleLayout,
+        ClearMessages,
+        Quit,
+        ToggleColumns,
+        OpenColumns
+    ]
 );
 
 use gpui::{App, KeyBinding};

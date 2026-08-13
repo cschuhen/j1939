@@ -5,7 +5,7 @@
 //! Uses shared FilterEngine for message storage and filtering.
 
 use crate::gpui::keybindings::{PageDown, PageUp, ScrollDown, ScrollUp, SelectRow};
-use can_decoder::columns::{Column, ColumnConfig};
+use can_decoder::columns::{Column, ColumnConfig, ColumnState};
 use can_decoder::filter_editor::FieldType;
 use can_decoder::filter_engine::FilterEngine;
 use can_decoder::filters::{PgnFilter, SourceFilter, TitleFilter};
@@ -35,6 +35,7 @@ pub struct MessageList {
     global_start_time: Option<u64>,
     pub column_config: ColumnConfig,
     scroll_handle: gpui::UniformListScrollHandle,
+    parent_entity: Option<Entity<crate::gpui::renderer::MainView>>,
 }
 
 impl MessageList {
@@ -46,6 +47,7 @@ impl MessageList {
             global_start_time: None,
             column_config: ColumnConfig::default(),
             scroll_handle: gpui::UniformListScrollHandle::new(),
+            parent_entity: None,
         }
     }
 
@@ -57,7 +59,13 @@ impl MessageList {
             global_start_time: None,
             column_config,
             scroll_handle: gpui::UniformListScrollHandle::new(),
+            parent_entity: None,
         }
+    }
+
+    /// Set the parent MainView entity reference for column toggle.
+    pub fn set_parent_entity(&mut self, entity: Entity<crate::gpui::renderer::MainView>) {
+        self.parent_entity = Some(entity);
     }
 
     /// Toggle a column's visibility.
@@ -197,7 +205,8 @@ impl MessageList {
 
         self.selected_index = Some(new_idx);
         if let Some(pos_in_filtered) = filtered_indices.iter().position(|&i| i == new_idx) {
-            self.scroll_handle.scroll_to_item(pos_in_filtered, ScrollStrategy::Center);
+            self.scroll_handle
+                .scroll_to_item(pos_in_filtered, ScrollStrategy::Center);
         }
         cx.notify();
     }
@@ -227,7 +236,8 @@ impl MessageList {
 
         self.selected_index = Some(new_idx);
         if let Some(pos_in_filtered) = filtered_indices.iter().position(|&i| i == new_idx) {
-            self.scroll_handle.scroll_to_item(pos_in_filtered, ScrollStrategy::Center);
+            self.scroll_handle
+                .scroll_to_item(pos_in_filtered, ScrollStrategy::Center);
         }
         cx.notify();
     }
@@ -253,7 +263,8 @@ impl MessageList {
         let new_idx = *filtered_indices.get(target_pos).unwrap();
         self.selected_index = Some(new_idx);
         if let Some(pos_in_filtered) = filtered_indices.iter().position(|&i| i == new_idx) {
-            self.scroll_handle.scroll_to_item(pos_in_filtered, ScrollStrategy::Center);
+            self.scroll_handle
+                .scroll_to_item(pos_in_filtered, ScrollStrategy::Center);
         }
         cx.notify();
     }
@@ -280,7 +291,8 @@ impl MessageList {
         let new_idx = *filtered_indices.get(target_pos).unwrap();
         self.selected_index = Some(new_idx);
         if let Some(pos_in_filtered) = filtered_indices.iter().position(|&i| i == new_idx) {
-            self.scroll_handle.scroll_to_item(pos_in_filtered, ScrollStrategy::Center);
+            self.scroll_handle
+                .scroll_to_item(pos_in_filtered, ScrollStrategy::Center);
         }
         cx.notify();
     }
@@ -302,11 +314,19 @@ impl Render for MessageList {
             .filter_map(|&idx| self.engine.get_message_by_global_index(idx).cloned())
             .collect();
 
+        let enabled_states = column_config
+            .enabled_column_states()
+            .into_iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        let parent_entity = self.parent_entity.clone();
+
         div()
             .flex()
             .flex_col()
             .flex_grow()
             .size_full()
+            .child(render_headers(&enabled_states, parent_entity))
             .child(
                 make_uniform_list(
                     "message_list",
@@ -351,6 +371,47 @@ impl Render for MessageList {
                 this.toggle_selection(cx);
             }))
     }
+}
+
+fn render_headers(
+    enabled_columns: &[ColumnState],
+    parent_entity: Option<Entity<crate::gpui::renderer::MainView>>,
+) -> impl IntoElement {
+    let mut parts = Vec::new();
+    for col_state in enabled_columns {
+        let label = col_state.column.label().to_string();
+        let entity = parent_entity.clone();
+        parts.push(
+            div()
+                .text_xs()
+                .font_family("monospace")
+                .font_weight(gpui::FontWeight::BOLD)
+                .text_color(gpui::rgb(0x8888cc))
+                .px_2()
+                .py_1()
+                .cursor_pointer()
+                .hover(|this| this.text_color(gpui::rgb(0xaaccff)))
+                .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                    if let Some(parent) = &entity {
+                        parent.update(cx, |main, cx| {
+                            main.toggle_columns(cx);
+                        });
+                    }
+                })
+                .child(label),
+        );
+    }
+
+    div()
+        .flex_row()
+        .w_full()
+        .h_6()
+        .bg(gpui::rgb(0x1a1a2e))
+        .border_b_1()
+        .border_color(gpui::rgb(0x333355))
+        .items_center()
+        .px_3()
+        .children(parts)
 }
 
 /// Render a single message row with column formatting.

@@ -20,7 +20,9 @@ use super::components::filter_panel::FilterPanel as NewFilterPanel;
 use super::components::message_list::MessageList;
 use super::components::status_bar::StatusBar;
 
-use super::keybindings::{ClearMessages, PageDown, PageUp, ScrollDown, ScrollUp, SelectRow, ToggleColumns};
+use super::keybindings::{
+    ClearMessages, OpenColumns, PageDown, PageUp, ScrollDown, ScrollUp, SelectRow, ToggleColumns,
+};
 
 /// Root view — three-panel layout with status bars.
 pub struct MainView {
@@ -41,6 +43,10 @@ impl MainView {
         cx: &mut Context<Self>,
     ) -> Self {
         let filter_panel = cx.new(|cx| NewFilterPanel::new(message_list.clone(), cx));
+        let this_entity = cx.entity().clone();
+        message_list.update(cx, |list, _| {
+            list.set_parent_entity(this_entity);
+        });
         MainView {
             app_state,
             msg_rx: Arc::new(tokio::sync::Mutex::new(msg_rx)),
@@ -53,7 +59,7 @@ impl MainView {
     }
 
     /// Show or hide the column toggle panel.
-    fn toggle_columns(&mut self, cx: &mut Context<Self>) {
+    pub fn toggle_columns(&mut self, cx: &mut Context<Self>) {
         if let Some(panel) = self.column_toggle_panel.take() {
             cx.notify();
         } else {

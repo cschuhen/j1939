@@ -1,22 +1,22 @@
 # can_decoder GPUI Design Document
 
-## Status (checked 2026-08-12)
+## Status (checked 2026-08-13)
 
 | Phase | Status |
 |-------|--------|
 | Phase 1 — Foundation & Skeleton | ✅ COMPLETE (module structure, actions, stubs, binary entry point, three-panel layout all working) |
-| Phase 2 — Message List & Core Display | ✅ COMPLETE (UniformList, message receiving, row selection; keyboard navigation working via track_focus + key_context("MessageList"); page up/down keys functional; auto-scroll on arrow key nav; shared FilterEngine integrated; ColumnConfig with toggle panel) |
+| Phase 2 — Message List & Core Display | ✅ COMPLETE (UniformList, message receiving, row selection; keyboard navigation working via track_focus + key_context("MessageList"); page up/down keys functional; auto-scroll on arrow key nav; shared FilterEngine integrated; ColumnConfig with toggle panel; column headers clickable to open config popup) |
 | Phase 3 — Filter Widgets & Dockable LHS | 🚧 IN PROGRESS (FilterPanel with checkbox-based flat list using incremental BTreeSet state tracking; not yet dockable; filters wired to MessageList) |
 | Phase 4 — Detail Panel & RHS Dock | ⏳ PENDING |
 | Phase 5 — Status Bar, Modals & Polish | ⏳ PENDING |
 | Phase 6 — Docking UX & Persistence | ⏳ PENDING |
 
-### Critical Issues (2026-08-12)
+### Critical Issues (2026-08-13)
 
 1. **Keyboard bindings** ✅ FIXED: Added `.track_focus(&self.focus_handle)` to root div. Actions moved to MessageList div with `.key_context("MessageList")` so they fire when focus is inside list items. Page keys use correct GPUI names `"pageup"`/`"pagedown"`.
 2. **Auto-scroll on navigation** ✅ FIXED: Added `UniformListScrollHandle` to MessageList. Arrow key navigation now auto-scrolls to keep selected item visible in viewport via `ensure_selected_visible()`.
 3. ~~**FilterEngine code duplication**~~ ✅ RESOLVED: MessageList uses shared FilterEngine from filter_engine.rs
-4. ~~**Hardcoded columns**~~ ✅ FIXED: ColumnConfig with ColumnTogglePanel popup (Ctrl+Shift+C)
+4. ~~**Hardcoded columns**~~ ✅ FIXED: ColumnConfig with ColumnTogglePanel popup (Ctrl+Shift+C); clickable column headers at top of message list open config popup
 
 ### GPUI Version Note (2026-08-11)
 ✅ MIGRATED: Now using Zed mainline git dependency at rev `f3fb4e04aa85dbbde6e83d28f231fc452cd8863f` (same as rgitUI). Breaking changes fixed: `Application::new()` → `application()`, `window.focus(handle)` → `window.focus(handle, cx)`. See GPUI Version Evaluation section for full analysis.
@@ -415,20 +415,20 @@ The following rendering logic is shared between TUI and GPUI:
 
 **Next Steps**: Phase 2 — Implement actual message list content (UniformList + scroll handling + row rendering).
 
-### Phase 2: Message List & Core Display (Weeks 3-4) 🚧 IN PROGRESS
+### Phase 2: Message List & Core Display (Weeks 3-4) ✅ COMPLETE
 
 **Goal**: Display filtered messages in the main area with keyboard navigation.
 
 | Task | Details | Dependencies | Status |
 |------|---------|--------------|--------|
-| Implement `MessageList` view | GPUI UniformList rendering `DecodedMessage` rows | Phase 1 | ✅ COMPLETE — MessageList struct with Vec<DecodedMessage>, selected_index, global_start_time. Uses `make_uniform_list()` wrapper for GPUI's uniform_list function. (~170 lines) |
+| Implement `MessageList` view | GPUI UniformList rendering `DecodedMessage` rows | Phase 1 | ✅ COMPLETE — MessageList struct with FilterEngine, selected_index, global_start_time, ColumnConfig. Uses `make_uniform_list()` wrapper for GPUI's uniform_list function. (~300 lines) |
 | Wire FilterEngine to list | Read messages from shared FilterEngine entity | Phase 2 | ✅ COMPLETE — Tokio spawn in MainView receives from pipeline channel and calls `message_list.update(cx, ...)` to add messages. Auto-scrolls to end on new messages. |
-| Implement row rendering | Styled text runs per column (using shared `columns.rs`) | Phase 2 | ⚠️ PARTIAL — `render_row()` formats Time, Src, Dest, Pgn, Title, Detail columns using shared `formats::format_elapsed_time`, `build_detail_string`. However, uses hardcoded `DEFAULT_COLUMNS` constant instead of TUI's `ColumnConfig`. Users cannot toggle AbsTime, PgnName, Data, or DetailCondensed columns. |
+| Implement row rendering | Styled text runs per column (using shared `columns.rs`) | Phase 2 | ✅ COMPLETE — `render_row()` formats columns using shared ColumnConfig. Column headers rendered above UniformList with clickable labels that open ColumnTogglePanel popup. |
 | Add scroll handling | `UniformListScrollHandle` + keyboard navigation (↑/↓) | Phase 2 | ✅ COMPLETE — `scroll_to_end()` method on MessageList. Keyboard nav methods: `select_prev()`, `select_next()`, `toggle_selection()`. |
 | Implement selection | Click/Enter to select a row, highlight selected row | Phase 2 | ✅ COMPLETE — `selected_index: Option<usize>` tracks current selection. Selected rows get blue bg (0x1a3a5f) with white text. `selected_message()` accessor. |
-| Add keymap for list navigation | Up/down arrows, page up/down, enter, space | Phase 2 | ❌ NOT WORKING — Actions defined in `keybindings.rs`, `.on_action()` handlers present on MainView, FocusHandle added to window. However, no keystrokes trigger actions due to GPUI context/keymap resolution issues. Bindings have `None` context (should be global) but focus handling prevents them from firing. |
+| Add keymap for list navigation | Up/down arrows, page up/down, enter, space | Phase 2 | ✅ COMPLETE — Actions defined in `keybindings.rs`, `.on_action()` handlers on MessageList div with `key_context("MessageList")`. Keyboard bindings functional via track_focus on root div. |
 
-**Deliverables**: Functional message list with UniformList virtualization, message receiving from pipeline, row selection with highlighting. Keyboard navigation present in code but not functional — requires context/keymap debugging.
+**Deliverables**: Functional message list with UniformList virtualization, message receiving from pipeline, row selection with highlighting, keyboard navigation (arrow keys + page up/down), clickable column headers that open ColumnTogglePanel popup for column configuration.
 
 ### Phase 3: Filter Widgets & Dockable LHS (Weeks 5-6) 🚧 IN PROGRESS
 
@@ -573,27 +573,28 @@ impl MessageList {
 
 ## File Structure (Updated 2026-08-11)
 
-### GPUI-Specific Modules (Current State — 2026-08-12)
+### GPUI-Specific Modules (Current State — 2026-08-13)
 
 ```
 src/gpui/
 ├── mod.rs                          — ✅ Module organization, exports (13 lines)
 ├── app_state.rs                    — 🚧 AppState entity stub + Clone derive (21 lines)
-├── renderer.rs                     — ✅ MainView + three panel structs (~455 lines)
+├── renderer.rs                     — ✅ MainView + three panel structs (~470 lines)
 │                                   — FilterPanel: LHS filter widget container with checkbox list
-│                                   — MessageList: center message area with UniformList
+│                                   — MessageList: center message area with UniformList + column headers
 │                                   — DetailPanel: RHS detail view container (stub)
 │                                   — StatusBar: top/bottom status bars
 │                                   — Keyboard bindings working via track_focus
-├── keybindings.rs                  — ✅ Action definitions + bind_keys() (35 lines)
+├── keybindings.rs                  — ✅ Action definitions + bind_keys() (38 lines)
 │                                   — ✅ Bindings functional (track_focus added to root div)
 │
 └── components/
     ├── mod.rs                      — ✅ Component module re-exports (7 lines)
-    ├── message_list.rs             — ✅ MessageList with UniformList (~295 lines)
+    ├── message_list.rs             — ✅ MessageList with UniformList (~390 lines)
     │                               — ✅ Uses shared FilterEngine from filter_engine.rs
     │                               — ✅ ColumnConfig from columns.rs with toggle panel support
     │                               — ✅ Row rendering with selection highlighting
+    │                               — ✅ Clickable column headers above UniformList (opens ColumnTogglePanel)
     │                               — ✅ Keyboard nav: arrow keys + page up/down + auto-scroll via UniformListScrollHandle
     │                               — ✅ Actions wired on MessageList div (key_context "MessageList")
     ├── filter_panel.rs             — 🚧 FilterPanel with checkbox-based flat list (~370 lines)
@@ -602,12 +603,12 @@ src/gpui/
     │                               — ✅ Filters propagate to MessageList via apply_to_message_list()
     │                               — ⚠️ Not yet dockable (simple div container)
     ├── status_bar.rs               — 🚧 StatusBar stub (32 lines)
-    └── column_toggle_panel.rs      — ✅ NEW Column toggle popup panel (219 lines)
+    └── column_toggle_panel.rs      — ✅ Column toggle popup panel (219 lines)
                                 — ✅ Uses shared ColumnConfig from columns.rs
                                 — ✅ Keyboard navigation with Space to toggle, Esc to close
 ```
 
-**Total GPUI code**: ~1,500 lines across 10 files. Build succeeds with only unused struct warnings. All tests pass.
+**Total GPUI code**: ~1,600 lines across 10 files. Build succeeds with only unused struct warnings. All tests pass.
 
 ---
 
@@ -740,31 +741,31 @@ path = "src/main_gpui.rs"
 
 ---
 
-## Current Implementation Status (2026-08-12)
+## Current Implementation Status (2026-08-13)
 
 ### Completed (Phase 1 - Foundation)
 
 | Component | File | Lines | Status |
 |-----------|------|-------|--------|
 | Module structure | `src/gpui/mod.rs` | 13 | ✅ Complete — re-exports key GPUI types, declares submodules |
-| Action definitions | `src/gpui/keybindings.rs` | 35 | ✅ Actions defined and functional (track_focus added to root div) |
+| Action definitions | `src/gpui/keybindings.rs` | 38 | ✅ Actions defined and functional (track_focus added to root div) |
 | Component module | `src/gpui/components/mod.rs` | 7 | ✅ Complete — re-exports component submodules incl. column_toggle_panel |
 | AppState stub | `src/gpui/app_state.rs` | 21 | 🚧 Stub — skeleton struct with Clone derive, TODO: pipeline/device_manager/filter_engine init |
-| MainView Render impl | `src/gpui/renderer.rs` | ~455 | ✅ Complete — three-panel flexbox layout + message receiving via cx.spawn() + keyboard bindings working |
+| MainView Render impl | `src/gpui/renderer.rs` | ~470 | ✅ Complete — three-panel flexbox layout + message receiving via cx.spawn() + keyboard bindings working + column header click handler |
 | FilterPanel | `src/gpui/components/filter_panel.rs` | 370 | ✅ Complete — Checkbox-based flat list with incremental BTreeSet state tracking, section headers, click-to-expand for NAME details. Filters propagate to MessageList via apply_to_message_list(). Not yet dockable. |
-| MessageList view | `src/gpui/components/message_list.rs` | ~295 | ✅ Uses shared FilterEngine from filter_engine.rs (no duplication). ColumnConfig from columns.rs with toggle panel support. UniformList rendering, selection state, scroll handling. Keyboard nav: arrow keys + page up/down + auto-scroll to selected item via UniformListScrollHandle. Actions wired on MessageList div with key_context("MessageList"). |
+| MessageList view | `src/gpui/components/message_list.rs` | ~390 | ✅ Uses shared FilterEngine from filter_engine.rs (no duplication). ColumnConfig from columns.rs with toggle panel support. UniformList rendering, selection state, scroll handling. Clickable column headers above list open ColumnTogglePanel popup. Keyboard nav: arrow keys + page up/down + auto-scroll to selected item via UniformListScrollHandle. Actions wired on MessageList div with key_context("MessageList"). |
 | StatusBar stub | `src/gpui/components/status_bar.rs` | 32 | 🚧 Stub — TODO: mode/device count display |
 | Binary entry point | `src/main_gpui.rs` | ~130 | ✅ Complete — full pipeline wiring, Tokio runtime, GPUI window with MessageList entity. |
-| ColumnTogglePanel | `src/gpui/components/column_toggle_panel.rs` | 219 | ✅ NEW — Popup panel for toggling column visibility using shared ColumnConfig |
+| ColumnTogglePanel | `src/gpui/components/column_toggle_panel.rs` | 219 | ✅ Popup panel for toggling column visibility using shared ColumnConfig |
 
-**Total GPUI code**: ~1,500 lines across 10 files (including main_gpui.rs).  
+**Total GPUI code**: ~1,600 lines across 10 files (including main_gpui.rs).  
 **Build status**: `cargo build --bin can_decoder_gpui` succeeds with only unused struct warnings. All tests pass.
 
-### Critical Issues Status (2026-08-12)
+### Critical Issues Status (2026-08-13)
 
-1. **Keyboard bindings** ✅ FIXED: Added `.track_focus(&self.focus_handle)` to root div in MainView render (`renderer.rs:400`). GPUI's keymap system now properly dispatches ScrollUp, ScrollDown, SelectRow actions.
+1. **Keyboard bindings** ✅ FIXED: Added `.track_focus(&self.focus_handle)` to root div in MainView render (`renderer.rs`). GPUI's keymap system now properly dispatches ScrollUp, ScrollDown, SelectRow actions.
 2. **FilterEngine code duplication** ✅ RESOLVED: MessageList now uses shared `FilterEngine` from `filter_engine.rs` for message storage and filtering. FilterPanel maintains its own BTreeSet state for UI checkbox display (GPUI constraint — can't access cx during render). Actual filter evaluation runs through shared FilterEngine.
-3. **Hardcoded columns** ✅ FIXED: Replaced DEFAULT_COLUMNS constant with `ColumnConfig` from shared `columns.rs`. ColumnTogglePanel popup allows users to toggle column visibility.
+3. **Hardcoded columns** ✅ FIXED: Replaced DEFAULT_COLUMNS constant with `ColumnConfig` from shared `columns.rs`. ColumnTogglePanel popup allows users to toggle column visibility. Clickable column headers at top of message list open config popup directly.
 
 ### Next Steps (Priority Order)
 
@@ -772,18 +773,19 @@ path = "src/main_gpui.rs"
 2. ~~**Incorporate FilterEngine**~~ ✅ Done — MessageList uses shared FilterEngine
 3. ~~**Add column selection**~~ ✅ Done — ColumnConfig + ColumnTogglePanel implemented
 4. ~~**Page keys + auto-scroll**~~ ✅ Done — pageup/pagedown key names fixed, UniformListScrollHandle with ensure_selected_visible()
-5. **Implement `DetailPanel` content** — Show decoded message details, hex dump, device info for selected row
-6. **Filter list scrolling in FilterPanel** — Use UniformList for filter options when many values exist
-7. **Resize(width) of filter and detail panels** — Make panel widths adjustable
-8. **Dockable panel system** — Implement ManagedView trait for LHS/RHS panels
-9. **Status bar polish** — Mode indicator, device count display
+5. ~~**Clickable column headers**~~ ✅ Done — Column headers rendered above UniformList, clicking any header opens ColumnTogglePanel popup
+6. **Implement `DetailPanel` content** — Show decoded message details, hex dump, device info for selected row
+7. **Filter list scrolling in FilterPanel** — Use UniformList for filter options when many values exist
+8. **Resize(width) of filter and detail panels** — Make panel widths adjustable
+9. **Dockable panel system** — Implement ManagedView trait for LHS/RHS panels
+10. **Status bar polish** — Mode indicator, device count display
 
 ### Pending Phases
 
 | Phase | Description | Dependency |
 |-------|-------------|------------|
 | ~~Phase 1~~ | ~~Foundation & Skeleton~~ | — | ✅ COMPLETE |
-| ~~Phase 2~~ | ~~Message List & Core Display~~ | Phase 1 completion | ✅ COMPLETE (keyboard nav working: arrow keys + page up/down + auto-scroll; FilterEngine integrated; ColumnConfig with toggle panel) |
+| ~~Phase 2~~ | ~~Message List & Core Display~~ | Phase 1 completion | ✅ COMPLETE (keyboard nav working: arrow keys + page up/down + auto-scroll; FilterEngine integrated; ColumnConfig with toggle panel; clickable column headers) |
 | Phase 3 | Filter Widgets & Dockable LHS | Phase 2 | 🚧 IN PROGRESS (FilterPanel UI complete; dockable panel pending) |
 | Phase 4 | Detail Panel & RHS Dock | Phase 3 | ⏳ PENDING |
 | Phase 5 | Status Bar, Modals & Polish | Phase 4 | ⏳ PENDING |
