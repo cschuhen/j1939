@@ -8,8 +8,8 @@ use std::sync::Arc;
 use can_decoder::types::DecodedMessage;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    div, px, AppContext, Context, Entity, FocusHandle, InteractiveElement, IntoElement,
-    ParentElement, Render, Styled, Window,
+    div, hsla, px, AppContext, Context, Entity, FocusHandle, InteractiveElement, IntoElement,
+    MouseButton, ParentElement, Render, Styled, Window,
 };
 use j1939_async::Id;
 use tokio::sync::mpsc;
@@ -21,7 +21,8 @@ use super::components::message_list::MessageList;
 use super::components::status_bar::StatusBar;
 
 use super::keybindings::{
-    ClearMessages, OpenColumns, PageDown, PageUp, ScrollDown, ScrollUp, SelectRow, ToggleColumns,
+    CancelFilterEdit, ClearMessages, CloseColumns, OpenColumns, PageDown, PageUp, ScrollDown,
+    ScrollUp, SelectRow, ToggleColumns,
 };
 
 /// Root view — three-panel layout with status bars.
@@ -399,7 +400,12 @@ impl Render for MainView {
             panel.selected_message = selected_msg;
         });
 
-        self.focus_handle.focus(window, cx);
+        let panel_focused = self.column_toggle_panel.is_some();
+
+        if panel_focused {
+            self.focus_handle.focus(window, cx);
+        }
+
         div()
             .track_focus(&self.focus_handle)
             .flex()
@@ -418,7 +424,10 @@ impl Render for MainView {
                     .child(detail_panel),
             )
             .child(bottom_bar.render())
-            .when(self.column_toggle_panel.is_some(), |this| {
+            .when(panel_focused, |this| {
+                this.child(div().absolute().inset_0().bg(hsla(0.0, 0.0, 0.0, 0.4)))
+            })
+            .when(panel_focused, |this| {
                 this.child(
                     div()
                         .absolute()
@@ -463,6 +472,47 @@ impl Render for MainView {
                 } else {
                     window.focus(&this.focus_handle, cx);
                 }
+            }))
+            .on_action(cx.listener(|this, _: &ScrollUp, _window, cx| {
+                if this.column_toggle_panel.is_some() {
+                    if let Some(panel) = &this.column_toggle_panel {
+                        panel.update(cx, |p, _| p.select_prev());
+                    }
+                } else {
+                    this.message_list.update(cx, |list, cx| {
+                        list.select_prev(cx);
+                    });
+                }
+            }))
+            .on_action(cx.listener(|this, _: &ScrollDown, _window, cx| {
+                if this.column_toggle_panel.is_some() {
+                    if let Some(panel) = &this.column_toggle_panel {
+                        panel.update(cx, |p, _| p.select_next());
+                    }
+                } else {
+                    this.message_list.update(cx, |list, cx| {
+                        list.select_next(cx);
+                    });
+                }
+            }))
+            .on_action(cx.listener(|this, _: &SelectRow, _window, cx| {
+                if let Some(panel) = &this.column_toggle_panel {
+                    panel.update(cx, |p, _| p.toggle_selected());
+                } else {
+                    this.message_list.update(cx, |list, cx| {
+                        list.toggle_selection(cx);
+                    });
+                }
+            }))
+            .on_action(cx.listener(|this, _: &CancelFilterEdit, _window, cx| {
+                if this.column_toggle_panel.is_some() {
+                    this.column_toggle_panel = None;
+                    cx.notify();
+                }
+            }))
+            .on_action(cx.listener(|this, _: &CloseColumns, _window, cx| {
+                this.column_toggle_panel = None;
+                cx.notify();
             }))
     }
 }

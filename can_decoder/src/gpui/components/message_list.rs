@@ -12,7 +12,7 @@ use can_decoder::filters::{PgnFilter, SourceFilter, TitleFilter};
 use can_decoder::formats::{build_detail_string, format_elapsed_time};
 use can_decoder::types::DecodedMessage;
 use gpui::{
-    div, prelude::*, ElementId, Entity, IntoElement, MouseButton, ParentElement, Render,
+    div, prelude::*, px, ElementId, Entity, IntoElement, MouseButton, ParentElement, Render,
     ScrollStrategy, Styled, Window,
 };
 
@@ -322,11 +322,20 @@ impl Render for MessageList {
         let parent_entity = self.parent_entity.clone();
 
         div()
+            .relative()
             .flex()
             .flex_col()
             .flex_grow()
             .size_full()
-            .child(render_headers(&enabled_states, parent_entity))
+            .child(
+                div()
+                    .h_6()
+                    .w_full()
+                    .bg(gpui::rgb(0x1a1a2e))
+                    .border_b_1()
+                    .border_color(gpui::rgb(0x333355))
+                    .child(render_headers(&enabled_states, parent_entity)),
+            )
             .child(
                 make_uniform_list(
                     "message_list",

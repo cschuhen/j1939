@@ -6,8 +6,11 @@
 use can_decoder::columns::{Column, ColumnConfig};
 use gpui::prelude::*;
 use gpui::{
-    div, px, Context, Entity, FocusHandle, IntoElement, ParentElement, Render, Styled, Window,
+    div, px, Context, Entity, FocusHandle, IntoElement, MouseButton, ParentElement, Render, Styled,
+    Window,
 };
+
+use super::super::keybindings::CloseColumns;
 
 /// Column toggle panel state.
 pub struct ColumnTogglePanel {
@@ -106,6 +109,7 @@ impl Render for ColumnTogglePanel {
                     .bg(gpui::rgb(0x2a2a4e))
                     .flex_row()
                     .items_center()
+                    .justify_between()
                     .px_3()
                     .border_b_1()
                     .border_color(gpui::rgb(0x333355))
@@ -115,6 +119,25 @@ impl Render for ColumnTogglePanel {
                             .font_weight(gpui::FontWeight::BOLD)
                             .text_color(gpui::rgb(0xffffff))
                             .child("Configure Columns"),
+                    )
+                    .child(
+                        div()
+                            .w_5()
+                            .h_5()
+                            .flex_row()
+                            .items_center()
+                            .justify_center()
+                            .rounded_sm()
+                            .cursor_pointer()
+                            .text_xs()
+                            .text_color(gpui::rgb(0x8888aa))
+                            .hover(|this| {
+                                this.bg(gpui::rgb(0x3a3a5e)).text_color(gpui::rgb(0xffffff))
+                            })
+                            .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                                window.dispatch_action(Box::new(CloseColumns), cx);
+                            })
+                            .child("x"),
                     ),
             )
             .child(

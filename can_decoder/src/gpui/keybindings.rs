@@ -29,7 +29,8 @@ actions!(
         ClearMessages,
         Quit,
         ToggleColumns,
-        OpenColumns
+        OpenColumns,
+        CloseColumns
     ]
 );
 
@@ -44,6 +45,7 @@ pub fn configure_keybindings(cx: &mut App) {
         KeyBinding::new("pagedown", PageDown, None),
         KeyBinding::new("enter", SelectRow, None),
         KeyBinding::new("space", SelectRow, None),
+        KeyBinding::new("escape", CancelFilterEdit, None),
         KeyBinding::new("ctrl+c", Quit, None),
         KeyBinding::new("ctrl+l", ClearMessages, None),
         KeyBinding::new("ctrl+shift+c", ToggleColumns, None),
