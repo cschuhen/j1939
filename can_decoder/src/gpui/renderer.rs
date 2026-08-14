@@ -15,15 +15,12 @@ use j1939_async::Id;
 use tokio::sync::mpsc;
 
 use super::app_state::AppState;
-use super::components::column_toggle_panel::ColumnTogglePanel;
+use super::components::column_toggle_panel::ColumnConfigPopup;
 use super::components::filter_panel::FilterPanel as NewFilterPanel;
 use super::components::message_list::MessageList;
 use super::components::status_bar::StatusBar;
 
-use super::keybindings::{
-    CancelFilterEdit, ClearMessages, CloseColumns, OpenColumns, PageDown, PageUp, ScrollDown,
-    ScrollUp, SelectRow, ToggleColumns,
-};
+use super::keybindings::{ClearMessages, PageDown, PageUp, ScrollDown, ScrollUp, SelectRow};
 
 /// Root view — three-panel layout with status bars.
 pub struct MainView {
@@ -31,7 +28,7 @@ pub struct MainView {
     msg_rx: Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<DecodedMessage>>>,
     message_list: Entity<MessageList>,
     filter_panel: Entity<NewFilterPanel>,
-    column_toggle_panel: Option<Entity<ColumnTogglePanel>>,
+    column_config_popup: Option<Entity<ColumnConfigPopup>>,
     receiver_started: bool,
     focus_handle: FocusHandle,
 }
@@ -44,43 +41,30 @@ impl MainView {
         cx: &mut Context<Self>,
     ) -> Self {
         let filter_panel = cx.new(|cx| NewFilterPanel::new(message_list.clone(), cx));
-        let this_entity = cx.entity().clone();
-        message_list.update(cx, |list, _| {
-            list.set_parent_entity(this_entity);
-        });
         MainView {
             app_state,
             msg_rx: Arc::new(tokio::sync::Mutex::new(msg_rx)),
             message_list,
             filter_panel,
-            column_toggle_panel: None,
+            column_config_popup: None,
             receiver_started: false,
             focus_handle: cx.focus_handle(),
         }
     }
 
-    /// Show or hide the column toggle panel.
+    /// Show or hide the column config popup.
     pub fn toggle_columns(&mut self, cx: &mut Context<Self>) {
-        if let Some(panel) = self.column_toggle_panel.take() {
+        if self.column_config_popup.is_some() {
+            self.column_config_popup.take();
             cx.notify();
         } else {
             let message_list = self.message_list.clone();
-            let panel = cx.new(|cx| {
+            let popup = cx.new(|cx| {
                 let config = message_list.read(cx).column_config().clone();
-                ColumnTogglePanel::new(config, cx)
+                ColumnConfigPopup::new(config, message_list, cx)
             });
-            self.column_toggle_panel = Some(panel);
+            self.column_config_popup = Some(popup);
             cx.notify();
-        }
-    }
-
-    /// Update column configuration from the toggle panel to MessageList.
-    fn update_columns_from_panel(&mut self, cx: &mut Context<Self>) {
-        if let Some(panel) = &self.column_toggle_panel {
-            let config = panel.read(cx).column_config().clone();
-            self.message_list.update(cx, |list, _| {
-                list.column_config = config;
-            });
         }
     }
 
@@ -382,7 +366,7 @@ fn format_value(value: &can_decoder::types::Numeric, decimal_places: Option<u8>)
 }
 
 impl Render for MainView {
-    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         // Start message receiver on first render
         if !self.receiver_started {
             self.start_message_receiver(&cx);
@@ -400,11 +384,8 @@ impl Render for MainView {
             panel.selected_message = selected_msg;
         });
 
-        let panel_focused = self.column_toggle_panel.is_some();
-
-        if panel_focused {
-            self.focus_handle.focus(window, cx);
-        }
+        let popup_open = self.column_config_popup.is_some();
+        let main_view: Entity<Self> = cx.entity().clone();
 
         div()
             .track_focus(&self.focus_handle)
@@ -420,20 +401,62 @@ impl Render for MainView {
                     .h_0()
                     .flex_1()
                     .child(filter_panel)
-                    .child(self.message_list.clone())
+                    .child(
+                        div()
+                            .relative()
+                            .h_full()
+                            .w_full()
+                            .child(self.message_list.clone())
+                            .child({
+                                let gear_view = main_view.clone();
+                                div()
+                                    .absolute()
+                                    .top(px(0.0))
+                                    .right(px(0.0))
+                                    .w_8()
+                                    .h_8()
+                                    .flex_row()
+                                    .items_center()
+                                    .justify_center()
+                                    .rounded_md()
+                                    .cursor_pointer()
+                                    .text_sm()
+                                    .text_color(gpui::rgb(0x9999bb))
+                                    .hover(|this| {
+                                        this.bg(gpui::rgb(0x2a2a4e)).text_color(gpui::rgb(0xffffff))
+                                    })
+                                    .on_mouse_down(MouseButton::Left, move |_, _window, cx| {
+                                        gear_view.update(cx, |this, cx| this.toggle_columns(cx));
+                                    })
+                                    .child("\u{2699}")
+                            }),
+                    )
                     .child(detail_panel),
             )
             .child(bottom_bar.render())
-            .when(panel_focused, |this| {
-                this.child(div().absolute().inset_0().bg(hsla(0.0, 0.0, 0.0, 0.4)))
-            })
-            .when(panel_focused, |this| {
+            .when(popup_open, |this| {
                 this.child(
                     div()
                         .absolute()
-                        .top(px(40.0))
-                        .left(px(250.0))
-                        .child(self.column_toggle_panel.clone().unwrap()),
+                        .inset_0()
+                        .flex()
+                        .block_mouse_except_scroll()
+                        .child(
+                            div()
+                                .absolute()
+                                .inset_0()
+                                .bg(hsla(0.0, 0.0, 0.0, 0.4))
+                                .on_mouse_down(MouseButton::Left, move |_event, _window, cx| {
+                                    main_view.update(cx, |this, cx| this.toggle_columns(cx));
+                                }),
+                        )
+                        .child(
+                            div()
+                                .absolute()
+                                .top(px(40.0))
+                                .left(px(250.0))
+                                .child(self.column_config_popup.clone().unwrap()),
+                        ),
                 )
             })
             .on_action(cx.listener(|this, _: &ScrollUp, _window, cx| {
@@ -465,54 +488,22 @@ impl Render for MainView {
                 // TODO: Implement clear messages functionality
                 cx.notify();
             }))
-            .on_action(cx.listener(|this, _: &ToggleColumns, window, cx| {
-                this.toggle_columns(cx);
-                if let Some(panel) = &this.column_toggle_panel {
-                    window.focus(&panel.read(cx).focus_handle(), cx);
-                } else {
-                    window.focus(&this.focus_handle, cx);
-                }
-            }))
-            .on_action(cx.listener(|this, _: &ScrollUp, _window, cx| {
-                if this.column_toggle_panel.is_some() {
-                    if let Some(panel) = &this.column_toggle_panel {
-                        panel.update(cx, |p, _| p.select_prev());
+            .on_key_down({
+                let main_view: Entity<Self> = cx.entity().clone();
+                move |e, _window, cx| {
+                    if e.keystroke.key.as_str() == "escape" {
+                        main_view.update(cx, |this, cx| {
+                            if this.column_config_popup.is_some() {
+                                this.toggle_columns(cx);
+                            }
+                        });
+                    } else if e.keystroke.modifiers.control
+                        && e.keystroke.modifiers.shift
+                        && e.keystroke.key.as_str() == "c"
+                    {
+                        main_view.update(cx, |this, cx| this.toggle_columns(cx));
                     }
-                } else {
-                    this.message_list.update(cx, |list, cx| {
-                        list.select_prev(cx);
-                    });
                 }
-            }))
-            .on_action(cx.listener(|this, _: &ScrollDown, _window, cx| {
-                if this.column_toggle_panel.is_some() {
-                    if let Some(panel) = &this.column_toggle_panel {
-                        panel.update(cx, |p, _| p.select_next());
-                    }
-                } else {
-                    this.message_list.update(cx, |list, cx| {
-                        list.select_next(cx);
-                    });
-                }
-            }))
-            .on_action(cx.listener(|this, _: &SelectRow, _window, cx| {
-                if let Some(panel) = &this.column_toggle_panel {
-                    panel.update(cx, |p, _| p.toggle_selected());
-                } else {
-                    this.message_list.update(cx, |list, cx| {
-                        list.toggle_selection(cx);
-                    });
-                }
-            }))
-            .on_action(cx.listener(|this, _: &CancelFilterEdit, _window, cx| {
-                if this.column_toggle_panel.is_some() {
-                    this.column_toggle_panel = None;
-                    cx.notify();
-                }
-            }))
-            .on_action(cx.listener(|this, _: &CloseColumns, _window, cx| {
-                this.column_toggle_panel = None;
-                cx.notify();
-            }))
+            })
     }
 }

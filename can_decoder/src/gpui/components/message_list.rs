@@ -9,7 +9,7 @@ use can_decoder::columns::{Column, ColumnConfig, ColumnState};
 use can_decoder::filter_editor::FieldType;
 use can_decoder::filter_engine::FilterEngine;
 use can_decoder::filters::{PgnFilter, SourceFilter, TitleFilter};
-use can_decoder::formats::{build_detail_string, format_elapsed_time};
+
 use can_decoder::types::DecodedMessage;
 use gpui::{
     div, prelude::*, px, ElementId, Entity, IntoElement, MouseButton, ParentElement, Render,
@@ -35,7 +35,6 @@ pub struct MessageList {
     global_start_time: Option<u64>,
     pub column_config: ColumnConfig,
     scroll_handle: gpui::UniformListScrollHandle,
-    parent_entity: Option<Entity<crate::gpui::renderer::MainView>>,
 }
 
 impl MessageList {
@@ -47,7 +46,6 @@ impl MessageList {
             global_start_time: None,
             column_config: ColumnConfig::default(),
             scroll_handle: gpui::UniformListScrollHandle::new(),
-            parent_entity: None,
         }
     }
 
@@ -59,13 +57,7 @@ impl MessageList {
             global_start_time: None,
             column_config,
             scroll_handle: gpui::UniformListScrollHandle::new(),
-            parent_entity: None,
         }
-    }
-
-    /// Set the parent MainView entity reference for column toggle.
-    pub fn set_parent_entity(&mut self, entity: Entity<crate::gpui::renderer::MainView>) {
-        self.parent_entity = Some(entity);
     }
 
     /// Toggle a column's visibility.
@@ -96,7 +88,7 @@ impl MessageList {
     pub fn set_filter(
         &mut self,
         source_addr: Option<u8>,
-        dest_addr: Option<u8>,
+        _dest_addr: Option<u8>,
         pgn: Option<u32>,
         title_contains: Vec<String>,
     ) {
@@ -319,7 +311,6 @@ impl Render for MessageList {
             .into_iter()
             .cloned()
             .collect::<Vec<_>>();
-        let parent_entity = self.parent_entity.clone();
 
         div()
             .relative()
@@ -334,7 +325,7 @@ impl Render for MessageList {
                     .bg(gpui::rgb(0x1a1a2e))
                     .border_b_1()
                     .border_color(gpui::rgb(0x333355))
-                    .child(render_headers(&enabled_states, parent_entity)),
+                    .child(render_headers(&enabled_states)),
             )
             .child(
                 make_uniform_list(
@@ -382,44 +373,41 @@ impl Render for MessageList {
     }
 }
 
-fn render_headers(
-    enabled_columns: &[ColumnState],
-    parent_entity: Option<Entity<crate::gpui::renderer::MainView>>,
-) -> impl IntoElement {
+fn render_headers(enabled_columns: &[ColumnState]) -> impl IntoElement {
     let mut parts = Vec::new();
+
+    let mut cumulative_offset = px(8.0);
     for col_state in enabled_columns {
         let label = col_state.column.label().to_string();
-        let entity = parent_entity.clone();
+        let width = col_state.column.base_width();
+        let px_width = px(width as f32 * 6.0);
         parts.push(
-            div()
-                .text_xs()
-                .font_family("monospace")
-                .font_weight(gpui::FontWeight::BOLD)
-                .text_color(gpui::rgb(0x8888cc))
-                .px_2()
-                .py_1()
-                .cursor_pointer()
-                .hover(|this| this.text_color(gpui::rgb(0xaaccff)))
-                .on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                    if let Some(parent) = &entity {
-                        parent.update(cx, |main, cx| {
-                            main.toggle_columns(cx);
-                        });
-                    }
-                })
-                .child(label),
+            div().relative().child(
+                div()
+                    .absolute()
+                    .top(px(0.0))
+                    .left(cumulative_offset)
+                    .text_xs()
+                    .font_family("monospace")
+                    .font_weight(gpui::FontWeight::BOLD)
+                    .text_color(gpui::rgb(0x8888cc))
+                    .w(px_width)
+                    .overflow_hidden()
+                    .justify_start()
+                    .py_1()
+                    .child(label),
+            ),
         );
+        cumulative_offset = cumulative_offset + px_width + px(6.0);
     }
 
     div()
-        .flex_row()
+        .relative()
         .w_full()
         .h_6()
         .bg(gpui::rgb(0x1a1a2e))
         .border_b_1()
         .border_color(gpui::rgb(0x333355))
-        .items_center()
-        .px_3()
         .children(parts)
 }
 
@@ -436,24 +424,44 @@ fn render_row(
         gpui::rgb(0x0f0f23)
     };
 
-    let mut parts = Vec::new();
+    let text_color = if is_selected {
+        gpui::rgb(0xffffff)
+    } else {
+        gpui::rgb(0xcccccc)
+    };
+
+    let mut children = Vec::new();
+    let mut cumulative_offset = px(8.0);
     for col_state in column_config.enabled_column_states() {
         let value = col_state.column.format(msg, 40, None);
-        parts.push(value);
+        let width = col_state.column.base_width();
+        let px_width = px(width as f32 * 6.0);
+        children.push(
+            div().relative().child(
+                div()
+                    .absolute()
+                    .top(px(0.0))
+                    .left(cumulative_offset)
+                    .text_xs()
+                    .font_family("monospace")
+                    .text_color(text_color)
+                    .w(px_width)
+                    .overflow_hidden()
+                    .justify_start()
+                    .child(value),
+            ),
+        );
+        cumulative_offset = cumulative_offset + px_width + px(6.0);
     }
-
-    let row_text = parts.join("  ");
 
     div()
         .id(ElementId::Integer(msg.timestamp() as u64))
+        .relative()
         .w_full()
         .h_6()
         .bg(bg_color)
         .border_b_1()
         .border_color(gpui::rgb(0x1a1a2e))
-        .flex_row()
-        .px_3()
-        .items_center()
         .cursor_pointer()
         .hover(|this| {
             this.bg(if is_selected {
@@ -463,15 +471,5 @@ fn render_row(
             })
         })
         .on_mouse_down(MouseButton::Left, on_click)
-        .child(
-            div()
-                .text_xs()
-                .font_family("monospace")
-                .text_color(if is_selected {
-                    gpui::rgb(0xffffff)
-                } else {
-                    gpui::rgb(0xcccccc)
-                })
-                .child(row_text),
-        )
+        .children(children)
 }
