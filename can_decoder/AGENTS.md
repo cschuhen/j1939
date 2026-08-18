@@ -84,4 +84,5 @@ can_decoder/
 3. Run `cargo test` once tests are added.
 4. For candump testing: generate sample data with `candump can0 -t a > capture.log` or create manually.
 5. Each subagent should focus on one file or module at a time to minimize context usage.
-6. At the end of each phase: Have a subagent check for updates to AGENTS.md and MODULE_INDEX.md('git diff' to speed this up). Check off completed items in planning document. Then commit(don't push) with a sensible consise commit message.
+6. Once coding is complete and tests pass run `cargo +nightly fmt` to fix formating issues.
+7. At the end of each phase: Have a subagent check for updates to AGENTS.md and MODULE_INDEX.md('git diff' to speed this up). Check off completed items in planning document. Then commit(don't push) with a sensible consise commit message.

@@ -18,13 +18,14 @@ use gpui::{
 };
 
 use super::super::keybindings::{CancelFilterEdit, CloseColumns, ScrollDown, ScrollUp, SelectRow};
+use super::message_list::MessageList;
 
 /// Column configuration popup state.
 pub struct ColumnConfigPopup {
     pub column_config: ColumnConfig,
     pub selected_index: usize,
     pub focus_handle: FocusHandle,
-    message_list: Option<Rc<Entity<super::message_list::MessageList>>>,
+    message_list: Option<Rc<Entity<MessageList>>>,
 }
 
 impl ColumnConfigPopup {
@@ -32,12 +33,12 @@ impl ColumnConfigPopup {
     /// Selection starts on the first enabled column (or the first column).
     pub fn new(
         column_config: ColumnConfig,
-        message_list: Entity<super::message_list::MessageList>,
+        message_list: Entity<MessageList>,
         cx: &mut Context<Self>,
     ) -> Self {
         let selected_index = Column::all()
             .iter()
-            .position(|col| column_enabled(&column_config, *col))
+            .position(|col| is_enabled(&column_config, *col))
             .unwrap_or(0);
 
         Self {
@@ -55,7 +56,7 @@ impl ColumnConfigPopup {
 
     /// Whether `column` is enabled in the current config (falls back to its default).
     fn enabled(&self, column: Column) -> bool {
-        column_enabled(&self.column_config, column)
+        is_enabled(&self.column_config, column)
     }
 
     /// Toggle a column's visibility and immediately apply it to the MessageList.
@@ -95,46 +96,49 @@ impl ColumnConfigPopup {
     fn close(&self, window: &mut Window, cx: &mut Context<Self>) {
         window.dispatch_action(Box::new(CloseColumns), cx);
     }
+}
 
-    /// Title bar: popup title on the left, close button on the right.
-    fn render_title_bar(&self) -> impl IntoElement {
+impl Render for ColumnConfigPopup {
+    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         div()
-            .h_9()
-            .w_full()
-            .bg(gpui::rgb(0x282848))
-            .flex()
-            .flex_row()
-            .items_center()
-            .justify_between()
-            .px_4()
-            .border_b_1()
+            .id("column-config-popup")
+            .track_focus(&self.focus_handle)
+            .w_72()
+            .bg(gpui::rgb(0x1e1e32))
+            .border_1()
             .border_color(gpui::rgb(0x333355))
-            .child(
-                div()
-                    .text_sm()
-                    .font_weight(gpui::FontWeight::BOLD)
-                    .text_color(gpui::rgb(0xffffff))
-                    .child("Configure Columns"),
-            )
-            .child(
-                div()
-                    .w_6()
-                    .h_6()
-                    .flex_row()
-                    .items_center()
-                    .justify_center()
-                    .rounded_sm()
-                    .cursor_pointer()
-                    .text_xs()
-                    .text_color(gpui::rgb(0x8888aa))
-                    .hover(|this| this.bg(gpui::rgb(0x3a3a5e)).text_color(gpui::rgb(0xffffff)))
-                    .on_mouse_down(MouseButton::Left, |_event, window, cx| {
-                        window.dispatch_action(Box::new(CloseColumns), cx);
-                    })
-                    .child("x"),
-            )
+            .rounded(px(8.0))
+            .flex()
+            .flex_col()
+            .overflow_hidden()
+            .on_mouse_down(MouseButton::Left, |_event, _window, cx| {
+                cx.stop_propagation();
+            })
+            .on_action(cx.listener(|this, _: &ScrollUp, _window, cx| {
+                this.select_prev();
+                cx.notify();
+            }))
+            .on_action(cx.listener(|this, _: &ScrollDown, _window, cx| {
+                this.select_next();
+                cx.notify();
+            }))
+            .on_action(cx.listener(|this, _: &SelectRow, window, cx| {
+                this.toggle_selected(cx);
+                window.focus(&this.focus_handle, cx);
+            }))
+            .on_action(cx.listener(|this, _: &CancelFilterEdit, window, cx| {
+                this.close(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &CloseColumns, window, cx| {
+                this.close(window, cx);
+            }))
+            .child(render_title_bar())
+            .child(self.render_column_rows(cx))
+            .child(render_footer())
     }
+}
 
+impl ColumnConfigPopup {
     /// One horizontal row per column.
     fn render_column_rows(&self, cx: &mut Context<Self>) -> impl IntoElement {
         div().flex_1().children(
@@ -181,7 +185,7 @@ impl ColumnConfigPopup {
                     popup.toggle_column(column, cx);
                 });
             })
-            .child(Self::render_checkbox(enabled))
+            .child(render_checkbox(enabled))
             .child(
                 div()
                     .flex_1()
@@ -203,106 +207,105 @@ impl ColumnConfigPopup {
                     .child(format!("w={}", column.base_width())),
             )
     }
+}
 
-    /// Checkbox indicator showing the current enabled state.
-    fn render_checkbox(enabled: bool) -> impl IntoElement {
-        div()
-            .w_4()
-            .h_4()
-            .flex_shrink_0()
-            .flex()
-            .flex_row()
-            .items_center()
-            .justify_center()
-            .rounded_sm()
-            .border_1()
-            .border_color(if enabled {
-                gpui::rgb(0x4a9eff)
-            } else {
-                gpui::rgb(0x333355)
-            })
-            .bg(if enabled {
-                gpui::rgb(0x4a9eff)
-            } else {
-                gpui::rgb(0x141428)
-            })
-            .when(enabled, |this| {
-                this.child(div().w_2().h_2().rounded_sm().bg(gpui::rgb(0xffffff)))
-            })
-    }
+/// Title bar: popup title on the left, close button on the right.
+fn render_title_bar() -> impl IntoElement {
+    div()
+        .h_9()
+        .w_full()
+        .bg(gpui::rgb(0x282848))
+        .flex()
+        .flex_row()
+        .items_center()
+        .justify_between()
+        .px_4()
+        .border_b_1()
+        .border_color(gpui::rgb(0x333355))
+        .child(
+            div()
+                .text_sm()
+                .font_weight(gpui::FontWeight::BOLD)
+                .text_color(gpui::rgb(0xffffff))
+                .child("Configure Columns"),
+        )
+        .child(
+            div()
+                .w_6()
+                .h_6()
+                .flex_row()
+                .items_center()
+                .justify_center()
+                .rounded_sm()
+                .cursor_pointer()
+                .text_xs()
+                .text_color(gpui::rgb(0x8888aa))
+                .hover(|this| this.bg(gpui::rgb(0x3a3a5e)).text_color(gpui::rgb(0xffffff)))
+                .on_mouse_down(MouseButton::Left, |_event, window, cx| {
+                    window.dispatch_action(Box::new(CloseColumns), cx);
+                })
+                .child("x"),
+        )
+}
 
-    /// Footer bar with keyboard hints.
-    fn render_footer() -> impl IntoElement {
-        div()
-            .h_8()
-            .w_full()
-            .bg(gpui::rgb(0x282848))
-            .flex()
-            .flex_row()
-            .items_center()
-            .justify_between()
-            .px_4()
-            .border_t_1()
-            .border_color(gpui::rgb(0x333355))
-            .child(Self::render_key_hint("[↑↓] Navigate  [Space] Toggle"))
-            .child(Self::render_key_hint("[Esc] Close"))
-    }
+/// Checkbox indicator showing the current enabled state.
+fn render_checkbox(enabled: bool) -> impl IntoElement {
+    div()
+        .w_4()
+        .h_4()
+        .flex_shrink_0()
+        .flex()
+        .flex_row()
+        .items_center()
+        .justify_center()
+        .rounded_sm()
+        .border_1()
+        .border_color(if enabled {
+            gpui::rgb(0x4a9eff)
+        } else {
+            gpui::rgb(0x333355)
+        })
+        .bg(if enabled {
+            gpui::rgb(0x4a9eff)
+        } else {
+            gpui::rgb(0x141428)
+        })
+        .when(enabled, |this| {
+            this.child(div().w_2().h_2().rounded_sm().bg(gpui::rgb(0xffffff)))
+        })
+}
 
-    fn render_key_hint(text: &str) -> impl IntoElement {
-        div()
-            .text_xs()
-            .font_family("monospace")
-            .text_color(gpui::rgb(0x666688))
-            .child(text.to_string())
-    }
+/// Footer bar with keyboard hints.
+fn render_footer() -> impl IntoElement {
+    div()
+        .h_8()
+        .w_full()
+        .bg(gpui::rgb(0x282848))
+        .flex()
+        .flex_row()
+        .items_center()
+        .justify_between()
+        .px_4()
+        .border_t_1()
+        .border_color(gpui::rgb(0x333355))
+        .child(render_key_hint("[↑↓] Navigate  [Space] Toggle"))
+        .child(render_key_hint("[Esc] Close"))
+}
+
+fn render_key_hint(text: &str) -> impl IntoElement {
+    div()
+        .text_xs()
+        .font_family("monospace")
+        .text_color(gpui::rgb(0x666688))
+        .child(text.to_string())
 }
 
 /// Whether `column` is enabled in `config`, falling back to its default state.
-fn column_enabled(config: &ColumnConfig, column: Column) -> bool {
+fn is_enabled(config: &ColumnConfig, column: Column) -> bool {
     config
         .states
         .iter()
         .find(|s| s.column == column)
         .map(|s| s.enabled)
         .unwrap_or_else(|| column.default_enabled())
-}
-
-impl Render for ColumnConfigPopup {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        div()
-            .id("column-config-popup")
-            .track_focus(&self.focus_handle)
-            .w_72()
-            .bg(gpui::rgb(0x1e1e32))
-            .border_1()
-            .border_color(gpui::rgb(0x333355))
-            .rounded(px(8.0))
-            .flex()
-            .flex_col()
-            .overflow_hidden()
-            .on_mouse_down(MouseButton::Left, |_event, _window, cx| {
-                cx.stop_propagation();
-            })
-            .on_action(cx.listener(|this, _: &ScrollUp, _window, cx| {
-                this.select_prev();
-                cx.notify();
-            }))
-            .on_action(cx.listener(|this, _: &ScrollDown, _window, cx| {
-                this.select_next();
-                cx.notify();
-            }))
-            .on_action(cx.listener(|this, _: &SelectRow, window, cx| {
-                this.toggle_selected(cx);
-                window.focus(&this.focus_handle, cx);
-            }))
-            .on_action(cx.listener(|this, _: &CancelFilterEdit, window, cx| {
-                this.close(window, cx);
-            }))
-            .on_action(cx.listener(|this, _: &CloseColumns, window, cx| {
-                this.close(window, cx);
-            }))
-            .child(self.render_title_bar())
-            .child(self.render_column_rows(cx))
-            .child(Self::render_footer())
-    }
 }

@@ -3,8 +3,10 @@
 //! Implements the main `MainView` with the three-panel dockable layout:
 //! LHS filter widgets, center message list, RHS detail panel.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
+use can_decoder::device_manager::DeviceManager;
+use can_decoder::formats;
 use can_decoder::types::DecodedMessage;
 use gpui::prelude::FluentBuilder;
 use gpui::{
@@ -28,6 +30,8 @@ pub struct MainView {
     msg_rx: Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<DecodedMessage>>>,
     message_list: Entity<MessageList>,
     filter_panel: Entity<NewFilterPanel>,
+    detail_panel: Entity<DetailPanel>,
+    last_detail_index: Option<usize>,
     column_config_popup: Option<Entity<ColumnConfigPopup>>,
     receiver_started: bool,
     focus_handle: FocusHandle,
@@ -38,14 +42,18 @@ impl MainView {
         app_state: AppState,
         msg_rx: mpsc::UnboundedReceiver<DecodedMessage>,
         message_list: Entity<MessageList>,
+        device_manager: Arc<Mutex<DeviceManager>>,
         cx: &mut Context<Self>,
     ) -> Self {
         let filter_panel = cx.new(|cx| NewFilterPanel::new(message_list.clone(), cx));
+        let detail_panel = cx.new(|cx| DetailPanel::new(device_manager.clone(), cx));
         MainView {
             app_state,
             msg_rx: Arc::new(tokio::sync::Mutex::new(msg_rx)),
             message_list,
             filter_panel,
+            detail_panel,
+            last_detail_index: None,
             column_config_popup: None,
             receiver_started: false,
             focus_handle: cx.focus_handle(),
@@ -106,21 +114,19 @@ impl MainView {
 
 /// RHS detail panel — shows decoded message details for selected row.
 pub struct DetailPanel {
-    selected_message: Option<can_decoder::types::DecodedMessage>,
+    selected_message: Option<DecodedMessage>,
+    device_manager: Arc<Mutex<DeviceManager>>,
 }
 
 impl DetailPanel {
-    pub fn new(_cx: &mut Context<Self>) -> Self {
+    pub fn new(device_manager: Arc<Mutex<DeviceManager>>, _cx: &mut Context<Self>) -> Self {
         Self {
             selected_message: None,
+            device_manager,
         }
     }
 
-    pub fn set_selected_message(
-        &mut self,
-        msg: Option<can_decoder::types::DecodedMessage>,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn set_selected_message(&mut self, msg: Option<DecodedMessage>, cx: &mut Context<Self>) {
         self.selected_message = msg;
         cx.notify();
     }
@@ -129,6 +135,7 @@ impl DetailPanel {
 impl Render for DetailPanel {
     fn render(&mut self, _window: &mut Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let msg = self.selected_message.clone();
+        let device_manager = self.device_manager.clone();
 
         div()
             .h_full()
@@ -159,17 +166,29 @@ impl Render for DetailPanel {
                         .text_color(gpui::rgb(0x555577))
                         .child("No message selected")
                         .into_any_element(),
-                    Some(msg) => render_detail(msg).into_any_element(),
+                    Some(msg) => render_detail(msg, &device_manager).into_any_element(),
                 }),
             )
     }
 }
 
-fn render_detail(msg: &can_decoder::types::DecodedMessage) -> impl IntoElement {
+fn section_header(label: &str) -> impl IntoElement {
+    div()
+        .text_xs()
+        .font_weight(gpui::FontWeight::MEDIUM)
+        .text_color(gpui::rgb(0x8888cc))
+        .mb_1()
+        .child(label.to_string())
+}
+
+fn render_detail(
+    msg: &DecodedMessage,
+    device_manager: &Arc<Mutex<DeviceManager>>,
+) -> impl IntoElement {
     let assembled = &msg.assembled_message;
     let pgn_hex = format!("{:#05X}", assembled.pgn());
-    let src_hex = format!("{:02X}", assembled.source());
-    let dst_hex = format!("{:02X}", assembled.destination());
+    let can_id_hex = format!("{:08X}", assembled.id);
+    let time_str = formats::format_timestamp(assembled.timestamp);
 
     div()
         .flex_col()
@@ -188,37 +207,52 @@ fn render_detail(msg: &can_decoder::types::DecodedMessage) -> impl IntoElement {
                 .mb_2()
                 .flex_col()
                 .gap_1()
+                .child(detail_row("Time", &time_str))
                 .child(detail_row("PGN", &pgn_hex))
-                .child(detail_row("Source", &src_hex))
-                .child(detail_row("Dest", &dst_hex)),
+                .child(detail_row("CAN ID", &can_id_hex)),
         )
-        .when(msg.outputs.len() > 0, |this| {
+        .child(
+            div()
+                .mb_2()
+                .flex_col()
+                .gap_1()
+                .child(render_device_row(
+                    "Source",
+                    assembled.source(),
+                    device_manager,
+                    assembled.source_name,
+                ))
+                .child(render_device_row(
+                    "Dest",
+                    assembled.destination(),
+                    device_manager,
+                    assembled.dest_name,
+                )),
+        )
+        .when(!assembled.data.is_empty(), |this| {
             this.child(
                 div()
                     .mb_2()
-                    .child(
-                        div()
-                            .text_xs()
-                            .font_weight(gpui::FontWeight::MEDIUM)
-                            .text_color(gpui::rgb(0x8888cc))
-                            .mb_1()
-                            .child("Outputs"),
-                    )
+                    .child(section_header(&format!(
+                        "Data ({} bytes)",
+                        assembled.data.len()
+                    )))
+                    .child(render_hex_dump(&assembled.data)),
+            )
+        })
+        .when(!msg.outputs.is_empty(), |this| {
+            this.child(
+                div()
+                    .mb_2()
+                    .child(section_header("Outputs"))
                     .children(msg.outputs.iter().map(|output| render_output(output))),
             )
         })
-        .when(msg.updates.len() > 0, |this| {
+        .when(!msg.updates.is_empty(), |this| {
             this.child(
                 div()
                     .mb_2()
-                    .child(
-                        div()
-                            .text_xs()
-                            .font_weight(gpui::FontWeight::MEDIUM)
-                            .text_color(gpui::rgb(0x8888cc))
-                            .mb_1()
-                            .child("Updates"),
-                    )
+                    .child(section_header("Updates"))
                     .children(msg.updates.iter().map(|update| render_update(update))),
             )
         })
@@ -241,6 +275,69 @@ fn detail_row(label: &str, value: &str) -> impl IntoElement {
                 .text_color(gpui::rgb(0xcccccc))
                 .child(value.to_string()),
         )
+}
+
+fn resolve_device_name(device_manager: &Arc<Mutex<DeviceManager>>, address: u8) -> Option<String> {
+    device_manager
+        .lock()
+        .ok()?
+        .get_device(address)?
+        .name
+        .clone()
+}
+
+fn render_device_row(
+    label: &str,
+    address: u8,
+    device_manager: &Arc<Mutex<DeviceManager>>,
+    raw_name: Option<u64>,
+) -> impl IntoElement {
+    let is_broadcast = address == 0xFF;
+    let name = if is_broadcast {
+        Some("(broadcast)".to_string())
+    } else {
+        resolve_device_name(device_manager, address)
+    };
+
+    let mut value = format!("{:02X}h", address);
+    if let Some(name) = &name {
+        value.push_str(&format!("  {}", name));
+    }
+    if let Some(raw) = raw_name {
+        value.push_str(&format!("  NAME 0x{:016X}", raw));
+    }
+
+    detail_row(label, &value)
+}
+
+fn render_hex_dump(data: &[u8]) -> impl IntoElement {
+    div()
+        .flex_col()
+        .gap_1()
+        .children(data.chunks(16).enumerate().map(|(row_idx, chunk)| {
+            let offset = row_idx * 16;
+            div()
+                .flex_row()
+                .child(
+                    div()
+                        .text_xs()
+                        .font_family("monospace")
+                        .text_color(gpui::rgb(0x555577))
+                        .child(format!("{:04X}  ", offset)),
+                )
+                .child(div().flex_row().children(chunk.iter().map(|byte| {
+                    let color = if *byte == 0 {
+                        gpui::rgb(0x555577)
+                    } else {
+                        gpui::rgb(0xcccccc)
+                    };
+                    div()
+                        .text_xs()
+                        .font_family("monospace")
+                        .text_color(color)
+                        .child(format!("{:02X} ", byte))
+                })))
+        }))
 }
 
 fn render_output(output: &can_decoder::types::DecodedField) -> impl IntoElement {
@@ -377,12 +474,20 @@ impl Render for MainView {
         let bottom_bar = StatusBar::new(format!("{} messages received", msg_count).into(), false);
 
         let filter_panel = self.filter_panel.clone();
-        let detail_panel: Entity<DetailPanel> = cx.new(DetailPanel::new);
 
-        let selected_msg = self.message_list.read(cx).selected_message().cloned();
-        detail_panel.update(cx, |panel, _cx| {
-            panel.selected_message = selected_msg;
-        });
+        // Push the selected message into the persistent DetailPanel only when
+        // the selection index changes (avoids re-rendering on every frame).
+        {
+            let list = self.message_list.read(cx);
+            let sel_idx = list.selected_index;
+            if sel_idx != self.last_detail_index {
+                self.last_detail_index = sel_idx;
+                let selected_msg = list.selected_message().cloned();
+                self.detail_panel.update(cx, |panel, _cx| {
+                    panel.selected_message = selected_msg;
+                });
+            }
+        }
 
         let popup_open = self.column_config_popup.is_some();
         let main_view: Entity<Self> = cx.entity().clone();
@@ -431,7 +536,7 @@ impl Render for MainView {
                                     .child("\u{2699}")
                             }),
                     )
-                    .child(detail_panel),
+                    .child(self.detail_panel.clone()),
             )
             .child(bottom_bar.render())
             .when(popup_open, |this| {

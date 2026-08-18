@@ -18,7 +18,15 @@ use clap::Parser;
 use gpui_platform::application;
 use tokio::sync::mpsc;
 
-fn build_pipeline(cli: &Cli) -> Result<(Pipeline, mpsc::UnboundedReceiver<DecodedMessage>)> {
+type DeviceManagerHandle = Arc<std::sync::Mutex<DeviceManager>>;
+
+fn build_pipeline(
+    cli: &Cli,
+) -> Result<(
+    Pipeline,
+    mpsc::UnboundedReceiver<DecodedMessage>,
+    DeviceManagerHandle,
+)> {
     let proprietary_defs =
         validate_proprietary_definitions(&cli.shared.use_proprietary_ddi_definitions);
 
@@ -45,12 +53,13 @@ fn build_pipeline(cli: &Cli) -> Result<(Pipeline, mpsc::UnboundedReceiver<Decode
         }
     }
 
-    let device_manager = Arc::new(std::sync::Mutex::new(DeviceManager::new(60)));
+    let device_manager: DeviceManagerHandle =
+        Arc::new(std::sync::Mutex::new(DeviceManager::new(60)));
     let decoder = J1939Decoder::with_device_manager_detail(
         cli.shared.force_output_partial_tp,
         5000,
         cli.shared.debug,
-        Some(device_manager),
+        Some(device_manager.clone()),
         cli.shared.detail_level.clone(),
         &proprietary_defs,
     );
@@ -70,7 +79,7 @@ fn build_pipeline(cli: &Cli) -> Result<(Pipeline, mpsc::UnboundedReceiver<Decode
         }
     });
 
-    Ok((pipeline, msg_rx))
+    Ok((pipeline, msg_rx, device_manager))
 }
 
 fn main() -> Result<()> {
@@ -87,7 +96,8 @@ fn main() -> Result<()> {
 
     let rt = tokio::runtime::Runtime::new()?;
 
-    let msg_rx = rt.block_on(async { build_pipeline(&cli).map(|(_, rx)| rx) })?;
+    let (msg_rx, device_manager) =
+        rt.block_on(async { build_pipeline(&cli).map(|(_, rx, dm)| (rx, dm)) })?;
 
     let _rt = Box::leak(Box::new(rt));
 
@@ -117,7 +127,13 @@ fn main() -> Result<()> {
             move |_window, cx| {
                 let message_list = cx.new(|_| gpui::components::message_list::MessageList::new());
                 cx.new(|cx| {
-                    gpui::renderer::MainView::new(app_state.clone(), msg_rx, message_list, cx)
+                    gpui::renderer::MainView::new(
+                        app_state.clone(),
+                        msg_rx,
+                        message_list,
+                        device_manager,
+                        cx,
+                    )
                 })
             },
         );
