@@ -22,7 +22,9 @@ use super::components::filter_panel::FilterPanel as NewFilterPanel;
 use super::components::message_list::MessageList;
 use super::components::status_bar::StatusBar;
 
-use super::keybindings::{ClearMessages, PageDown, PageUp, ScrollDown, ScrollUp, SelectRow};
+use super::keybindings::{
+    ClearMessages, CloseColumns, PageDown, PageUp, ScrollDown, ScrollUp, SelectRow,
+};
 
 /// Root view — three-panel layout with status bars.
 pub struct MainView {
@@ -61,9 +63,11 @@ impl MainView {
     }
 
     /// Show or hide the column config popup.
-    pub fn toggle_columns(&mut self, cx: &mut Context<Self>) {
+    pub fn toggle_columns(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.column_config_popup.is_some() {
             self.column_config_popup.take();
+            // Return focus to the main view so message-list keys work again.
+            window.focus(&self.focus_handle, cx);
             cx.notify();
         } else {
             let message_list = self.message_list.clone();
@@ -71,6 +75,10 @@ impl MainView {
                 let config = message_list.read(cx).column_config().clone();
                 ColumnConfigPopup::new(config, message_list, cx)
             });
+            // Move focus into the popup so its keybindings (arrows/space) are
+            // dispatched to it instead of the message list.
+            let popup_focus = popup.read(cx).focus_handle.clone();
+            window.focus(&popup_focus, cx);
             self.column_config_popup = Some(popup);
             cx.notify();
         }
@@ -530,8 +538,13 @@ impl Render for MainView {
                                     .hover(|this| {
                                         this.bg(gpui::rgb(0x2a2a4e)).text_color(gpui::rgb(0xffffff))
                                     })
-                                    .on_mouse_down(MouseButton::Left, move |_, _window, cx| {
-                                        gear_view.update(cx, |this, cx| this.toggle_columns(cx));
+                                    .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                                        // Suppress GPUI's mouse-down auto-focus so the main
+                                        // view doesn't steal focus back from the popup.
+                                        window.prevent_default();
+                                        gear_view.update(cx, |this, cx| {
+                                            this.toggle_columns(window, cx);
+                                        });
                                     })
                                     .child("\u{2699}")
                             }),
@@ -551,8 +564,10 @@ impl Render for MainView {
                                 .absolute()
                                 .inset_0()
                                 .bg(hsla(0.0, 0.0, 0.0, 0.4))
-                                .on_mouse_down(MouseButton::Left, move |_event, _window, cx| {
-                                    main_view.update(cx, |this, cx| this.toggle_columns(cx));
+                                .on_mouse_down(MouseButton::Left, move |_event, window, cx| {
+                                    main_view.update(cx, |this, cx| {
+                                        this.toggle_columns(window, cx);
+                                    });
                                 }),
                         )
                         .child(
@@ -593,20 +608,26 @@ impl Render for MainView {
                 // TODO: Implement clear messages functionality
                 cx.notify();
             }))
+            // CloseColumns bubbles up from the column config popup (Esc / X button).
+            .on_action(cx.listener(|this, _: &CloseColumns, window, cx| {
+                if this.column_config_popup.is_some() {
+                    this.toggle_columns(window, cx);
+                }
+            }))
             .on_key_down({
                 let main_view: Entity<Self> = cx.entity().clone();
-                move |e, _window, cx| {
+                move |e, window, cx| {
                     if e.keystroke.key.as_str() == "escape" {
                         main_view.update(cx, |this, cx| {
                             if this.column_config_popup.is_some() {
-                                this.toggle_columns(cx);
+                                this.toggle_columns(window, cx);
                             }
                         });
                     } else if e.keystroke.modifiers.control
                         && e.keystroke.modifiers.shift
                         && e.keystroke.key.as_str() == "c"
                     {
-                        main_view.update(cx, |this, cx| this.toggle_columns(cx));
+                        main_view.update(cx, |this, cx| this.toggle_columns(window, cx));
                     }
                 }
             })

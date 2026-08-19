@@ -17,7 +17,9 @@ use gpui::{
     ParentElement, Render, Styled, Window,
 };
 
-use super::super::keybindings::{CancelFilterEdit, CloseColumns, ScrollDown, ScrollUp, SelectRow};
+use super::super::keybindings::{
+    CancelFilterEdit, CloseColumns, PageDown, PageUp, ScrollDown, ScrollUp, SelectRow,
+};
 use super::message_list::MessageList;
 
 /// Column configuration popup state.
@@ -67,6 +69,8 @@ impl ColumnConfigPopup {
                 list.column_config = self.column_config.clone()
             });
         }
+        // Repaint the popup so the checkbox reflects the new state immediately.
+        cx.notify();
     }
 
     /// Move selection up by one row.
@@ -122,14 +126,23 @@ impl Render for ColumnConfigPopup {
                 this.select_next();
                 cx.notify();
             }))
+            // Swallow page keys so they don't leak through to the message list.
+            .on_action(cx.listener(|this, _: &PageUp, _window, cx| {
+                this.select_prev();
+                cx.notify();
+            }))
+            .on_action(cx.listener(|this, _: &PageDown, _window, cx| {
+                this.select_next();
+                cx.notify();
+            }))
             .on_action(cx.listener(|this, _: &SelectRow, window, cx| {
                 this.toggle_selected(cx);
                 window.focus(&this.focus_handle, cx);
             }))
+            // Esc: dispatch CloseColumns and let it bubble up to MainView, which
+            // owns the popup entity and actually removes it. Handling CloseColumns
+            // here as well would re-dispatch itself forever (deferred action loop).
             .on_action(cx.listener(|this, _: &CancelFilterEdit, window, cx| {
-                this.close(window, cx);
-            }))
-            .on_action(cx.listener(|this, _: &CloseColumns, window, cx| {
                 this.close(window, cx);
             }))
             .child(render_title_bar())
