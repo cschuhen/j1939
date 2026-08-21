@@ -146,6 +146,7 @@ impl Render for DetailPanel {
         let device_manager = self.device_manager.clone();
 
         div()
+            .flex()
             .h_full()
             .w_80()
             .flex_col()
@@ -154,6 +155,7 @@ impl Render for DetailPanel {
             .border_color(gpui::rgb(0x333355))
             .child(
                 div()
+                    .flex()
                     .h_6()
                     .w_full()
                     .bg(gpui::rgb(0x2a2a4e))
@@ -268,8 +270,10 @@ fn render_detail(
 
 fn detail_row(label: &str, value: &str) -> impl IntoElement {
     div()
+        .flex()
         .flex_row()
         .justify_between()
+        .w_full()
         .child(
             div()
                 .text_xs()
@@ -325,7 +329,9 @@ fn render_hex_dump(data: &[u8]) -> impl IntoElement {
         .children(data.chunks(16).enumerate().map(|(row_idx, chunk)| {
             let offset = row_idx * 16;
             div()
+                .flex()
                 .flex_row()
+                .w_full()
                 .child(
                     div()
                         .text_xs()
@@ -333,18 +339,24 @@ fn render_hex_dump(data: &[u8]) -> impl IntoElement {
                         .text_color(gpui::rgb(0x555577))
                         .child(format!("{:04X}  ", offset)),
                 )
-                .child(div().flex_row().children(chunk.iter().map(|byte| {
-                    let color = if *byte == 0 {
-                        gpui::rgb(0x555577)
-                    } else {
-                        gpui::rgb(0xcccccc)
-                    };
+                .child(
                     div()
-                        .text_xs()
-                        .font_family("monospace")
-                        .text_color(color)
-                        .child(format!("{:02X} ", byte))
-                })))
+                        .flex()
+                        .flex_row()
+                        .flex_1()
+                        .children(chunk.iter().map(|byte| {
+                            let color = if *byte == 0 {
+                                gpui::rgb(0x555577)
+                            } else {
+                                gpui::rgb(0xcccccc)
+                            };
+                            div()
+                                .text_xs()
+                                .font_family("monospace")
+                                .text_color(color)
+                                .child(format!("{:02X} ", byte))
+                        })),
+                )
         }))
 }
 
@@ -528,6 +540,7 @@ impl Render for MainView {
                                     .right(px(0.0))
                                     .w_8()
                                     .h_8()
+                                    .flex()
                                     .flex_row()
                                     .items_center()
                                     .justify_center()

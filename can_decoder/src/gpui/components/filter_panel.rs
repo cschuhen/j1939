@@ -273,6 +273,7 @@ impl Render for FilterPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let entity = cx.entity().clone();
         div()
+            .flex()
             .h_full()
             .w_72()
             .flex_col()
@@ -281,6 +282,7 @@ impl Render for FilterPanel {
             .border_color(gpui::rgb(0x333355))
             .child(
                 div()
+                    .flex()
                     .h_6()
                     .w_full()
                     .bg(gpui::rgb(0x2a2a4e))
@@ -296,7 +298,9 @@ impl Render for FilterPanel {
             )
             .child(
                 div()
+                    .id("filter-panel-list")
                     .flex_1()
+                    .overflow_y_scroll()
                     .p_2()
                     .children(self.render_filter_items(entity, cx)),
             )

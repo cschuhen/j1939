@@ -1,8 +1,8 @@
 //! Column configuration popup — GPUI modal for toggling column visibility.
 //!
 //! Layout, top to bottom:
-//! - Title bar with a close button
-//! - One horizontal row per column: checkbox (left) + label, width hint (right)
+//! - Title bar with the popup title and a close button
+//! - One horizontal row per column: checkbox (left) + label + width hint
 //! - Footer with keyboard hints
 //!
 //! Changes are applied live to the MessageList as they are made; closing the
@@ -115,6 +115,8 @@ impl Render for ColumnConfigPopup {
             .flex()
             .flex_col()
             .overflow_hidden()
+            // Keep clicks inside the popup from reaching the backdrop below,
+            // which would close it immediately.
             .on_mouse_down(MouseButton::Left, |_event, _window, cx| {
                 cx.stop_propagation();
             })
@@ -154,7 +156,7 @@ impl Render for ColumnConfigPopup {
 impl ColumnConfigPopup {
     /// One horizontal row per column.
     fn render_column_rows(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        div().flex_1().children(
+        div().flex().flex_col().w_full().children(
             Column::all()
                 .iter()
                 .enumerate()
@@ -162,11 +164,10 @@ impl ColumnConfigPopup {
         )
     }
 
-    /// A single column row: checkbox (left), label, width hint (right).
+    /// A single column row: checkbox (left), label to its right, width hint far right.
     fn render_row(&self, column: Column, index: usize, cx: &mut Context<Self>) -> impl IntoElement {
         let is_selected = index == self.selected_index;
         let enabled = self.enabled(column);
-        let entity = cx.entity().clone();
 
         div()
             .id(format!("column-row-{}", index))
@@ -176,7 +177,7 @@ impl ColumnConfigPopup {
             .flex_row()
             .items_center()
             .px_4()
-            .gap_3()
+            .gap(px(8.0))
             .cursor_pointer()
             .bg(if is_selected {
                 gpui::rgb(0x2a2a5e)
@@ -192,12 +193,13 @@ impl ColumnConfigPopup {
                 gpui::rgb(0x0f0f23)
             })
             .hover(|this| this.bg(gpui::rgb(0x252550)))
-            .on_mouse_down(MouseButton::Left, move |_event, _window, cx| {
-                entity.update(cx, |popup, cx| {
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |popup, _event, _window, cx| {
                     popup.selected_index = index;
                     popup.toggle_column(column, cx);
-                });
-            })
+                }),
+            )
             .child(render_checkbox(enabled))
             .child(
                 div()
@@ -246,6 +248,7 @@ fn render_title_bar() -> impl IntoElement {
             div()
                 .w_6()
                 .h_6()
+                .flex()
                 .flex_row()
                 .items_center()
                 .justify_center()
@@ -261,7 +264,7 @@ fn render_title_bar() -> impl IntoElement {
         )
 }
 
-/// Checkbox indicator showing the current enabled state.
+/// Checkbox indicator showing the current enabled state of a column.
 fn render_checkbox(enabled: bool) -> impl IntoElement {
     div()
         .w_4()
@@ -283,9 +286,10 @@ fn render_checkbox(enabled: bool) -> impl IntoElement {
         } else {
             gpui::rgb(0x141428)
         })
-        .when(enabled, |this| {
-            this.child(div().w_2().h_2().rounded_sm().bg(gpui::rgb(0xffffff)))
-        })
+        .text_xs()
+        .font_weight(gpui::FontWeight::BOLD)
+        .text_color(gpui::rgb(0xffffff))
+        .child(if enabled { "✓" } else { "" })
 }
 
 /// Footer bar with keyboard hints.

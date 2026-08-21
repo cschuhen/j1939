@@ -130,6 +130,7 @@ impl Render for FilterWidget {
             )
             .child(
                 div()
+                    .flex()
                     .flex_row()
                     .items_center()
                     .justify_between()

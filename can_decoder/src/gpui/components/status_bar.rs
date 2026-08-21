@@ -21,6 +21,7 @@ impl StatusBar {
         };
 
         div()
+            .flex()
             .h_6()
             .w_full()
             .bg(bg_color)
