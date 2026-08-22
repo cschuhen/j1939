@@ -492,8 +492,9 @@ impl J1939Decoder {
         }
     }
 
-    fn make_title_from_pgn(pgn: u32) -> String {
-        format!("PGN 0x{:X}", pgn)
+    fn make_title_from_pgn(_pgn: u32) -> String {
+        //format!("PGN 0x{:X}", pgn)
+        "".to_string()
     }
 
     /// Decode an assembled message with device name enrichment from DeviceManager.
@@ -1256,7 +1257,7 @@ pgns:
         match &msg.outputs[0] {
             DecodedField::StringMessage { text, .. } => {
                 println!("text: {}", text);
-                assert!(text.contains("No decoding for 'PGN 0x1BEEF'"));
+                assert!(text.starts_with("No decoding for ''"));
             }
             _ => panic!("Expected StringMessage for unrecognized PGN"),
         }
@@ -1864,7 +1865,7 @@ pgns:
             msg_c.outputs[0],
             DecodedField::StringMessage {
                 severity: Severity::Info,
-                text: "No decoding for 'PGN 0x3333', 1 bytes".to_string(),
+                text: "No decoding for '', 1 bytes".to_string(),
             }
         );
     }
