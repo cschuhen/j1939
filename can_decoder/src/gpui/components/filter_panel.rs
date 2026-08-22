@@ -40,12 +40,12 @@ impl FilterSection {
     /// Return all filter sections in display order.
     pub fn all_sections() -> &'static [Self] {
         &[
-            Self::SourceAddr,
-            Self::DestAddr,
-            Self::Pgn,
             Self::Title,
+            Self::Pgn,
             Self::SourceName,
             Self::DestName,
+            Self::SourceAddr,
+            Self::DestAddr,
         ]
     }
 }
