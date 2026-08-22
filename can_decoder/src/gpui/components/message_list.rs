@@ -8,7 +8,9 @@ use crate::gpui::keybindings::{PageDown, PageUp, ScrollDown, ScrollUp, SelectRow
 use can_decoder::columns::{Column, ColumnConfig, ColumnState};
 use can_decoder::filter_editor::FieldType;
 use can_decoder::filter_engine::FilterEngine;
-use can_decoder::filters::{PgnFilter, SourceFilter, TitleFilter};
+use can_decoder::filters::{
+    DestNameFilter, PgnFilter, SourceFilter, SourceNameFilter, TitleFilter,
+};
 
 use can_decoder::types::DecodedMessage;
 use gpui::{
@@ -91,6 +93,8 @@ impl MessageList {
         _dest_addr: Option<u8>,
         pgn: Option<u32>,
         title_contains: Vec<String>,
+        source_names: Vec<u64>,
+        dest_names: Vec<u64>,
     ) {
         let mut filters = Vec::new();
 
@@ -103,6 +107,14 @@ impl MessageList {
         for title in title_contains {
             filters
                 .push(Box::new(TitleFilter::new(&title)) as Box<dyn can_decoder::traits::Filter>);
+        }
+        if !source_names.is_empty() {
+            filters.push(Box::new(SourceNameFilter::from_list(source_names))
+                as Box<dyn can_decoder::traits::Filter>);
+        }
+        if !dest_names.is_empty() {
+            filters.push(Box::new(DestNameFilter::from_list(dest_names))
+                as Box<dyn can_decoder::traits::Filter>);
         }
 
         self.engine.set_filters(filters);

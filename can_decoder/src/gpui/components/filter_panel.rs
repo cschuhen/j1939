@@ -1,7 +1,7 @@
 use gpui::prelude::*;
 use gpui::{
     div, px, Context, Entity, FocusHandle, InteractiveElement, IntoElement, MouseButton,
-    ParentElement, Render, SharedString, Styled, Window,
+    ParentElement, Render, SharedString, Styled, TextOverflow, Window,
 };
 
 use can_decoder::filter_editor::FieldType;
@@ -71,7 +71,7 @@ pub struct FilterPanel {
     expanded_sections: Vec<FilterSection>,
     active_filters: Vec<(FilterSection, u64)>,
     selected_titles: Vec<String>,
-    expanded_name_details: Option<u64>,
+    hovered_name: Option<(FilterSection, u64)>,
     items: Vec<FilterItem>,
     message_list: Option<Entity<super::message_list::MessageList>>,
 
@@ -104,7 +104,7 @@ impl FilterPanel {
             ],
             active_filters: Vec::new(),
             selected_titles: Vec::new(),
-            expanded_name_details: None,
+            hovered_name: None,
             items,
             message_list: Some(message_list),
 
@@ -243,19 +243,30 @@ impl FilterPanel {
         let mut source_addr = None;
         let mut dest_addr = None;
         let mut pgn = None;
+        let mut source_names = Vec::new();
+        let mut dest_names = Vec::new();
 
         for (section, value) in &self.active_filters {
             match section {
                 FilterSection::SourceAddr => source_addr = Some(*value as u8),
                 FilterSection::DestAddr => dest_addr = Some(*value as u8),
                 FilterSection::Pgn => pgn = Some(*value as u32),
-                _ => {}
+                FilterSection::Title => {}
+                FilterSection::SourceName => source_names.push(*value),
+                FilterSection::DestName => dest_names.push(*value),
             }
         }
 
         if let Some(ref msg_list) = self.message_list {
             msg_list.update(cx, |list, _cx| {
-                list.set_filter(source_addr, dest_addr, pgn, self.selected_titles.clone());
+                list.set_filter(
+                    source_addr,
+                    dest_addr,
+                    pgn,
+                    self.selected_titles.clone(),
+                    source_names,
+                    dest_names,
+                );
             });
         }
     }
@@ -371,14 +382,21 @@ impl FilterPanel {
                             .any(|(s, v)| *s == section && *v == raw_value)
                     };
                     let entity = entity.clone();
+                    let hover_entity = entity.clone();
                     let label_for_click = label.clone();
-                    let name_details =
-                        if matches!(section, FilterSection::SourceName | FilterSection::DestName) {
-                            Some(can_decoder::utils::render_name(raw_value as u64))
-                        } else {
-                            None
-                        };
-                    let is_expanded = self.expanded_name_details == Some(raw_value);
+                    let is_name_row =
+                        matches!(section, FilterSection::SourceName | FilterSection::DestName);
+                    let name_details = if is_name_row {
+                        Some(can_decoder::utils::render_name(raw_value as u64))
+                    } else {
+                        None
+                    };
+                    let is_hovered = self.hovered_name == Some((section, raw_value));
+                    let element_id = if section == FilterSection::Title {
+                        SharedString::from(format!("filter-title-{}", label.as_ref()))
+                    } else {
+                        SharedString::from(format!("filter-opt-{section:?}-{:x}", raw_value))
+                    };
 
                     elements.push(
                         div()
@@ -389,8 +407,22 @@ impl FilterPanel {
                             .items_center()
                             .px_4()
                             .gap(px(4.0))
+                            .id(element_id)
                             .cursor_pointer()
                             .hover(|this| this.bg(gpui::rgb(0x2a2a3e)))
+                            .on_hover(move |hovered, _, cx| {
+                                if !is_name_row {
+                                    return;
+                                }
+                                hover_entity.update(cx, |panel, _cx| {
+                                    if *hovered {
+                                        panel.hovered_name = Some((section, raw_value));
+                                    } else if panel.hovered_name == Some((section, raw_value)) {
+                                        panel.hovered_name = None;
+                                    }
+                                    _cx.notify();
+                                });
+                            })
                             .on_mouse_down(MouseButton::Left, move |_, _, cx| {
                                 entity.update(cx, |panel, _cx| {
                                     if section == FilterSection::Title {
@@ -400,22 +432,13 @@ impl FilterPanel {
                                     } else {
                                         panel.toggle_filter(section, raw_value);
                                     }
-                                    if matches!(
-                                        section,
-                                        FilterSection::SourceName | FilterSection::DestName
-                                    ) {
-                                        if panel.expanded_name_details == Some(raw_value) {
-                                            panel.expanded_name_details = None;
-                                        } else {
-                                            panel.expanded_name_details = Some(raw_value);
-                                        }
-                                    }
                                     panel.apply_to_message_list(_cx);
                                     _cx.notify();
                                 });
                             })
                             .child(
                                 div()
+                                    .flex_shrink_0()
                                     .w_3()
                                     .h_3()
                                     .rounded_sm()
@@ -440,13 +463,14 @@ impl FilterPanel {
                                     } else {
                                         gpui::rgb(0x9999aa)
                                     })
+                                    .text_overflow(TextOverflow::Truncate(SharedString::from("…")))
                                     .child(label),
                             )
                             .into_any_element(),
                     );
 
                     if let Some(ref details) = name_details {
-                        if is_expanded {
+                        if is_hovered {
                             elements.push(
                                 div()
                                     .w_full()

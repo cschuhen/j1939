@@ -289,12 +289,18 @@ impl Filter for DestFilter {
 
 /// A filter that matches by source NAME (64-bit J1939 NAME).
 pub struct SourceNameFilter {
-    pub source_name: u64,
+    pub names: Vec<u64>,
 }
 
 impl SourceNameFilter {
     pub fn new(source_name: u64) -> Self {
-        Self { source_name }
+        Self {
+            names: vec![source_name],
+        }
+    }
+
+    pub fn from_list(names: Vec<u64>) -> Self {
+        Self { names }
     }
 }
 
@@ -309,18 +315,26 @@ impl Filter for SourceNameFilter {
     }
 
     fn matches_sync(&self, message: &DecodedMessage) -> bool {
-        message.assembled_message.source_name == Some(self.source_name)
+        self.names
+            .iter()
+            .any(|name| message.assembled_message.source_name == Some(*name))
     }
 }
 
 /// A filter that matches by destination NAME (64-bit J1939 NAME).
 pub struct DestNameFilter {
-    pub dest_name: u64,
+    pub names: Vec<u64>,
 }
 
 impl DestNameFilter {
     pub fn new(dest_name: u64) -> Self {
-        Self { dest_name }
+        Self {
+            names: vec![dest_name],
+        }
+    }
+
+    pub fn from_list(names: Vec<u64>) -> Self {
+        Self { names }
     }
 }
 
@@ -335,7 +349,9 @@ impl Filter for DestNameFilter {
     }
 
     fn matches_sync(&self, message: &DecodedMessage) -> bool {
-        message.assembled_message.dest_name == Some(self.dest_name)
+        self.names
+            .iter()
+            .any(|name| message.assembled_message.dest_name == Some(*name))
     }
 }
 
