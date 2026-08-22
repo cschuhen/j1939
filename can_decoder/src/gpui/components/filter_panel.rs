@@ -286,7 +286,7 @@ impl Render for FilterPanel {
         div()
             .flex()
             .h_full()
-            .w_72()
+            .w_full()
             .flex_col()
             .bg(gpui::rgb(0x1a1a2e))
             .border_r_1()

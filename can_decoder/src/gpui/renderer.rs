@@ -10,8 +10,9 @@ use can_decoder::formats;
 use can_decoder::types::DecodedMessage;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    div, hsla, px, AppContext, Context, Entity, FocusHandle, InteractiveElement, IntoElement,
-    MouseButton, ParentElement, Render, Styled, Window,
+    div, hsla, px, AppContext, Context, DragMoveEvent, Entity, FocusHandle, InteractiveElement,
+    IntoElement, MouseButton, ParentElement, Pixels, Render, StatefulInteractiveElement, Styled,
+    Window,
 };
 use j1939_async::Id;
 use tokio::sync::mpsc;
@@ -26,6 +27,59 @@ use super::keybindings::{
     ClearMessages, CloseColumns, PageDown, PageUp, ScrollDown, ScrollUp, SelectRow,
 };
 
+/// Which side's panel an active grab-bar drag is resizing.
+#[derive(Clone, Copy)]
+enum PanelSide {
+    Left,
+    Right,
+}
+
+/// Drag payload for the panel resize grab bars; renders nothing.
+#[derive(Clone)]
+struct PanelResize(PanelSide);
+
+impl Render for PanelResize {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        gpui::Empty
+    }
+}
+
+/// Vertical grab bar used to resize the left (filter) / right (detail) panels.
+fn grab_bar(side: PanelSide, main_view: Entity<MainView>) -> impl IntoElement {
+    let id = match side {
+        PanelSide::Left => "resize-handle-left",
+        PanelSide::Right => "resize-handle-right",
+    };
+    div()
+        .id(id)
+        .h_full()
+        .w(px(6.0))
+        .flex_shrink_0()
+        .flex()
+        .flex_row()
+        .items_center()
+        .justify_center()
+        .cursor_col_resize()
+        .hover(|this| this.bg(gpui::rgb(0x3a3a5e)))
+        .on_mouse_down(
+            MouseButton::Left,
+            move |e: &gpui::MouseDownEvent, _window, cx| {
+                main_view.update(cx, |this, _| {
+                    this.drag_start_x = Some(e.position.x);
+                    this.drag_start_width = match side {
+                        PanelSide::Left => Some(this.filter_width),
+                        PanelSide::Right => Some(this.detail_width),
+                    };
+                });
+            },
+        )
+        .on_drag(PanelResize(side), move |dragged, _offset, _window, cx| {
+            cx.stop_propagation();
+            cx.new(|_| dragged.clone())
+        })
+        .child(div().w(px(2.0)).h_8().rounded_sm().bg(gpui::rgb(0x4a4a6e)))
+}
+
 /// Root view — three-panel layout with status bars.
 pub struct MainView {
     app_state: AppState,
@@ -37,6 +91,10 @@ pub struct MainView {
     column_config_popup: Option<Entity<ColumnConfigPopup>>,
     receiver_started: bool,
     focus_handle: FocusHandle,
+    filter_width: Pixels,
+    detail_width: Pixels,
+    drag_start_x: Option<Pixels>,
+    drag_start_width: Option<Pixels>,
 }
 
 impl MainView {
@@ -59,6 +117,11 @@ impl MainView {
             column_config_popup: None,
             receiver_started: false,
             focus_handle: cx.focus_handle(),
+            // Defaults match the previous fixed panel widths (w_72 / w_80).
+            filter_width: px(288.0),
+            detail_width: px(320.0),
+            drag_start_x: None,
+            drag_start_width: None,
         }
     }
 
@@ -148,7 +211,7 @@ impl Render for DetailPanel {
         div()
             .flex()
             .h_full()
-            .w_80()
+            .w_full()
             .flex_col()
             .bg(gpui::rgb(0x1a1a2e))
             .border_l_1()
@@ -525,12 +588,19 @@ impl Render for MainView {
                     .flex_row()
                     .h_0()
                     .flex_1()
-                    .child(filter_panel)
+                    .child(
+                        div()
+                            .w(self.filter_width)
+                            .h_full()
+                            .flex_shrink_0()
+                            .child(filter_panel),
+                    )
+                    .child(grab_bar(PanelSide::Left, main_view.clone()))
                     .child(
                         div()
                             .relative()
                             .h_full()
-                            .w_full()
+                            .flex_1()
                             .child(self.message_list.clone())
                             .child({
                                 let gear_view = main_view.clone();
@@ -562,9 +632,35 @@ impl Render for MainView {
                                     .child("\u{2699}")
                             }),
                     )
-                    .child(self.detail_panel.clone()),
+                    .child(grab_bar(PanelSide::Right, main_view.clone()))
+                    .child(
+                        div()
+                            .w(self.detail_width)
+                            .h_full()
+                            .flex_shrink_0()
+                            .child(self.detail_panel.clone()),
+                    ),
             )
             .child(bottom_bar.render())
+            .on_drag_move(
+                cx.listener(move |this, e: &DragMoveEvent<PanelResize>, window, cx| {
+                    if let (Some(start_x), Some(start_w)) =
+                        (this.drag_start_x, this.drag_start_width)
+                    {
+                        let dx = e.event.position.x - start_x;
+                        let max_w = window.viewport_size().width / 2.0;
+                        match e.drag(cx).0 {
+                            PanelSide::Left => {
+                                this.filter_width = (start_w + dx).clamp(px(120.0), max_w);
+                            }
+                            PanelSide::Right => {
+                                this.detail_width = (start_w - dx).clamp(px(120.0), max_w);
+                            }
+                        }
+                    }
+                    cx.notify();
+                }),
+            )
             .when(popup_open, |this| {
                 this.child(
                     div()
