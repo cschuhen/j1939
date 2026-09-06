@@ -1,5 +1,7 @@
 use crate::traits::ComplexDecoder;
-use crate::types::{DecodeContext, DecodeError, DecodedField, DecodedInfo, Numeric};
+use crate::types::{
+    create_topic_id, DecodeContext, DecodeError, DecodedField, DecodedInfo, Numeric,
+};
 use iso11783_data::constants::pgn::ADDRESS_CLAIMED;
 use j1939_async::name::Name;
 
@@ -51,7 +53,10 @@ impl ComplexDecoder for AddressClaimDecoder {
 
         self.last_claimed.push(context.src_addr);
 
-        let mut msg = DecodedInfo::new("Address Claim".into());
+        let mut msg = DecodedInfo::new(
+            "Address Claim".into(),
+            create_topic_id(context.pgn, context.src_addr as u32),
+        );
 
         // Industry Group (3 bits)
         let ig = name.industry_group();

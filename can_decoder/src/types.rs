@@ -237,18 +237,46 @@ pub struct DeviceUpdate {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DecodedInfo {
     pub title: String,
+    pub topic_id: TopicId,
     pub outputs: Vec<DecodedField>,
     pub updates: Vec<DeviceUpdate>,
 }
 
 impl DecodedInfo {
-    pub fn new(title: String) -> Self {
+    pub fn new(title: String, topic_id: TopicId) -> Self {
         DecodedInfo {
             title,
+            topic_id,
             outputs: Vec::new(),
             updates: Vec::new(),
         }
     }
+}
+
+// Topic Id (TopicId)
+// Often messages have extra addressing or targt specification in addition to
+// the
+
+pub type TopicId = u64;
+pub type Pgn = u32;
+pub fn topic_id_from_pgn(pgn: Pgn) -> u64 {
+    (pgn as TopicId) << 40
+}
+
+pub fn topic_id_from_message(am: &AssembledMessage) -> u64 {
+    topic_id_from_pgn(am.pgn)
+}
+
+pub fn create_topic_id(pgn: u32, sub_topic: u32) -> u64 {
+    topic_id_from_pgn(pgn) | sub_topic as u64
+}
+
+pub fn create_topic_id_from_message(am: &AssembledMessage, sub_topic: u32) -> u64 {
+    create_topic_id(am.pgn, sub_topic)
+}
+
+pub fn null_topic_id() -> u64 {
+    0u64
 }
 
 /// The final result of a decoding operation.
@@ -257,6 +285,7 @@ pub struct DecodedMessage {
     /// Assembled message containing raw data, timestamp, source/dest addresses, and PGN.
     pub assembled_message: AssembledMessage,
     pub title: String,
+    pub topic_id: TopicId,
     pub outputs: Vec<DecodedField>,
     pub updates: Vec<DeviceUpdate>,
 }
@@ -265,6 +294,7 @@ impl DecodedMessage {
     pub fn new(title: String) -> Self {
         DecodedMessage {
             title,
+            topic_id: 0,
             outputs: Vec::new(),
             updates: Vec::new(),
             assembled_message: AssembledMessage::new(0, vec![], 0),
@@ -275,6 +305,7 @@ impl DecodedMessage {
         DecodedMessage {
             title: info.title,
             outputs: info.outputs,
+            topic_id: topic_id_from_pgn(msg.pgn),
             updates: info.updates,
             assembled_message: msg,
         }
@@ -284,6 +315,7 @@ impl DecodedMessage {
     pub fn with_assembled(title: String, assembled: AssembledMessage) -> Self {
         DecodedMessage {
             title,
+            topic_id: topic_id_from_message(&assembled),
             outputs: Vec::new(),
             updates: Vec::new(),
             assembled_message: assembled,

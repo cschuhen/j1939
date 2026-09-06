@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod tests {
     use can_decoder::types::{
-        AssembledMessage, DecodeContext, DecodeError, DecodedField, DecodedMessage, DeviceUpdate,
-        Numeric,
+        null_topic_id, AssembledMessage, DecodeContext, DecodeError, DecodedField, DecodedMessage,
+        DeviceUpdate, Numeric,
     };
     use j1939_async::can::Id;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -103,6 +103,7 @@ mod tests {
 
         let msg = DecodedMessage {
             title,
+            topic_id: null_topic_id(),
             outputs,
             updates,
             assembled_message: assembled,

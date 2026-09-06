@@ -1,6 +1,9 @@
 use crate::proprietary::ddi::canot;
 use crate::traits::ComplexDecoder;
-use crate::types::{DecodeContext, DecodeError, DecodedField, DecodedInfo, Numeric, Severity};
+use crate::types::{
+    create_topic_id, DecodeContext, DecodeError, DecodedField, DecodedInfo, Numeric, Severity,
+    TopicId,
+};
 
 /// J1939 ISO-11783-10 Task Controller Process Data PGN (51968 / 0xCB00).
 pub const PROCESS_DATA_PGN: u32 = 0x00cb00;
@@ -35,34 +38,46 @@ fn resolve_proprietary_handlers(names: &[String]) -> Vec<ProprietaryHandler> {
 }
 
 /// Command values for TaskController Process Data messages.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TaskCommand {
-    /// Value command - sends element process variable values.
-    Value,
-    /// Unknown/unrecognized command.
-    Unknown(u8),
+    TechnicalCapabilities = 0x0,
+    DeviceDescriptor = 0x1,
+    RequestValue = 0x2,
+    Value = 0x3,
+    MeasurementTimeInterval = 0x4,
+    MeasurementDistanceInterval = 0x5,
+    MeasurementMinimumWithinThreshold = 0x6,
+    MeasurementMaximumWithinThreshold = 0x7,
+    MeasurementChangeThreshold = 0x8,
+    PeerControlAssignment = 0x9,
+    SetValueAndAcknowledge = 0xA,
+    Reserved1 = 0xB,
+    Reserved2 = 0xC,
+    ProcessDataAcknowledge = 0xD,
+    StatusMessage = 0xE,
+    ClientTask = 0xF,
 }
 
 impl From<u8> for TaskCommand {
     fn from(value: u8) -> Self {
         match value & 0x0F {
-            0x0 => TaskCommand::Unknown(0),
-            0x1 => TaskCommand::Unknown(1),
-            0x2 => TaskCommand::Unknown(2),
+            0x0 => TaskCommand::TechnicalCapabilities,
+            0x1 => TaskCommand::DeviceDescriptor,
+            0x2 => TaskCommand::RequestValue,
             0x3 => TaskCommand::Value,
-            0x4 => TaskCommand::Unknown(4),
-            0x5 => TaskCommand::Unknown(5),
-            0x6 => TaskCommand::Unknown(6),
-            0x7 => TaskCommand::Unknown(7),
-            0x8 => TaskCommand::Unknown(8),
-            0x9 => TaskCommand::Unknown(9),
-            0xa => TaskCommand::Unknown(10),
-            0xb => TaskCommand::Unknown(11),
-            0xc => TaskCommand::Unknown(12),
-            0xd => TaskCommand::Unknown(13),
-            0xe => TaskCommand::Unknown(14),
-            0xf => TaskCommand::Unknown(15),
-            _ => TaskCommand::Unknown(value & 0x0F),
+            0x4 => TaskCommand::MeasurementTimeInterval,
+            0x5 => TaskCommand::MeasurementDistanceInterval,
+            0x6 => TaskCommand::MeasurementMinimumWithinThreshold,
+            0x7 => TaskCommand::MeasurementMaximumWithinThreshold,
+            0x8 => TaskCommand::MeasurementChangeThreshold,
+            0x9 => TaskCommand::PeerControlAssignment,
+            0xA => TaskCommand::SetValueAndAcknowledge,
+            0xB => TaskCommand::Reserved1,
+            0xC => TaskCommand::Reserved2,
+            0xD => TaskCommand::ProcessDataAcknowledge,
+            0xE => TaskCommand::StatusMessage,
+            0xF => TaskCommand::ClientTask,
+            _ => unreachable!(), // Handled by masking with 0x0F
         }
     }
 }
@@ -74,6 +89,15 @@ pub struct TaskControllerData {
     pub element_id: u16,
     pub ddi: u16,
     pub value: i32,
+}
+
+impl TaskControllerData {
+    fn topic_id(&self) -> TopicId {
+        let sub_topic =
+            (self.element_id << 4) as u32 | self.command as u32 | (self.ddi as u32) << 16;
+
+        create_topic_id(PROCESS_DATA_PGN, sub_topic)
+    }
 }
 
 /// ComplexDecoder for ISO-11783-10 Annex B.3 Process Data messages (PGN 51968).
@@ -132,7 +156,7 @@ impl TaskControllerDecoder {
     ) -> DecodedInfo {
         let ddi_info = Self::resolve_ddi_info(data.ddi, proprietary_handlers);
 
-        let mut msg = DecodedInfo::new("TC Value".into());
+        let mut msg = DecodedInfo::new("TC Value".into(), data.topic_id());
 
         // Field 1: Element = element_id (no unit)
         msg.outputs.push(DecodedField::Value {
@@ -233,10 +257,10 @@ impl TaskControllerDecoder {
     }
 
     /// Decode an unrecognized command into a warning message.
-    fn decode_unknown_command(command: u8) -> DecodedInfo {
-        let title = format!("TaskController Unknown Command 0x{:X}", command);
+    fn decode_unknown_command(data: &TaskControllerData) -> DecodedInfo {
+        let title = format!("TaskController Unknown Command 0x{:X}", data.command as u8);
 
-        DecodedInfo::new(title.clone())
+        DecodedInfo::new(title.clone(), data.topic_id())
     }
 }
 
@@ -262,14 +286,14 @@ impl ComplexDecoder for TaskControllerDecoder {
 
                 Ok(Some(msg))
             }
-            TaskCommand::Unknown(cmd) => {
-                let mut msg = Self::decode_unknown_command(*cmd);
+            _ => {
+                let mut msg = Self::decode_unknown_command(&data);
 
                 msg.outputs.push(DecodedField::StringMessage {
                     severity: Severity::Warning,
                     text: format!(
                         "TaskController command=0x{:02X} element={} DDI={} value={}",
-                        cmd, data.element_id, data.ddi, data.value
+                        data.command as u8, data.element_id, data.ddi, data.value
                     ),
                 });
 

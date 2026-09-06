@@ -1,6 +1,6 @@
 use j1939_async::Id;
 
-use crate::types::{DecodedField, DecodedMessage};
+use crate::types::{null_topic_id, DecodedField, DecodedMessage};
 use iso11783_data::strings::pgn as pgn_titles;
 use owo_colors::OwoColorize;
 use std::collections::HashMap;
@@ -613,6 +613,7 @@ mod tests {
         let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF00, vec![0x01, 0x02], 0);
         DecodedMessage {
             title: "Engine Speed".to_string(),
+            topic_id: null_topic_id(),
             outputs: vec![
                 DecodedField::Value {
                     title: "RPM".to_string(),
@@ -691,6 +692,7 @@ mod tests {
         let assembled1 = AssembledMessage::with_pgn(0x18EF4000, 0xEF00, vec![], 0);
         let msg1 = DecodedMessage {
             title: "Engine Speed".to_string(),
+            topic_id: null_topic_id(),
             outputs: vec![DecodedField::Value {
                 title: "RPM".to_string(),
                 value: Numeric::Int(1500),
@@ -705,6 +707,7 @@ mod tests {
         // Second message with same PGN but different title "Load" - should add new column
         let msg2 = DecodedMessage {
             title: "Engine Load".to_string(),
+            topic_id: null_topic_id(),
             outputs: vec![DecodedField::Value {
                 title: "Load".to_string(),
                 value: Numeric::Int(50),
@@ -719,6 +722,7 @@ mod tests {
         // Third message with same PGN and title "RPM" - should reuse existing column
         let msg3 = DecodedMessage {
             title: "Engine Speed".to_string(),
+            topic_id: null_topic_id(),
             outputs: vec![DecodedField::Value {
                 title: "RPM".to_string(),
                 value: Numeric::Int(2000),
@@ -741,6 +745,7 @@ mod tests {
         let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF00, vec![], 0);
         let message = DecodedMessage {
             title: "Test".to_string(),
+            topic_id: null_topic_id(),
             outputs: vec![DecodedField::StringMessage {
                 severity: crate::types::Severity::Warning,
                 text: r#"Value is "high""#.to_string(),
@@ -758,6 +763,7 @@ mod tests {
         let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF00, vec![], 0);
         let message = DecodedMessage {
             title: "Empty".to_string(),
+            topic_id: null_topic_id(),
             outputs: vec![],
             updates: vec![],
             assembled_message: assembled,
@@ -773,6 +779,7 @@ mod tests {
         let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF00, vec![], 0);
         let message = DecodedMessage {
             title: "VIN".to_string(),
+            topic_id: null_topic_id(),
             outputs: vec![DecodedField::Value {
                 title: "Data".to_string(),
                 value: Numeric::Hex(0x1234),
@@ -792,6 +799,7 @@ mod tests {
         let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF00, vec![], 0);
         let message = DecodedMessage {
             title: "Flag".to_string(),
+            topic_id: null_topic_id(),
             outputs: vec![DecodedField::Value {
                 title: "Active".to_string(),
                 value: Numeric::Bool(true),
@@ -811,6 +819,7 @@ mod tests {
         let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF00, vec![], 0);
         let message = DecodedMessage {
             title: "Temperature".to_string(),
+            topic_id: null_topic_id(),
             outputs: vec![DecodedField::Value {
                 title: "Coolant".to_string(),
                 value: Numeric::Float(92.5),
@@ -837,6 +846,7 @@ mod tests {
         ] {
             let message = DecodedMessage {
                 title: "Test".to_string(),
+                topic_id: null_topic_id(),
                 outputs: vec![DecodedField::Value {
                     title: "Status".to_string(),
                     value: Numeric::Flag(flag_val.clone()),
@@ -912,6 +922,7 @@ mod tests {
         ] {
             let message = DecodedMessage {
                 title: "Test".to_string(),
+                topic_id: null_topic_id(),
                 outputs: vec![DecodedField::Value {
                     title: "Status".to_string(),
                     value: Numeric::Flag(flag_val.clone()),
@@ -938,6 +949,7 @@ mod tests {
         ] {
             let message = DecodedMessage {
                 title: "Test".to_string(),
+                topic_id: null_topic_id(),
                 outputs: vec![DecodedField::StringMessage {
                     severity: severity.clone(),
                     text: "test".to_string(),
@@ -961,6 +973,7 @@ mod tests {
         let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF00, vec![], 0);
         let message = DecodedMessage {
             title: "Multi".to_string(),
+            topic_id: null_topic_id(),
             outputs: vec![
                 DecodedField::Value {
                     title: "Speed".to_string(),
@@ -991,6 +1004,7 @@ mod tests {
         let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF00, vec![0xAA, 0xBB], 0);
         let message = DecodedMessage {
             title: "Test".to_string(),
+            topic_id: null_topic_id(),
             outputs: vec![],
             updates: vec![],
             assembled_message: assembled,
@@ -1005,6 +1019,7 @@ mod tests {
         let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF00, vec![], 0);
         let message = DecodedMessage {
             title: "Test".to_string(),
+            topic_id: null_topic_id(),
             outputs: vec![
                 DecodedField::StringMessage {
                     severity: crate::types::Severity::Info,
@@ -1028,6 +1043,7 @@ mod tests {
         let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF00, vec![], 0);
         let message = DecodedMessage {
             title: "Empty".to_string(),
+            topic_id: null_topic_id(),
             outputs: vec![],
             updates: vec![],
             assembled_message: assembled,
@@ -1043,6 +1059,7 @@ mod tests {
         let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF00, vec![], 0);
         let message = DecodedMessage {
             title: "Test".to_string(),
+            topic_id: null_topic_id(),
             outputs: vec![],
             updates: vec![],
             assembled_message: assembled,
@@ -1059,6 +1076,7 @@ mod tests {
 
         let message = DecodedMessage {
             title: "Test".to_string(),
+            topic_id: null_topic_id(),
             outputs: vec![],
             updates: vec![],
             assembled_message: assembled,
@@ -1074,6 +1092,7 @@ mod tests {
         let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF00, vec![], 0);
         let message = DecodedMessage {
             title: "Test".to_string(),
+            topic_id: null_topic_id(),
             outputs: vec![DecodedField::Value {
                 title: "RPM".to_string(),
                 value: Numeric::Int(1500),
@@ -1095,6 +1114,7 @@ mod tests {
         let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF00, vec![], 0);
         let message = DecodedMessage {
             title: "Test".to_string(),
+            topic_id: null_topic_id(),
             outputs: vec![DecodedField::Value {
                 title: "Engine".to_string(),
                 value: Numeric::Flag(crate::types::FlagValue::On),
@@ -1115,6 +1135,7 @@ mod tests {
         let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF00, vec![], 0);
         let message = DecodedMessage {
             title: "VIN".to_string(),
+            topic_id: null_topic_id(),
             outputs: vec![DecodedField::Value {
                 title: "Data".to_string(),
                 value: Numeric::Hex(0x1234),
@@ -1135,6 +1156,7 @@ mod tests {
         let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF00, vec![], 0);
         let message = DecodedMessage {
             title: "Flag".to_string(),
+            topic_id: null_topic_id(),
             outputs: vec![DecodedField::Value {
                 title: "Active".to_string(),
                 value: Numeric::Bool(true),
@@ -1155,6 +1177,7 @@ mod tests {
         let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF00, vec![], 0);
         let message = DecodedMessage {
             title: "Temperature".to_string(),
+            topic_id: null_topic_id(),
             outputs: vec![DecodedField::Value {
                 title: "Coolant".to_string(),
                 value: Numeric::Float(92.5),
@@ -1230,6 +1253,7 @@ mod tests {
         ] {
             let message = DecodedMessage {
                 title: "Test".to_string(),
+                topic_id: null_topic_id(),
                 outputs: vec![DecodedField::Value {
                     title: "Status".to_string(),
                     value: Numeric::Flag(flag_val.clone()),
@@ -1256,6 +1280,7 @@ mod tests {
         ] {
             let message = DecodedMessage {
                 title: "Test".to_string(),
+                topic_id: null_topic_id(),
                 outputs: vec![DecodedField::StringMessage {
                     severity: severity.clone(),
                     text: "test".to_string(),
@@ -1279,6 +1304,7 @@ mod tests {
         let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF00, vec![], 0);
         let message = DecodedMessage {
             title: "Multi".to_string(),
+            topic_id: null_topic_id(),
             outputs: vec![
                 DecodedField::Value {
                     title: "Speed".to_string(),
@@ -1309,6 +1335,7 @@ mod tests {
         let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF00, vec![0xAA, 0xBB], 0);
         let message = DecodedMessage {
             title: "Test".to_string(),
+            topic_id: null_topic_id(),
             outputs: vec![],
             updates: vec![],
             assembled_message: assembled,
@@ -1323,6 +1350,7 @@ mod tests {
         let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF00, vec![], 0);
         let message = DecodedMessage {
             title: "Test".to_string(),
+            topic_id: null_topic_id(),
             outputs: vec![
                 DecodedField::StringMessage {
                     severity: crate::types::Severity::Info,
@@ -1346,6 +1374,7 @@ mod tests {
         let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF00, vec![], 0);
         let message = DecodedMessage {
             title: "Empty".to_string(),
+            topic_id: null_topic_id(),
             outputs: vec![],
             updates: vec![],
             assembled_message: assembled,
@@ -1361,6 +1390,7 @@ mod tests {
         let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF00, vec![], 0);
         let message = DecodedMessage {
             title: "Test".to_string(),
+            topic_id: null_topic_id(),
             outputs: vec![],
             updates: vec![],
             assembled_message: assembled,
@@ -1379,6 +1409,7 @@ mod tests {
 
         let message = DecodedMessage {
             title: "Test".to_string(),
+            topic_id: null_topic_id(),
             outputs: vec![],
             updates: vec![],
             assembled_message: assembled,
@@ -1393,6 +1424,7 @@ mod tests {
         let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF00, vec![], 0);
         let message = DecodedMessage {
             title: "Test".to_string(),
+            topic_id: null_topic_id(),
             outputs: vec![DecodedField::Value {
                 title: "RPM".to_string(),
                 value: Numeric::Int(1500),
@@ -1414,6 +1446,7 @@ mod tests {
         let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF00, vec![], 0);
         let message = DecodedMessage {
             title: "Test".to_string(),
+            topic_id: null_topic_id(),
             outputs: vec![DecodedField::Value {
                 title: "Engine".to_string(),
                 value: Numeric::Flag(crate::types::FlagValue::On),
@@ -1434,6 +1467,7 @@ mod tests {
         let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF00, vec![], 0);
         let message = DecodedMessage {
             title: "VIN".to_string(),
+            topic_id: null_topic_id(),
             outputs: vec![DecodedField::Value {
                 title: "Data".to_string(),
                 value: Numeric::Hex(0x1234),
@@ -1454,6 +1488,7 @@ mod tests {
         let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF00, vec![], 0);
         let message = DecodedMessage {
             title: "Flag".to_string(),
+            topic_id: null_topic_id(),
             outputs: vec![DecodedField::Value {
                 title: "Active".to_string(),
                 value: Numeric::Bool(true),
@@ -1474,6 +1509,7 @@ mod tests {
         let assembled = AssembledMessage::with_pgn(0x18EF4000, 0xEF00, vec![], 0);
         let message = DecodedMessage {
             title: "Temperature".to_string(),
+            topic_id: null_topic_id(),
             outputs: vec![DecodedField::Value {
                 title: "Coolant".to_string(),
                 value: Numeric::Float(92.5),

@@ -1,6 +1,6 @@
 use crate::filter_editor::{FieldType, FilterOption, RawValue};
 use crate::traits::Filter;
-use crate::types::DecodedMessage;
+use crate::types::{null_topic_id, DecodedMessage};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::rc::Rc;
 
@@ -323,6 +323,7 @@ mod tests {
         let assembled = crate::types::AssembledMessage::new(id, vec![], 1000);
         DecodedMessage {
             title: title.to_string(),
+            topic_id: null_topic_id(),
             outputs: Vec::new(),
             updates: Vec::new(),
             assembled_message: assembled,
@@ -340,6 +341,7 @@ mod tests {
         let assembled = crate::types::AssembledMessage::new(id, vec![], 1000);
         DecodedMessage {
             title: title.to_string(),
+            topic_id: null_topic_id(),
             outputs,
             updates: Vec::new(),
             assembled_message: assembled,
@@ -1033,6 +1035,7 @@ mod tests {
             let assembled = crate::types::AssembledMessage::new(id, vec![], 1000);
             engine.add_message(DecodedMessage {
                 title: format!("src {}", src),
+                topic_id: null_topic_id(),
                 outputs: Vec::new(),
                 updates: Vec::new(),
                 assembled_message: assembled,

@@ -13,8 +13,8 @@ use crate::pgn_decoders::j1939::request_decoder::{RequestDecoder, REQUEST_PGN};
 use crate::tp_reassembler::{TpReassembler, TpReassemblyResult};
 use crate::traits::{ComplexDecoder, Decoder};
 use crate::types::{
-    AssembledMessage, DecodeContext, DecodedField, DecodedInfo, DecodedMessage, Numeric, RawFrame,
-    Severity,
+    create_topic_id, null_topic_id, topic_id_from_pgn, AssembledMessage, DecodeContext,
+    DecodedField, DecodedInfo, DecodedMessage, Numeric, RawFrame, Severity,
 };
 use crate::DetailLevel;
 
@@ -469,6 +469,7 @@ impl J1939Decoder {
         if let Some(pgn_def) = self.config.pgns.get(&pgn_key) {
             return DecodedInfo {
                 title: Self::make_title_from_pgn(msg.pgn()),
+                topic_id: topic_id_from_pgn(msg.pgn()),
                 outputs: self.decode_components(msg, pgn_def),
                 updates: vec![],
             };
@@ -484,6 +485,7 @@ impl J1939Decoder {
         // No definition found - emit raw hex as info message
         DecodedInfo {
             title: Self::make_title_from_pgn(msg.pgn()),
+            topic_id: topic_id_from_pgn(msg.pgn()),
             outputs: vec![DecodedField::StringMessage {
                 severity: Severity::Info,
                 text: format!("No decoding for '{}', {} bytes", pgn_title, msg.data.len()),
@@ -745,6 +747,7 @@ impl J1939Decoder {
                             dest_name: None,
                         },
                         title: Self::make_title_from_pgn(partial.pgn),
+                        topic_id: create_topic_id(0xec00, partial.pgn),
                         outputs: vec![DecodedField::StringMessage {
                             severity: Severity::Warning,
                             text: format!(
@@ -771,6 +774,7 @@ impl J1939Decoder {
                 dest_name: None,
             },
             title: String::new(),
+            topic_id: null_topic_id(),
             outputs: Vec::new(),
             updates: Vec::new(),
         }
@@ -838,6 +842,7 @@ impl Decoder for J1939Decoder {
                         dest_name: None,
                     },
                     title: Self::make_title_from_pgn(id.pgn()),
+                    topic_id: topic_id_from_pgn(id.pgn()),
                     outputs: vec![],
                     updates: vec![],
                 })
@@ -1699,7 +1704,7 @@ pgns:
     fn test_complex_decoder_dispatch_routes_to_mock() {
         let mut decoder = J1939Decoder::new(false, 1000, false);
 
-        let mut mock_output = DecodedInfo::new("Mock Decoded".to_string());
+        let mut mock_output = DecodedInfo::new("Mock Decoded".to_string(), null_topic_id());
         mock_output.outputs.push(DecodedField::Value {
             title: "Custom Field".to_string(),
             value: Numeric::Int(999),
@@ -1737,7 +1742,7 @@ pgns:
     fn test_complex_decoder_falls_back_to_yaml_when_none() {
         let mut decoder = J1939Decoder::new(false, 1000, false);
 
-        let mock_output = DecodedInfo::new("Mock".to_string());
+        let mock_output = DecodedInfo::new("Mock".to_string(), null_topic_id());
         decoder.register_complex_decoder(
             0x0CF00,
             Box::new(MockComplexDecoder {
@@ -1766,7 +1771,7 @@ pgns:
     fn test_complex_decoder_ignores_unregistered_pgn() {
         let mut decoder = J1939Decoder::new(false, 1000, false);
 
-        let mock_output = DecodedInfo::new("Mock".to_string());
+        let mock_output = DecodedInfo::new("Mock".to_string(), null_topic_id());
         decoder.register_complex_decoder(
             0xDEAD,
             Box::new(MockComplexDecoder {
@@ -1800,13 +1805,13 @@ pgns:
         let call_count_b = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
 
         // Register two different mock decoders for two different PGNs
-        let mut mock_a_output = DecodedInfo::new("Mock A".to_string());
+        let mut mock_a_output = DecodedInfo::new("Mock A".to_string(), null_topic_id());
         mock_a_output.outputs.push(DecodedField::StringMessage {
             severity: Severity::Info,
             text: "Mock A".to_string(),
         });
 
-        let mut mock_b_output = DecodedInfo::new("Mock B".to_string());
+        let mut mock_b_output = DecodedInfo::new("Mock B".to_string(), null_topic_id());
         mock_b_output.outputs.push(DecodedField::StringMessage {
             severity: Severity::Info,
             text: "Mock B".to_string(),
@@ -1879,7 +1884,7 @@ pgns:
             0xAAAA,
             Box::new(MockComplexDecoder {
                 handled_pgns: vec![0xAAAA],
-                output: DecodedInfo::new("Mock".to_string()),
+                output: DecodedInfo::new("Mock".to_string(), null_topic_id()),
                 should_return_none: false,
                 call_count: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             }),
@@ -1890,7 +1895,7 @@ pgns:
             0xBBBB,
             Box::new(MockComplexDecoder {
                 handled_pgns: vec![0xBBBB],
-                output: DecodedInfo::new("Mock2".to_string()),
+                output: DecodedInfo::new("Mock2".to_string(), null_topic_id()),
                 should_return_none: false,
                 call_count: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             }),
@@ -1904,7 +1909,7 @@ pgns:
 
         // PGN 0x0FEF4 (Engine Speed) is in the built-in YAML config
         // Register a mock for it - should override YAML decoding
-        let mut overridden_output = DecodedInfo::new("Overridden".to_string());
+        let mut overridden_output = DecodedInfo::new("Overridden".to_string(), null_topic_id());
         overridden_output.outputs.push(DecodedField::StringMessage {
             severity: Severity::Info,
             text: "Overridden".to_string(),
