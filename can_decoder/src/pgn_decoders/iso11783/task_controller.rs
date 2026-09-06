@@ -152,11 +152,12 @@ impl TaskControllerDecoder {
     /// Decode a TaskController Process Data message.
     fn decode_value_command(
         data: &TaskControllerData,
+        title: &str,
         proprietary_handlers: &[ProprietaryHandler],
     ) -> DecodedInfo {
         let ddi_info = Self::resolve_ddi_info(data.ddi, proprietary_handlers);
 
-        let mut msg = DecodedInfo::new("TC Value".into(), data.topic_id());
+        let mut msg = DecodedInfo::new(title.into(), data.topic_id());
 
         // Field 1: Element = element_id (no unit)
         msg.outputs.push(DecodedField::Value {
@@ -211,6 +212,52 @@ impl TaskControllerDecoder {
                 decimal_places: None,
             });
         }
+
+        // Field 4: RAW = raw i32_value (no unit)
+        msg.outputs.push(DecodedField::Value {
+            title: "RAW".to_string(),
+            value: Numeric::Int(data.value as i64),
+            unit: None,
+            decimal_places: None,
+        });
+
+        msg
+    }
+
+    /// Decode a TaskController Process Data message.
+    fn decode_time_or_distance_meas_command(
+        data: &TaskControllerData,
+        title: &str,
+        unit: &str,
+        proprietary_handlers: &[ProprietaryHandler],
+    ) -> DecodedInfo {
+        let ddi_info = Self::resolve_ddi_info(data.ddi, proprietary_handlers);
+
+        let mut msg = DecodedInfo::new(title.into(), data.topic_id());
+
+        // Field 1: Element = element_id (no unit)
+        msg.outputs.push(DecodedField::Value {
+            title: "Element".to_string(),
+            value: Numeric::Int(data.element_id as i64),
+            unit: None,
+            decimal_places: None,
+        });
+
+        // Field 2: DDI = ddi number (no unit)
+        msg.outputs.push(DecodedField::Value {
+            title: "DDI".to_string(),
+            value: Numeric::Int(data.ddi as i64),
+            unit: None,
+            decimal_places: None,
+        });
+
+        // Field 3: Value converted into physical units (if available)
+        msg.outputs.push(DecodedField::Value {
+            title: "Interval".to_string(),
+            value: Numeric::Int(data.value as i64),
+            unit: Some(unit.into()),
+            decimal_places: None,
+        });
 
         // Field 4: RAW = raw i32_value (no unit)
         msg.outputs.push(DecodedField::Value {
@@ -280,12 +327,72 @@ impl ComplexDecoder for TaskControllerDecoder {
 
         match &data.command {
             TaskCommand::Value => {
-                let msg = Self::decode_value_command(&data, &self.proprietary_handlers);
-
+                let msg = Self::decode_value_command(&data, "TC Value", &self.proprietary_handlers);
                 self.last_elements.push(data.element_id);
-
                 Ok(Some(msg))
             }
+            TaskCommand::SetValueAndAcknowledge => {
+                let msg = Self::decode_value_command(
+                    &data,
+                    "TC Set Ack Value",
+                    &self.proprietary_handlers,
+                );
+                self.last_elements.push(data.element_id);
+                Ok(Some(msg))
+            }
+
+            TaskCommand::MeasurementChangeThreshold => {
+                let msg = Self::decode_value_command(
+                    &data,
+                    "TC Measurement Change",
+                    &self.proprietary_handlers,
+                );
+                self.last_elements.push(data.element_id);
+                Ok(Some(msg))
+            }
+
+            TaskCommand::MeasurementMaximumWithinThreshold => {
+                let msg = Self::decode_value_command(
+                    &data,
+                    "TC Measurement Maximum",
+                    &self.proprietary_handlers,
+                );
+                self.last_elements.push(data.element_id);
+                Ok(Some(msg))
+            }
+
+            TaskCommand::MeasurementMinimumWithinThreshold => {
+                let msg = Self::decode_value_command(
+                    &data,
+                    "TC Measurement Minimum",
+                    &self.proprietary_handlers,
+                );
+                self.last_elements.push(data.element_id);
+                Ok(Some(msg))
+            }
+
+            TaskCommand::MeasurementTimeInterval => {
+                let msg = Self::decode_time_or_distance_meas_command(
+                    &data,
+                    "TC Measurement Time Interval",
+                    "ms",
+                    &self.proprietary_handlers,
+                );
+                self.last_elements.push(data.element_id);
+                Ok(Some(msg))
+            }
+
+            TaskCommand::MeasurementDistanceInterval => {
+                let msg = Self::decode_time_or_distance_meas_command(
+                    &data,
+                    "TC Measurement Distance Interval",
+                    "mm",
+                    &self.proprietary_handlers,
+                );
+                self.last_elements.push(data.element_id);
+                Ok(Some(msg))
+            }
+
             _ => {
                 let mut msg = Self::decode_unknown_command(&data);
 
