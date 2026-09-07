@@ -455,18 +455,24 @@ impl TuiApp {
             self.global_start_time = Some(message.timestamp());
         }
 
+        let latest_live = self.view_mode == ViewMode::Latest && !self.latest_frozen;
         self.engine.add_message(message);
 
-        if self.is_live_stream || was_at_bottom {
-            let total = self.engine.total_count();
-            if total > 0 {
-                self.selected_index = total - 1;
+        if latest_live {
+            // Same logical row stays selected even though its index may have shifted (R6)
+            self.sync_latest_scroll();
+        } else if self.view_mode == ViewMode::Log {
+            if self.is_live_stream || was_at_bottom {
+                let total = self.engine.total_count();
+                if total > 0 {
+                    self.selected_index = total - 1;
+                }
             }
-        }
 
-        // Update scroll manager with filtered count for viewport calculations
-        self.scroll_manager
-            .set_num_messages(self.engine.filtered_count());
+            // Update scroll manager with filtered count for viewport calculations
+            self.scroll_manager
+                .set_num_messages(self.engine.filtered_count());
+        }
     }
 
     pub fn apply_filters(&mut self) {
@@ -490,11 +496,54 @@ impl TuiApp {
             self.selected_index = self.selected_index.min(filtered - 1);
         }
 
-        self.scroll_manager
-            .set_num_messages(self.engine.filtered_count());
+        if self.view_mode == ViewMode::Latest && !self.latest_frozen {
+            // A filter change can remove keys whose newest message no longer passes
+            let still_present = self.selected_latest_key.is_some_and(|k| {
+                self.engine.get_latest_map().contains_key(&k)
+            });
+            if !still_present {
+                self.selected_latest_key = None;
+            }
+            self.sync_latest_scroll();
+        } else {
+            self.scroll_manager
+                .set_num_messages(self.engine.filtered_count());
+        }
+    }
+
+    /// Ordered (key, global_idx) rows for the Latest view: live map or frozen snapshot.
+    fn latest_rows(&mut self) -> Vec<(LatestKey, usize)> {
+        if self.latest_frozen {
+            self.frozen_snapshot.clone()
+        } else {
+            self.engine
+                .get_latest_map()
+                .iter()
+                .map(|(k, &gi)| (*k, gi))
+                .collect()
+        }
     }
 
     pub fn scroll_down(&mut self, steps: usize) {
+        if self.view_mode == ViewMode::Latest {
+            let rows = self.latest_rows();
+            if rows.is_empty() {
+                return;
+            }
+
+            self.scroll_manager.set_num_messages(rows.len());
+
+            // No live-follow in Latest mode: bottom is just the largest key, not "newest"
+            let mut row = self.scroll_manager.selected_index + steps;
+            if row >= rows.len() {
+                row = rows.len() - 1;
+            }
+            self.scroll_manager.selected_index = row;
+            self.selected_latest_key = Some(rows[row].0);
+            self.scroll_manager.ensure_selected_visible();
+            return;
+        }
+
         if self.engine.filtered_count() == 0 {
             return;
         }
@@ -518,6 +567,21 @@ impl TuiApp {
     }
 
     pub fn scroll_up(&mut self, steps: usize) {
+        if self.view_mode == ViewMode::Latest {
+            let rows = self.latest_rows();
+            if rows.is_empty() {
+                return;
+            }
+
+            self.scroll_manager.set_num_messages(rows.len());
+
+            let row = self.scroll_manager.selected_index.saturating_sub(steps);
+            self.scroll_manager.selected_index = row;
+            self.selected_latest_key = Some(rows[row].0);
+            self.scroll_manager.ensure_selected_visible();
+            return;
+        }
+
         // Switch from live to manual when scrolling up from bottom
         let filtered = self.engine.filtered_count();
         if self.is_live_stream && self.selected_index >= filtered - 1 {
@@ -565,6 +629,22 @@ impl TuiApp {
 
     pub fn get_visible_messages(&mut self, viewport_height: usize) -> Vec<&DecodedMessage> {
         self.scroll_manager.set_num_rows(viewport_height);
+
+        if self.view_mode == ViewMode::Latest {
+            let rows = self.latest_rows();
+            self.scroll_manager.set_num_messages(rows.len());
+
+            if rows.is_empty() {
+                return vec![];
+            }
+
+            let (start, end) = self.scroll_manager.get_visible_range();
+            return rows[start.min(rows.len())..end.min(rows.len())]
+                .iter()
+                .filter_map(|&(_, gi)| self.engine.get_message_by_global_index(gi))
+                .collect();
+        }
+
         let filtered = self.engine.filtered_count();
         self.scroll_manager.set_num_messages(filtered);
 
@@ -589,6 +669,21 @@ impl TuiApp {
     }
 
     pub fn get_selected_message(&mut self) -> Option<&DecodedMessage> {
+        if self.view_mode == ViewMode::Latest {
+            let gi = if self.latest_frozen {
+                self.frozen_snapshot
+                    .iter()
+                    .find(|(k, _)| Some(*k) == self.selected_latest_key)
+                    .map(|(_, gi)| *gi)
+            } else {
+                self.engine
+                    .get_latest_map()
+                    .get(self.selected_latest_key.as_ref()?)
+                    .copied()
+            };
+            return gi.and_then(|gi| self.engine.get_message_by_global_index(gi));
+        }
+
         let filtered = self.engine.filtered_count();
         if filtered == 0 {
             return None;
@@ -1113,7 +1208,23 @@ impl TuiApp {
                         self.exit_text_mode();
                     }
                 } else if self.focus == Focus::Main {
-                    self.is_live_stream = !self.is_live_stream;
+                    if self.view_mode == ViewMode::Latest {
+                        if self.latest_frozen {
+                            self.latest_frozen = false;
+                            self.frozen_snapshot.clear();
+                            self.sync_latest_scroll(); // catch up to live data
+                        } else {
+                            self.latest_frozen = true;
+                            self.frozen_snapshot = self
+                                .engine
+                                .get_latest_map()
+                                .iter()
+                                .map(|(k, &gi)| (*k, gi))
+                                .collect();
+                        }
+                    } else {
+                        self.is_live_stream = !self.is_live_stream;
+                    }
                 }
             }
             TuiKey::Enter => {
@@ -1384,6 +1495,163 @@ mod tests {
         assert_eq!(app.view_mode, ViewMode::Latest);
         app.handle_key(TuiKey::F(6));
         assert_eq!(app.view_mode, ViewMode::Log);
+    }
+
+    #[test]
+    fn test_latest_freeze_snapshot_isolated_from_new_messages() {
+        let mut app = TuiApp::new();
+        let mut msg = make_test_message(0x600, "msg");
+        msg.topic_id = 1;
+        app.add_message(msg);
+
+        app.toggle_view_mode(); // -> Latest, selects key(topic=1)
+        assert!(!app.latest_frozen);
+
+        // Space in Main focus freezes the snapshot
+        app.handle_key(TuiKey::Space);
+        assert!(app.latest_frozen);
+        assert_eq!(app.frozen_snapshot.len(), 1);
+
+        // New message arrives while frozen: view must not change
+        let mut msg = make_test_message(0x600, "msg");
+        msg.topic_id = 2;
+        app.add_message(msg);
+
+        let visible = app.get_visible_messages(10);
+        assert_eq!(visible.len(), 1); // still only the frozen row
+        assert_eq!(
+            app.selected_latest_key,
+            Some(LatestKey {
+                source_address: 0,
+                destination_address: 0,
+                topic_id: 1
+            })
+        );
+
+        // Space again unfreezes and catches up to live data
+        app.handle_key(TuiKey::Space);
+        assert!(!app.latest_frozen);
+        assert!(app.frozen_snapshot.is_empty());
+        assert_eq!(app.scroll_manager.num_messages, 2);
+    }
+
+    #[test]
+    fn test_space_in_log_mode_still_toggles_live_stream() {
+        let mut app = TuiApp::new();
+        assert!(!app.is_live_stream);
+        app.handle_key(TuiKey::Space);
+        assert!(app.is_live_stream);
+        app.handle_key(TuiKey::Space);
+        assert!(!app.is_live_stream);
+    }
+
+    #[test]
+    fn test_apply_filters_in_latest_mode_clears_removed_key() {
+        let mut app = TuiApp::new();
+        for (topic, title) in [(1u64, "alpha"), (2, "beta")] {
+            let mut msg = make_test_message(0x600, title);
+            msg.topic_id = topic;
+            app.add_message(msg);
+        }
+
+        app.toggle_view_mode(); // selects key(topic=1) / "alpha"
+        assert_eq!(app.selected_latest_key.map(|k| k.topic_id), Some(1));
+
+        // Enable a Title filter that excludes the selected message
+        let widget = &mut app.lhs_widgets[0]; // Title widget
+        widget.enabled = true;
+        widget.input_text = "beta".to_string();
+        app.apply_filters();
+
+        assert_eq!(app.selected_latest_key, None);
+        assert_eq!(app.scroll_manager.num_messages, 1);
+    }
+
+    #[test]
+    fn test_apply_filters_in_latest_mode_keeps_surviving_key() {
+        let mut app = TuiApp::new();
+        for (topic, title) in [(1u64, "alpha"), (2, "beta")] {
+            let mut msg = make_test_message(0x600, title);
+            msg.topic_id = topic;
+            app.add_message(msg);
+        }
+
+        app.toggle_view_mode(); // selects key(topic=1) / "alpha"
+
+        // Filter that keeps the selected message
+        let widget = &mut app.lhs_widgets[0];
+        widget.enabled = true;
+        widget.input_text = "alpha".to_string();
+        app.apply_filters();
+
+        assert_eq!(app.selected_latest_key.map(|k| k.topic_id), Some(1));
+        assert_eq!(app.scroll_manager.num_messages, 1);
+        assert_eq!(app.scroll_manager.selected_index, 0);
+    }
+
+    #[test]
+    fn test_get_visible_messages_latest_shows_newest_passing_per_key() {
+        let mut app = TuiApp::new();
+        // Key topic=1 gets two messages; key topic=2 gets one
+        for (topic, title) in [(1u64, "a-old"), (2, "b"), (1, "a-new")] {
+            let mut msg = make_test_message(0x600, title);
+            msg.topic_id = topic;
+            app.add_message(msg);
+        }
+
+        app.toggle_view_mode();
+
+        let visible = app.get_visible_messages(10);
+        assert_eq!(visible.len(), 2);
+        // Sorted by key: topic=1 first (its newest passing message), then topic=2
+        assert_eq!(visible[0].title, "a-new");
+        assert_eq!(visible[1].title, "b");
+    }
+
+    #[test]
+    fn test_get_selected_message_latest_resolves_key() {
+        let mut app = TuiApp::new();
+        for (topic, title) in [(1u64, "alpha"), (2, "beta")] {
+            let mut msg = make_test_message(0x600, title);
+            msg.topic_id = topic;
+            app.add_message(msg);
+        }
+
+        app.toggle_view_mode(); // selects key(topic=1)
+        let sel = app.get_selected_message().unwrap();
+        assert_eq!(sel.title, "alpha");
+
+        // Scroll to the next row -> selection follows the key
+        app.scroll_down(1);
+        assert_eq!(app.selected_latest_key.map(|k| k.topic_id), Some(2));
+        let sel = app.get_selected_message().unwrap();
+        assert_eq!(sel.title, "beta");
+
+        // Scroll back up past the top -> clamps to first key
+        app.scroll_up(5);
+        assert_eq!(app.selected_latest_key.map(|k| k.topic_id), Some(1));
+    }
+
+    #[test]
+    fn test_latest_scroll_clamps_at_bounds() {
+        let mut app = TuiApp::new();
+        for topic in [1u64, 2, 3] {
+            let mut msg = make_test_message(0x600, "msg");
+            msg.topic_id = topic;
+            app.add_message(msg);
+        }
+
+        app.toggle_view_mode(); // selects row 0 (topic=1)
+
+        app.scroll_up(10); // stays at top
+        assert_eq!(app.selected_latest_key.map(|k| k.topic_id), Some(1));
+        assert_eq!(app.scroll_manager.selected_index, 0);
+
+        for _ in 0..5 {
+            app.scroll_down(2);
+        } // clamps at bottom
+        assert_eq!(app.selected_latest_key.map(|k| k.topic_id), Some(3));
+        assert_eq!(app.scroll_manager.selected_index, 2);
     }
 
     #[test]
