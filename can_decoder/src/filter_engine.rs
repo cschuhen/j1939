@@ -1,6 +1,7 @@
 use crate::filter_editor::{FieldType, FilterOption, RawValue};
+use crate::latest_index::LatestKey;
 use crate::traits::Filter;
-use crate::types::{null_topic_id, DecodedMessage};
+use crate::types::DecodedMessage;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::rc::Rc;
 
@@ -165,6 +166,10 @@ pub struct FilterEngine {
 
     /// Incrementally maintained cache of unique values for filter editor options.
     value_cache: UniqueValueCache,
+
+    /// Latest passing message per key -> global index into all_messages.
+    /// Rebuilt in recompute(); incrementally updated on the add_message fast path.
+    latest_by_key: BTreeMap<LatestKey, usize>,
 }
 
 impl FilterEngine {
@@ -176,6 +181,7 @@ impl FilterEngine {
             filtered_indices: Vec::new(),
             indices_dirty: true,
             value_cache: UniqueValueCache::default(),
+            latest_by_key: BTreeMap::new(),
         }
     }
 
@@ -185,6 +191,7 @@ impl FilterEngine {
         // Update cache before storing (we need &msg for cache update)
         self.value_cache.update(&msg);
 
+        let key = LatestKey::from_message(&msg);
         let idx = self.all_messages.len();
         self.all_messages.push_back(msg);
         // Mark dirty so the new index gets evaluated on next recompute
@@ -193,6 +200,7 @@ impl FilterEngine {
         // Optimization: if no filters are active, immediately include this index
         if self.active_filters.is_empty() {
             self.filtered_indices.push(idx);
+            self.latest_by_key.insert(key, idx);
             self.indices_dirty = false;
         }
     }
@@ -220,6 +228,7 @@ impl FilterEngine {
     /// Run all active filters against every message and populate `filtered_indices`.
     pub fn recompute(&mut self) {
         self.filtered_indices.clear();
+        self.latest_by_key.clear();
 
         if self.all_messages.is_empty() {
             self.indices_dirty = false;
@@ -229,6 +238,8 @@ impl FilterEngine {
         for (i, msg) in self.all_messages.iter().enumerate() {
             if self.message_passes_all_filters(msg) {
                 self.filtered_indices.push(i);
+                // Later messages overwrite earlier ones: "latest among passing"
+                self.latest_by_key.insert(LatestKey::from_message(msg), i);
             }
         }
 
@@ -269,6 +280,20 @@ impl FilterEngine {
         self.filtered_indices.len()
     }
 
+    /// Sorted map of key -> global index of that key's newest passing message.
+    /// Automatically recomputes if dirty.
+    pub fn get_latest_map(&mut self) -> &BTreeMap<LatestKey, usize> {
+        if self.indices_dirty {
+            self.recompute();
+        }
+        &self.latest_by_key
+    }
+
+    /// Number of unique keys with at least one passing message.
+    pub fn latest_count(&mut self) -> usize {
+        self.get_latest_map().len()
+    }
+
     /// Get pre-computed unique filter options for a given field type.
     pub fn get_unique_options(&self, field_type: FieldType) -> Vec<FilterOption> {
         self.value_cache.get_options(field_type)
@@ -288,6 +313,7 @@ impl FilterEngine {
     pub fn clear(&mut self) {
         self.all_messages.clear();
         self.filtered_indices.clear();
+        self.latest_by_key.clear();
         self.indices_dirty = true;
         self.value_cache = UniqueValueCache::default();
     }
@@ -313,7 +339,7 @@ mod tests {
         FlagFilter, NumericFilter, PgnFilter, RegexFilter, SeverityFilter, SourceFilter,
         TitleFilter,
     };
-    use crate::types::{DecodedField, FlagValue, Numeric, Severity};
+    use crate::types::{null_topic_id, DecodedField, FlagValue, Numeric, Severity};
 
     // ─── Helpers ───────────────────────────────────────────────────────
 
@@ -1175,5 +1201,137 @@ mod tests {
 
         engine.clear();
         assert_eq!(engine.get_unique_options(FieldType::SourceAddr).len(), 0);
+    }
+
+    // ─── Latest-per-key map tests ──────────────────────────────────────
+
+    #[test]
+    fn test_latest_map_dedup_keeps_last() {
+        let mut engine = FilterEngine::new();
+
+        for i in 0..3u8 {
+            engine.add_message(make_message(0xEF00, 5, &format!("msg {}", i)));
+        }
+
+        // All three share the key (src=5, dst=255, topic=0) -> one entry, newest index
+        let map = engine.get_latest_map();
+        assert_eq!(map.len(), 1);
+        let (&key, &global_idx) = map.iter().next().unwrap();
+        assert_eq!(key.source_address, 5);
+        assert_eq!(key.topic_id, null_topic_id());
+        assert_eq!(global_idx, 2);
+    }
+
+    #[test]
+    fn test_latest_map_distinct_keys() {
+        let mut engine = FilterEngine::new();
+
+        // Different sources -> different keys
+        for src in [1u8, 5, 9] {
+            engine.add_message(make_message(0xEF00, src, "msg"));
+        }
+        // Same source & PGN but a distinct topic_id -> different key
+        let mut msg = make_message(0xEF00, 5, "other topic");
+        msg.topic_id = 999;
+        engine.add_message(msg);
+
+        assert_eq!(engine.latest_count(), 4);
+    }
+
+    #[test]
+    fn test_latest_map_among_passing() {
+        let mut engine = FilterEngine::new();
+
+        // Old ERROR message for key (src=5)
+        let err_output = DecodedField::StringMessage {
+            severity: Severity::Error,
+            text: "old error".to_string(),
+        };
+        engine.add_message(make_message_with_outputs(0xEF00, 5, "msg", vec![err_output]));
+
+        // New INFO message for the same key (would be "latest" without filters)
+        let info_output = DecodedField::StringMessage {
+            severity: Severity::Info,
+            text: "new info".to_string(),
+        };
+        engine.add_message(make_message_with_outputs(0xEF00, 5, "msg", vec![info_output]));
+
+        // With a severity=error filter, only the OLD message passes -> row is index 0
+        let filter: Box<dyn Filter> = Box::new(SeverityFilter {
+            severity: Severity::Error,
+        });
+        engine.set_filters(vec![filter]);
+
+        let map = engine.get_latest_map();
+        assert_eq!(map.len(), 1);
+        let (&key, &global_idx) = map.iter().next().unwrap();
+        assert_eq!(key.source_address, 5);
+        assert_eq!(global_idx, 0);
+        // Resolved message is the old error one
+        let msg = engine.get_message_by_global_index(global_idx).unwrap();
+        assert!(matches!(
+            &msg.outputs[0],
+            DecodedField::StringMessage {
+                severity: Severity::Error,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn test_latest_map_fast_path_no_filters() {
+        let mut engine = FilterEngine::new();
+
+        // No filters: map must be correct immediately after each add (fast path)
+        let mut expected = 0usize;
+        for src in [3u8, 1, 7] {
+            engine.add_message(make_message(0xEF00, src, "msg"));
+            expected += 1;
+            assert_eq!(engine.latest_count(), expected);
+        }
+
+        // A repeat of an existing key updates its entry to the newest index
+        let before = engine.get_latest_map().len();
+        engine.add_message(make_message(0xEF00, 7, "repeat"));
+        assert_eq!(engine.latest_count(), before);
+        let map = engine.get_latest_map();
+        let idx = *map
+            .iter()
+            .find(|(k, _)| k.source_address == 7)
+            .unwrap()
+            .1;
+        assert_eq!(idx, 3); // the repeat is global index 3
+    }
+
+    #[test]
+    fn test_latest_map_rebuild_on_filter_change() {
+        let mut engine = FilterEngine::new();
+
+        for src in [1u8, 2, 3, 4, 5] {
+            engine.add_message(make_message(0xEF00, src, "msg"));
+        }
+        assert_eq!(engine.latest_count(), 5);
+
+        let filter: Box<dyn Filter> = Box::new(SourceFilter::new(3));
+        engine.set_filters(vec![filter]);
+
+        let map = engine.get_latest_map();
+        assert_eq!(map.len(), 1);
+        let (&key, &global_idx) = map.iter().next().unwrap();
+        assert_eq!(key.source_address, 3);
+        assert_eq!(global_idx, 2); // src=3 was the third message added
+    }
+
+    #[test]
+    fn test_clear_empties_latest_map() {
+        let mut engine = FilterEngine::new();
+
+        for src in [1u8, 5, 10] {
+            engine.add_message(make_message(0xEF00, src, "test"));
+        }
+        assert_eq!(engine.latest_count(), 3);
+
+        engine.clear();
+        assert_eq!(engine.latest_count(), 0);
     }
 }

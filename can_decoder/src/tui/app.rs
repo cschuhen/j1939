@@ -5,6 +5,7 @@ use crate::filters::{
     DestFilter, DestNameFilter, FlagFilter, NumericFilter, PgnFilter, RegexFilter, SeverityFilter,
     SourceFilter, SourceNameFilter, TitleFilter,
 };
+use crate::latest_index::LatestKey;
 use crate::scroll_manager::MessageScrollManager;
 use crate::tui::columns::ColumnConfig;
 use crate::types::{DecodedMessage, FlagValue, Severity};
@@ -272,6 +273,12 @@ fn parse_hex_or_dec_u8(s: &str) -> Result<u8, ()> {
     })
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ViewMode {
+    Log,
+    Latest,
+}
+
 pub struct TuiApp {
     pub focus: Focus,
     pub input_mode: InputMode,
@@ -304,6 +311,18 @@ pub struct TuiApp {
 
     /// Timestamp of the very first unfiltered message (microseconds since epoch).
     pub global_start_time: Option<u64>,
+
+    /// Current view mode: full log or latest-per-key.
+    pub view_mode: ViewMode,
+
+    /// Stable identity of the selected row in Latest mode (None = nothing selected).
+    pub selected_latest_key: Option<LatestKey>,
+
+    /// Space in Latest mode freezes/unfreezes the snapshot instead of toggling live stream.
+    pub latest_frozen: bool,
+
+    /// (key, global_idx) rows captured when the Latest view is frozen.
+    pub frozen_snapshot: Vec<(LatestKey, usize)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -352,6 +371,10 @@ impl TuiApp {
             column_editor: None,
             column_config: ColumnConfig::new(),
             global_start_time: None,
+            view_mode: ViewMode::Log,
+            selected_latest_key: None,
+            latest_frozen: false,
+            frozen_snapshot: Vec::new(),
         }
     }
 
@@ -375,6 +398,48 @@ impl TuiApp {
 
     pub fn toggle_error_log(&mut self) {
         self.error_log_visible = !self.error_log_visible;
+    }
+
+    pub fn toggle_view_mode(&mut self) {
+        match self.view_mode {
+            ViewMode::Log => {
+                self.view_mode = ViewMode::Latest;
+                // Select first row (smallest key); None if the filtered set is empty
+                self.selected_latest_key = self.engine.get_latest_map().keys().next().copied();
+                self.sync_latest_scroll();
+            }
+            ViewMode::Latest => {
+                self.view_mode = ViewMode::Log;
+                self.latest_frozen = false;
+                self.frozen_snapshot.clear();
+                // selected_index is already valid for Log mode (clamped by apply_filters)
+            }
+        }
+    }
+
+    /// Re-resolve the selected key to its current row position and let the scroll manager
+    /// keep it visible. Called only on mutation (message add / filter change / toggle),
+    /// never per frame. O(k) scan with k <= 10000 is fine at that frequency.
+    fn sync_latest_scroll(&mut self) {
+        let rows = if self.latest_frozen {
+            self.frozen_snapshot.len()
+        } else {
+            self.engine.latest_count()
+        };
+        self.scroll_manager.set_num_messages(rows);
+
+        match self.selected_latest_key {
+            Some(key) => {
+                let map = self.engine.get_latest_map();
+                if let Some(row) = map.iter().position(|(k, _)| *k == key) {
+                    self.scroll_manager.selected_index = row;
+                    self.scroll_manager.ensure_selected_visible();
+                } else {
+                    self.selected_latest_key = None; // key lost all passing messages
+                }
+            }
+            None => {}
+        }
     }
 
     pub fn add_message(&mut self, message: DecodedMessage) {
@@ -940,6 +1005,7 @@ impl TuiApp {
                     self.open_column_editor();
                 }
             }
+            TuiKey::F(6) => self.toggle_view_mode(),
             TuiKey::Esc => {
                 if let Some(_) = self.column_editor {
                     self.close_column_editor(false);
@@ -1203,6 +1269,121 @@ mod tests {
         }
 
         assert_eq!(app.selected_index, 9);
+    }
+
+    #[test]
+    fn test_toggle_view_mode_selects_first_key() {
+        let mut app = TuiApp::new();
+        assert_eq!(app.view_mode, ViewMode::Log);
+
+        for topic in [5u64, 3, 8] {
+            let mut msg = make_test_message(0x600, "msg");
+            msg.topic_id = topic;
+            app.add_message(msg);
+        }
+
+        app.toggle_view_mode();
+
+        assert_eq!(app.view_mode, ViewMode::Latest);
+        // Keys are sorted by (src, dst, topic_id) -> smallest topic first
+        let expected_key = LatestKey {
+            source_address: 0,
+            destination_address: 0,
+            topic_id: 3,
+        };
+        assert_eq!(app.selected_latest_key, Some(expected_key));
+        assert_eq!(app.scroll_manager.num_messages, 3);
+    }
+
+    #[test]
+    fn test_toggle_view_mode_empty_engine_selects_none() {
+        let mut app = TuiApp::new();
+        app.toggle_view_mode();
+
+        assert_eq!(app.view_mode, ViewMode::Latest);
+        assert_eq!(app.selected_latest_key, None);
+        assert_eq!(app.scroll_manager.num_messages, 0);
+    }
+
+    #[test]
+    fn test_toggle_back_to_log_clears_freeze_state() {
+        let mut app = TuiApp::new();
+        let mut msg = make_test_message(0x600, "msg");
+        msg.topic_id = 1;
+        app.add_message(msg);
+
+        app.toggle_view_mode(); // -> Latest
+        assert_eq!(app.view_mode, ViewMode::Latest);
+
+        app.latest_frozen = true;
+        let key = app.selected_latest_key.unwrap();
+        app.frozen_snapshot.push((key, 0));
+
+        app.toggle_view_mode(); // -> Log
+
+        assert_eq!(app.view_mode, ViewMode::Log);
+        assert!(!app.latest_frozen);
+        assert!(app.frozen_snapshot.is_empty());
+    }
+
+    #[test]
+    fn test_latest_selection_stable_when_rows_shift() {
+        let mut app = TuiApp::new();
+        for topic in [10u64, 20] {
+            let mut msg = make_test_message(0x600, "msg");
+            msg.topic_id = topic;
+            app.add_message(msg);
+        }
+
+        app.toggle_view_mode(); // selects key(topic=10) at row 0
+        assert_eq!(app.scroll_manager.selected_index, 0);
+
+        // Select the second key (topic=20), currently at row 1
+        let key_20 = LatestKey {
+            source_address: 0,
+            destination_address: 0,
+            topic_id: 20,
+        };
+        app.selected_latest_key = Some(key_20);
+        app.sync_latest_scroll();
+        assert_eq!(app.scroll_manager.selected_index, 1);
+
+        // A new key sorts before the selected one -> rows shift down by one
+        let mut msg = make_test_message(0x600, "msg");
+        msg.topic_id = 5;
+        app.add_message(msg);
+        app.sync_latest_scroll();
+
+        assert_eq!(app.selected_latest_key, Some(key_20));
+        assert_eq!(app.scroll_manager.selected_index, 2);
+    }
+
+    #[test]
+    fn test_latest_selection_cleared_when_key_disappears() {
+        let mut app = TuiApp::new();
+        for (topic, title) in [(1u64, "alpha"), (2, "beta")] {
+            let mut msg = make_test_message(0x600, title);
+            msg.topic_id = topic;
+            app.add_message(msg);
+        }
+
+        app.toggle_view_mode(); // selects key(topic=1)
+        assert!(app.selected_latest_key.is_some());
+
+        // Filter out the selected key's message -> it leaves the latest map
+        app.engine.set_filters(vec![Box::new(TitleFilter::new("beta"))]);
+        app.sync_latest_scroll();
+
+        assert_eq!(app.selected_latest_key, None);
+    }
+
+    #[test]
+    fn test_f6_toggles_view_mode() {
+        let mut app = TuiApp::new();
+        app.handle_key(TuiKey::F(6));
+        assert_eq!(app.view_mode, ViewMode::Latest);
+        app.handle_key(TuiKey::F(6));
+        assert_eq!(app.view_mode, ViewMode::Log);
     }
 
     #[test]

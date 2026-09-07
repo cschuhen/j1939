@@ -8,6 +8,8 @@ pub mod filter_engine;
 pub mod filters;
 /// Pure formatting utilities for display across renderers and GUIs.
 pub mod formats;
+/// Latest-per-key index used by the "Latest mode" view (TUI/gpui).
+pub mod latest_index;
 /// PGN decoder engine with YAML configuration support.
 pub mod pgn_decoder;
 /// J1939 PGN decoders submodules.
