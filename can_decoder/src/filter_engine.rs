@@ -1247,14 +1247,24 @@ mod tests {
             severity: Severity::Error,
             text: "old error".to_string(),
         };
-        engine.add_message(make_message_with_outputs(0xEF00, 5, "msg", vec![err_output]));
+        engine.add_message(make_message_with_outputs(
+            0xEF00,
+            5,
+            "msg",
+            vec![err_output],
+        ));
 
         // New INFO message for the same key (would be "latest" without filters)
         let info_output = DecodedField::StringMessage {
             severity: Severity::Info,
             text: "new info".to_string(),
         };
-        engine.add_message(make_message_with_outputs(0xEF00, 5, "msg", vec![info_output]));
+        engine.add_message(make_message_with_outputs(
+            0xEF00,
+            5,
+            "msg",
+            vec![info_output],
+        ));
 
         // With a severity=error filter, only the OLD message passes -> row is index 0
         let filter: Box<dyn Filter> = Box::new(SeverityFilter {
@@ -1295,11 +1305,7 @@ mod tests {
         engine.add_message(make_message(0xEF00, 7, "repeat"));
         assert_eq!(engine.latest_count(), before);
         let map = engine.get_latest_map();
-        let idx = *map
-            .iter()
-            .find(|(k, _)| k.source_address == 7)
-            .unwrap()
-            .1;
+        let idx = *map.iter().find(|(k, _)| k.source_address == 7).unwrap().1;
         assert_eq!(idx, 3); // the repeat is global index 3
     }
 

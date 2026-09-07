@@ -498,9 +498,9 @@ impl TuiApp {
 
         if self.view_mode == ViewMode::Latest && !self.latest_frozen {
             // A filter change can remove keys whose newest message no longer passes
-            let still_present = self.selected_latest_key.is_some_and(|k| {
-                self.engine.get_latest_map().contains_key(&k)
-            });
+            let still_present = self
+                .selected_latest_key
+                .is_some_and(|k| self.engine.get_latest_map().contains_key(&k));
             if !still_present {
                 self.selected_latest_key = None;
             }
@@ -1281,6 +1281,19 @@ impl TuiApp {
         self.engine.total_count()
     }
 
+    /// Row count for the currently active view (Log: total, Latest: rows per key).
+    pub fn view_row_count(&mut self) -> usize {
+        if self.view_mode == ViewMode::Latest {
+            if self.latest_frozen {
+                self.frozen_snapshot.len()
+            } else {
+                self.engine.latest_count()
+            }
+        } else {
+            self.message_count()
+        }
+    }
+
     pub fn status_text(&mut self) -> String {
         let focus_str = match self.focus {
             Focus::Lhs => "LHS",
@@ -1297,14 +1310,25 @@ impl TuiApp {
             "MANUAL"
         };
         let layout_hint = if self.layout_vertical { "VERT" } else { "HORZ" };
+        let view_str = match (self.view_mode, self.latest_frozen) {
+            (ViewMode::Log, _) => "LOG",
+            (ViewMode::Latest, true) => "LATEST-FROZEN",
+            (ViewMode::Latest, false) => "LATEST-LIVE",
+        };
+        let msgs = if self.view_mode == ViewMode::Latest {
+            self.view_row_count()
+        } else {
+            self.engine.filtered_count()
+        };
         format!(
-            " {} | {} | {} | {} | Filters:{} | Msgs:{}/{} | [F1:LHS] [F2:RHS] [F3:Log] [F4:Layout] [F5:Cols] [Tab:Nxt] [Space:Stream] [Ctrl+C/q:Quit]",
+            " {} | {} | {} | View:{} | {} | Filters:{} | Msgs:{}/{} | [F1:LHS] [F2:RHS] [F3:Log] [F4:Layout] [F5:Cols] [F6:Mode] [Tab:Nxt] [Space:Stream] [Ctrl+C/q:Quit]",
             focus_str,
             mode_str,
             stream_str,
+            view_str,
             layout_hint,
             self.active_filter_count(),
-            self.engine.filtered_count(),
+            msgs,
             self.engine.total_count()
         )
     }
@@ -1482,7 +1506,8 @@ mod tests {
         assert!(app.selected_latest_key.is_some());
 
         // Filter out the selected key's message -> it leaves the latest map
-        app.engine.set_filters(vec![Box::new(TitleFilter::new("beta"))]);
+        app.engine
+            .set_filters(vec![Box::new(TitleFilter::new("beta"))]);
         app.sync_latest_scroll();
 
         assert_eq!(app.selected_latest_key, None);
@@ -1988,6 +2013,28 @@ mod tests {
         // Without filters: pass == total
         let status = app.status_text();
         assert!(status.contains("Msgs:10/10"));
+    }
+
+    #[test]
+    fn test_status_bar_shows_view_mode() {
+        let mut app = TuiApp::new();
+
+        for i in 0..10 {
+            app.add_message(make_test_message(0x600 + i, &format!("msg {}", i)));
+        }
+
+        // Log mode: filtered count shown
+        assert!(app.status_text().contains("View:LOG"));
+
+        app.toggle_view_mode();
+        let status = app.status_text();
+        assert!(status.contains("View:LATEST-LIVE"));
+        assert!(status.contains("[F6:Mode]"));
+        // All test messages share one key -> 1 latest row out of 10 total
+        assert!(status.contains(&format!("Msgs:{}/", app.view_row_count())));
+
+        app.latest_frozen = true;
+        assert!(app.status_text().contains("View:LATEST-FROZEN"));
     }
 
     #[test]

@@ -1,5 +1,5 @@
 use crate::formats;
-use crate::tui::app::{FilterType, Focus, InputMode, TuiApp};
+use crate::tui::app::{FilterType, Focus, InputMode, TuiApp, ViewMode};
 use crate::tui::column_editor_widget::ColumnEditorWidget;
 use crate::tui::columns::Column;
 use crate::tui::filter_editor_widget::FilterEditorWidget;
@@ -402,7 +402,15 @@ impl TuiRenderer {
 
         let block = Block::default()
             .borders(Borders::ALL)
-            .title(format!(" Messages ({}) ", app.message_count()))
+            .title(format!(
+                " {} ({}) ",
+                if app.view_mode == ViewMode::Latest {
+                    "Latest Topics"
+                } else {
+                    "Messages"
+                },
+                app.view_row_count()
+            ))
             .style(block_style);
         frame.render_widget(block.clone(), area);
 

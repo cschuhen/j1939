@@ -12,7 +12,9 @@ can_decoder/
 │   ├── pipeline.rs        — Pipeline struct + NullDecoder, PassThroughFilter, ConsoleRenderer stubs
 │   ├── pgn_decoder.rs     — J1939 PGN decoder engine with 40+ standard PGNs, ComplexDecoder registry (Phase 4)
 │   ├── tp_reassembler.rs  — Transport Protocol reassembler: BAM and RTS/CTS state machines (Phase 3)
-│   └── device_manager.rs  — Device tracking, address claims, parameter cache, TTL expiration (Phase 2)
+│   ├── device_manager.rs  — Device tracking, address claims, parameter cache, TTL expiration (Phase 2)
+│   ├── filter_engine.rs   — TUI filter evaluation engine + latest-per-key index (BTreeMap<LatestKey, usize>)
+│   └── latest_index.rs    — LatestKey (source, destination, topic_id): identity for the TUI Latest Topics view
 ├── Cargo.toml             — Dependencies: clap, tokio, serde_yaml, owo-colors, socketcan
 └── requirements_and_plan.md — Full project spec and implementation roadmap
 ```

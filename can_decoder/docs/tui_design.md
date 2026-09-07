@@ -17,6 +17,11 @@ A high-performance terminal user interface (TUI) for real-time J1939 CAN message
 *   **Navigation**:
     *   `Up` / `Down` Arrows: Incremental scroll through the message list.
     *   `Shift` + `Up` / `Down`: Page Up / Page Down jumps (3x viewport).
+*   **View Modes** (`F6` toggles):
+    *   **Log Mode (Default)**: Every passing message as its own row, in arrival order.
+    *   **Latest Topics Mode**: One row per unique topic key `(source address, destination address, topic_id)` — always showing the newest passing message for that key. Rows are sorted by source → destination → topic (stable `BTreeMap` order); a new message on an existing key updates that row in place. Selection tracks the key rather than the row position, so it stays stable as rows update.
+        *   `Space` in Latest mode **freezes/unfreezes** the view instead of toggling stream mode: frozen shows a snapshot taken at freeze time and ignores new messages until unfrozen. Status bar shows `View:LATEST-LIVE` / `View:LATEST-FROZEN`.
+        *   Filters apply to the underlying message stream; keys whose newest message is filtered out disappear from the view (and vice versa).
 
 ### 2.2 Left-Hand Side (LHS) Panel: Filter Stack
 *   **Function**: A vertical stack of "Filter Widgets" (Title, PGN, Severity, Source, Dest, RPM/Speed Numeric, Engine Flag).
@@ -37,7 +42,7 @@ A high-performance terminal user interface (TUI) for real-time J1939 CAN message
     *   `Tab` (from Main): Move focus to RHS panel when LHS is hidden; otherwise cycles LHS → Main → RHS.
 
 ### 2.4 Status Bar & Overlays
-*   **Status Bar**: Fixed bar at bottom showing: focus panel, input mode, stream mode, active filter count, message count, connection status.
+*   **Status Bar**: Fixed bar at bottom showing: focus panel, input mode (NAV/INPUT), stream mode (LIVE/MANUAL), view mode (`View:LOG` / `View:LATEST-LIVE` / `View:LATEST-FROZEN`), layout orientation (HORZ/VERT), active filter count, message count (passing/total — in Latest mode the passing count is the visible row count), and key hints including `[F5:Cols] [F6:Mode]`.
 *   **Error Log Popup**: F3 overlay showing recent filtered-out messages and warnings (max 100 entries).
 
 ## 3. Keyboard Navigation
@@ -52,7 +57,8 @@ A high-performance terminal user interface (TUI) for real-time J1939 CAN message
 | **Main Viewport** | |
 | `Up` / `Down` | Incremental scroll |
 | `Shift` + `Up` / `Down` | Page Up / Page Down (3x viewport) |
-| `Space` | Toggle Live Stream / Manual Scroll |
+| `Space` | Log mode: toggle Live Stream / Manual Scroll. Latest mode: freeze/unfreeze the view (snapshot) |
+| `F6` | Toggle view mode: Log ↔ Latest Topics |
 | **Global Panel Cycling** | |
 | `Tab` | Cycle focus: LHS → Main → RHS → LHS (loops; skips hidden panels) |
 | `Shift` + `Tab` | Reverse cycle: RHS → Main → LHS → RHS (loops; skips hidden panels) |
@@ -242,6 +248,14 @@ The TUI replaces the final Renderer stage with its own `mpsc` channel — messag
  *   [x] **Horizontal Layout Panel Sizing (Phase 8)**: Replaced fixed `Constraint::Length` with ratio-based constraints so main panel gets proportional space. Prevents narrow terminal from squeezing panels into vertical-looking layout.
  *   [x] **Scroll Overflow Fix (Phase 8)**: Fixed subtraction overflow in `scroll_down()` when `new_selected < viewport_height`. Now uses `saturating_sub()` for safe arithmetic.
 
+### Phase 9: Latest Topics View ✅ COMPLETE
+*   [x] **`LatestKey` Identity** (`src/latest_index.rs`): Composite key `(source_address, destination_address, topic_id)` with field order defining the sort order (source → destination → topic). Built from a `DecodedMessage`'s addressing and topic.
+*   [x] **Filter Engine Latest Map** (`src/filter_engine.rs`): Maintains a `BTreeMap<LatestKey, usize>` mapping each key to the global index of its newest passing message; keys are inserted/updated on new messages and removed when their newest message is filtered out. Exposed via `get_latest_map()` / `latest_count()`.
+*   [x] **View Mode Toggle (F6)** (`src/tui/app.rs`): `ViewMode::Log` ↔ `ViewMode::Latest`. Switching to Latest selects the first key and syncs scroll; switching back clears freeze state. Selection tracks the key (not row position) so it stays stable as rows update in place.
+*   [x] **Freeze/Unfreeze (Space in Latest mode)**: Space on Main focus freezes a snapshot of `(key, global_idx)` rows (`frozen_snapshot`) and ignores new messages until unfrozen; unfreezing clears the snapshot and catches up to live data. Log-mode Space behavior (live stream toggle) is unchanged.
+*   [x] **Status Bar**: Shows `View:LOG` / `View:LATEST-LIVE` / `View:LATEST-FROZEN`, `[F6:Mode]` hint, and Latest row count in the Msgs field.
+*   [x] **Tests** (`src/tui/app.rs`): 41 tui::app tests covering mode toggle, key selection/stability, freeze snapshot isolation, filter interaction (keys added/removed), scroll clamping, empty-engine edge case, and status bar display.
+
 ## 7. Current File Inventory
 
 | File | Status | Description |
@@ -250,7 +264,9 @@ The TUI replaces the final Renderer stage with its own `mpsc` channel — messag
 | `src/lib.rs` | ✅ Updated | Re-exports from config module; Cli struct extends SharedConfig with filter + output_format |
 | `src/main.rs` | ✅ Updated | Uses SharedConfig via Cli; identical decoder/pipeline construction as TUI path |
 | `src/tui/mod.rs` | ✅ Complete | Module re-export |
-| `src/tui/app.rs` | ✅ Complete | TuiApp state, FilterWidget, Tab/Shift+Tab cycling, vertical layout toggle, scroll logic, filter evaluation. Up/Down arrows navigate LHS widgets and cursor position in text input mode. Space enables widget + enters edit mode. |
+| `src/latest_index.rs` | ✅ Complete | `LatestKey` composite identity (source, destination, topic) for the Latest Topics view; field order defines sort order. |
+| `src/filter_engine.rs` | ✅ Complete | Filter evaluation engine: message store, filter matching, `UniqueValueCache` for filter option lists, and latest-per-key `BTreeMap<LatestKey, usize>` index (`get_latest_map()` / `latest_count()`). |
+| `src/tui/app.rs` | ✅ Complete | TuiApp state, FilterWidget, Tab/Shift+Tab cycling, vertical layout toggle, scroll logic. Up/Down arrows navigate LHS widgets and cursor position in text input mode. Space enables widget + enters edit mode (Log) or freezes/unfreezes view (Latest). F6 toggles Log ↔ Latest Topics view with key-stable selection. |
 | `src/tui/renderer.rs` | ✅ Complete | Full 3-panel renderer with detail inspector, error log popup, colorization, horizontal + vertical layouts. Ratio-based panel sizing for horizontal mode. Cursor block rendering during text input. "[Enter to edit]" hints. |
 | `src/tui_main.rs` | ✅ Complete | TuiCli parsing, Tab navigation, Ctrl+C handler (raw Unix signal + tokio), layout option, pipeline wiring from shared config. Fixed Shift+Tab via BackTab key code. |
 
