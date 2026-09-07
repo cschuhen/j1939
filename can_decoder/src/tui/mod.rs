@@ -1,4 +1,5 @@
-pub mod app;
+// App state lives in the crate root (GUI-independent); alias for backward compatibility.
+pub use crate::app_state as app;
 pub mod column_editor_widget;
 pub mod columns;
 pub mod filter_editor_widget;

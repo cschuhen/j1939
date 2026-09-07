@@ -1,3 +1,5 @@
+/// GUI-independent terminal application state (view mode, scroll, focus, key handling).
+pub mod app_state;
 pub mod config;
 pub mod device_manager;
 /// GUI-independent filter editor logic (modal state management).
