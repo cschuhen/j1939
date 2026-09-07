@@ -637,8 +637,11 @@ mod tests {
         assert!(result.is_some());
         let msg = result.unwrap();
 
-        assert_eq!(msg.title, "TaskController Unknown Command 0x4");
+        assert_eq!(msg.title, "TC Measurement Time Interval");
         match &msg.outputs[0] {
+            DecodedField::Value { title, .. } => {
+                assert_eq!(title, "Element");
+            }
             DecodedField::StringMessage { text, .. } => {
                 assert!(text.contains("command=0x04"));
                 assert!(text.contains("element=12"));
