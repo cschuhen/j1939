@@ -1,3 +1,4 @@
+use crate::columns::ColumnConfig;
 use crate::device_manager::DeviceManager;
 use crate::filter_editor::{FieldType, FilterEditor, FilterEditorState};
 use crate::filter_engine::FilterEngine;
@@ -7,9 +8,7 @@ use crate::filters::{
 };
 use crate::latest_index::LatestKey;
 use crate::scroll_manager::MessageScrollManager;
-use crate::tui::columns::ColumnConfig;
 use crate::types::{DecodedMessage, FlagValue, Severity};
-use ratatui::layout::Rect;
 
 pub struct FilterEditorModal {
     pub state: FilterEditorState,
@@ -1331,15 +1330,6 @@ impl TuiApp {
             msgs,
             self.engine.total_count()
         )
-    }
-
-    pub fn area_for_focus(&self, area: Rect) -> Option<Rect> {
-        match self.focus {
-            Focus::Lhs if self.lhs_visible => Some(area),
-            Focus::Main => Some(area),
-            Focus::Rhs if self.rhs_visible => Some(area),
-            _ => None,
-        }
     }
 }
 
