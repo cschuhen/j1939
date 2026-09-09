@@ -109,6 +109,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     app.layout_vertical = cli.layout == LayoutOrientation::Vertical;
     app.connection_status = can_decoder::tui::app::ConnectionStatus::Connected;
 
+    // Restore persisted filter state (if any) so selections survive restarts.
+    if let Some(state) = can_decoder::filter_state::load_from_disk(
+        &can_decoder::filter_state::filters_path("tui"),
+    ) {
+        app.load_filter_state(state);
+    }
+
     let renderer = TuiRenderer::new();
 
     // Setup Ctrl+C signal handler via broadcast channel
@@ -167,6 +174,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
+
+    // Persist filter state before shutdown.
+    can_decoder::filter_state::save_to_disk(
+        &app.save_filter_state(),
+        &can_decoder::filter_state::filters_path("tui"),
+    );
 
     // Cleanup terminal
     disable_raw_mode()?;

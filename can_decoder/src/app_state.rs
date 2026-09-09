@@ -6,9 +6,12 @@ use crate::filters::{
     DestFilter, DestNameFilter, FlagFilter, NumericFilter, PgnFilter, RegexFilter, SeverityFilter,
     SourceFilter, SourceNameFilter, TitleFilter,
 };
+use crate::filter_state::FilterState;
 use crate::latest_index::LatestKey;
 use crate::scroll_manager::MessageScrollManager;
 use crate::types::{DecodedMessage, FlagValue, Severity};
+
+use serde::{Deserialize, Serialize};
 
 pub struct FilterEditorModal {
     pub state: FilterEditorState,
@@ -44,7 +47,7 @@ pub struct FilterWidget {
     pub filter_type: FilterType,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FilterType {
     Title,
     Pgn,
@@ -508,6 +511,20 @@ impl TuiApp {
             self.scroll_manager
                 .set_num_messages(self.engine.filtered_count());
         }
+    }
+
+    /// Snapshot the current filter widgets for persistence.
+    pub fn save_filter_state(&self) -> FilterState {
+        FilterState::from_widgets(&self.lhs_widgets)
+    }
+
+    /// Restore persisted filter state, replacing the default widget set and re-applying.
+    pub fn load_filter_state(&mut self, state: FilterState) {
+        self.lhs_widgets = state.to_widgets();
+        if !self.lhs_widgets.is_empty() {
+            self.active_lhs_widget = 0;
+        }
+        self.apply_filters();
     }
 
     /// Ordered (key, global_idx) rows for the Latest view: live map or frozen snapshot.
