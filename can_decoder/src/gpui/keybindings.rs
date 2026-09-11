@@ -30,7 +30,8 @@ actions!(
         Quit,
         ToggleColumns,
         OpenColumns,
-        CloseColumns
+        CloseColumns,
+        ToggleMode
     ]
 );
 
@@ -49,5 +50,6 @@ pub fn configure_keybindings(cx: &mut App) {
         KeyBinding::new("ctrl+c", Quit, None),
         KeyBinding::new("ctrl+l", ClearMessages, None),
         KeyBinding::new("ctrl+shift+c", ToggleColumns, None),
+        KeyBinding::new("f6", ToggleMode, None),
     ])
 }

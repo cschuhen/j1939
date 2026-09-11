@@ -6,10 +6,10 @@ pub mod device_manager;
 pub mod filter_editor;
 /// Filter engine: maintains all messages, computes filtered indices lazily.
 pub mod filter_engine;
-/// Filter implementations and filter expression parsing.
-pub mod filters;
 /// Canonical serializable filter state shared by TUI/GPUI for persistence.
 pub mod filter_state;
+/// Filter implementations and filter expression parsing.
+pub mod filters;
 /// Pure formatting utilities for display across renderers and GUIs.
 pub mod formats;
 /// Latest-per-key index used by the "Latest mode" view (TUI/gpui).

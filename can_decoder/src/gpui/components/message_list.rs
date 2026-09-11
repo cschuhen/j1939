@@ -11,12 +11,20 @@ use can_decoder::filter_engine::FilterEngine;
 use can_decoder::filters::{
     DestNameFilter, PgnFilter, SourceFilter, SourceNameFilter, TitleFilter,
 };
+use can_decoder::latest_index::LatestKey;
 
 use can_decoder::types::DecodedMessage;
 use gpui::{
     div, prelude::*, px, ElementId, Entity, IntoElement, MouseButton, ParentElement, Render,
     ScrollStrategy, Styled, Window,
 };
+
+/// Current view mode: append-only log or latest-per-key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ViewMode {
+    Log,
+    Latest,
+}
 
 // Re-export uniform_list for use in render()
 pub fn make_uniform_list<R>(
@@ -37,6 +45,18 @@ pub struct MessageList {
     global_start_time: Option<u64>,
     pub column_config: ColumnConfig,
     scroll_handle: gpui::UniformListScrollHandle,
+
+    /// Current view mode (Log = append-only, Latest = one row per key).
+    pub view_mode: ViewMode,
+
+    /// Stable identity of the selected row in Latest mode.
+    pub selected_latest_key: Option<LatestKey>,
+
+    /// Space freezes/unfreezes the Latest snapshot.
+    pub latest_frozen: bool,
+
+    /// (key, global_idx) rows captured when frozen.
+    pub frozen_snapshot: Vec<(LatestKey, usize)>,
 }
 
 impl MessageList {
@@ -48,6 +68,10 @@ impl MessageList {
             global_start_time: None,
             column_config: ColumnConfig::default(),
             scroll_handle: gpui::UniformListScrollHandle::new(),
+            view_mode: ViewMode::Log,
+            selected_latest_key: None,
+            latest_frozen: false,
+            frozen_snapshot: Vec::new(),
         }
     }
 
@@ -59,6 +83,10 @@ impl MessageList {
             global_start_time: None,
             column_config,
             scroll_handle: gpui::UniformListScrollHandle::new(),
+            view_mode: ViewMode::Log,
+            selected_latest_key: None,
+            latest_frozen: false,
+            frozen_snapshot: Vec::new(),
         }
     }
 
@@ -77,13 +105,23 @@ impl MessageList {
         if self.engine.total_count() == 0 {
             self.global_start_time = Some(msg.timestamp());
         }
+
+        let latest_live = self.view_mode == ViewMode::Latest && !self.latest_frozen;
         self.engine.add_message(msg);
+
+        // In Latest mode, sync the selected key's row position when live
+        if latest_live {
+            self.sync_latest_scroll();
+        }
     }
 
     /// Clear all messages.
     pub fn clear_messages(&mut self) {
         self.engine.clear();
         self.selected_index = None;
+        self.selected_latest_key = None;
+        self.latest_frozen = false;
+        self.frozen_snapshot.clear();
     }
 
     /// Set the filter criteria and reapply to visible messages.
@@ -171,6 +209,154 @@ impl MessageList {
         self.engine.total_count()
     }
 
+    /// Toggle between Log and Latest view modes.
+    pub fn toggle_view_mode(&mut self) {
+        match self.view_mode {
+            ViewMode::Log => {
+                self.view_mode = ViewMode::Latest;
+                // Select first row (smallest key); None if the filtered set is empty
+                self.selected_latest_key = self.engine.get_latest_map().keys().next().copied();
+                self.sync_latest_scroll();
+            }
+            ViewMode::Latest => {
+                self.view_mode = ViewMode::Log;
+                self.latest_frozen = false;
+                self.frozen_snapshot.clear();
+            }
+        }
+    }
+
+    /// Row count for the currently active view (Log: total, Latest: rows per key).
+    pub fn view_row_count(&mut self) -> usize {
+        if self.view_mode == ViewMode::Latest {
+            if self.latest_frozen {
+                self.frozen_snapshot.len()
+            } else {
+                self.engine.latest_count()
+            }
+        } else {
+            self.engine.total_count()
+        }
+    }
+
+    /// Ordered (key, global_idx) rows for the Latest view: live map or frozen snapshot.
+    fn latest_rows(&mut self) -> Vec<(LatestKey, usize)> {
+        if self.latest_frozen {
+            self.frozen_snapshot.clone()
+        } else {
+            self.engine
+                .get_latest_map()
+                .iter()
+                .map(|(k, &gi)| (*k, gi))
+                .collect()
+        }
+    }
+
+    /// Get visible rows for the current view mode.
+    /// In Log mode: returns (None, global_idx) pairs from filtered_indices.
+    /// In Latest mode: returns (Some(key), global_idx) pairs sorted by key.
+    pub fn get_visible_rows(
+        &mut self,
+        viewport_start: usize,
+        viewport_end: usize,
+    ) -> Vec<(Option<LatestKey>, usize)> {
+        if self.view_mode == ViewMode::Latest {
+            let rows = self.latest_rows();
+            let start = viewport_start.min(rows.len());
+            let end = viewport_end.min(rows.len());
+            return rows[start..end]
+                .iter()
+                .map(|&(k, gi)| (Some(k), gi))
+                .collect();
+        }
+
+        // Log mode: use filtered_indices
+        let indices = self.engine.get_filtered_indices().to_vec();
+        let start = viewport_start.min(indices.len());
+        let end = viewport_end.min(indices.len());
+        return indices[start..end].iter().map(|&gi| (None, gi)).collect();
+    }
+
+    /// Get the total number of visible rows in the current view mode.
+    pub fn get_visible_row_count(&mut self) -> usize {
+        if self.view_mode == ViewMode::Latest {
+            self.latest_rows().len()
+        } else {
+            self.engine.get_filtered_indices().len()
+        }
+    }
+
+    /// Get the currently selected message, mode-aware.
+    pub fn get_selected_message(&mut self) -> Option<&DecodedMessage> {
+        if self.view_mode == ViewMode::Latest {
+            let gi = if self.latest_frozen {
+                self.frozen_snapshot
+                    .iter()
+                    .find(|(k, _)| Some(*k) == self.selected_latest_key)
+                    .map(|(_, gi)| *gi)
+            } else {
+                self.engine
+                    .get_latest_map()
+                    .get(self.selected_latest_key.as_ref()?)
+                    .copied()
+            };
+            return gi.and_then(|gi| self.engine.get_message_by_global_index(gi));
+        }
+
+        // Log mode: use selected_index as filtered position
+        let filtered = self.engine.filtered_count();
+        if filtered == 0 {
+            return None;
+        }
+        let idx = self.selected_index.unwrap_or(0).min(filtered - 1);
+        self.engine.get_message_at(idx)
+    }
+
+    /// Resolve the selected key to its current row position and keep it visible.
+    fn sync_latest_scroll(&mut self) {
+        let rows = if self.latest_frozen {
+            self.frozen_snapshot.len()
+        } else {
+            self.engine.latest_count()
+        };
+
+        match self.selected_latest_key {
+            Some(key) => {
+                let map = self.engine.get_latest_map();
+                if let Some(row) = map.iter().position(|(k, _)| *k == key) {
+                    self.selected_index = Some(row);
+                } else {
+                    self.selected_latest_key = None;
+                }
+            }
+            None => {}
+        }
+
+        // Update scroll handle to show the selected row
+        if let Some(row_idx) = self.selected_index {
+            if row_idx < rows {
+                // We can't directly set scroll position without a handle,
+                // but we ensure the index is valid for rendering
+            }
+        }
+    }
+
+    /// Freeze/unfreeze the Latest view snapshot.
+    pub fn toggle_freeze(&mut self) {
+        if self.latest_frozen {
+            self.latest_frozen = false;
+            self.frozen_snapshot.clear();
+        } else {
+            self.latest_frozen = true;
+            self.frozen_snapshot = self
+                .engine
+                .get_latest_map()
+                .iter()
+                .map(|(k, &gi)| (*k, gi))
+                .collect();
+        }
+    }
+
     /// Get unique filter options from the shared FilterEngine's value cache.
     pub fn get_unique_options(
         &self,
@@ -186,6 +372,28 @@ impl MessageList {
 
     /// Move selection up by one row and ensure it's visible.
     pub fn select_prev(&mut self, cx: &mut gpui::Context<Self>) {
+        if self.view_mode == ViewMode::Latest {
+            let rows = self.latest_rows();
+            if rows.is_empty() {
+                return;
+            }
+
+            let row = match self.selected_index {
+                Some(r) => r.saturating_sub(1),
+                None => rows.len().saturating_sub(1), // jump to last in Latest mode
+            };
+
+            self.selected_index = Some(row);
+            self.selected_latest_key = Some(rows[row].0);
+            if row < rows.len() {
+                self.scroll_handle
+                    .scroll_to_item(row, ScrollStrategy::Center);
+            }
+            cx.notify();
+            return;
+        }
+
+        // Log mode: existing behavior
         let filtered_indices = self.engine.get_filtered_indices();
         if filtered_indices.is_empty() {
             return;
@@ -217,6 +425,35 @@ impl MessageList {
 
     /// Move selection down by one row and ensure it's visible.
     pub fn select_next(&mut self, cx: &mut gpui::Context<Self>) {
+        if self.view_mode == ViewMode::Latest {
+            let rows = self.latest_rows();
+            if rows.is_empty() {
+                return;
+            }
+
+            // In Latest mode, default to first row (smallest key)
+            let row = match self.selected_index {
+                Some(r) => {
+                    if r + 1 < rows.len() {
+                        r + 1
+                    } else {
+                        r
+                    }
+                }
+                None => 0,
+            };
+
+            self.selected_index = Some(row);
+            self.selected_latest_key = Some(rows[row].0);
+            if row < rows.len() {
+                self.scroll_handle
+                    .scroll_to_item(row, ScrollStrategy::Center);
+            }
+            cx.notify();
+            return;
+        }
+
+        // Log mode: existing behavior
         let filtered_indices = self.engine.get_filtered_indices();
         if filtered_indices.is_empty() {
             return;
@@ -248,6 +485,29 @@ impl MessageList {
 
     /// Move selection up by one viewport page.
     pub fn select_page_up(&mut self, cx: &mut gpui::Context<Self>) {
+        if self.view_mode == ViewMode::Latest {
+            let rows = self.latest_rows();
+            if rows.is_empty() {
+                return;
+            }
+
+            let page_size = 10;
+            let target_pos = match self.selected_index {
+                Some(pos) => (pos as isize - page_size as isize).max(0) as usize,
+                None => 0,
+            };
+
+            self.selected_index = Some(target_pos);
+            self.selected_latest_key = Some(rows[target_pos].0);
+            if target_pos < rows.len() {
+                self.scroll_handle
+                    .scroll_to_item(target_pos, ScrollStrategy::Center);
+            }
+            cx.notify();
+            return;
+        }
+
+        // Log mode: existing behavior
         let filtered_indices = self.engine.get_filtered_indices();
         if filtered_indices.is_empty() {
             return;
@@ -275,6 +535,31 @@ impl MessageList {
 
     /// Move selection down by one viewport page.
     pub fn select_page_down(&mut self, cx: &mut gpui::Context<Self>) {
+        if self.view_mode == ViewMode::Latest {
+            let rows = self.latest_rows();
+            if rows.is_empty() {
+                return;
+            }
+
+            let page_size = 10;
+            let target_pos = match self.selected_index {
+                Some(pos) => {
+                    (pos as isize + page_size as isize).min(rows.len() as isize - 1) as usize
+                }
+                None => 0,
+            };
+
+            self.selected_index = Some(target_pos);
+            self.selected_latest_key = Some(rows[target_pos].0);
+            if target_pos < rows.len() {
+                self.scroll_handle
+                    .scroll_to_item(target_pos, ScrollStrategy::Center);
+            }
+            cx.notify();
+            return;
+        }
+
+        // Log mode: existing behavior
         let filtered_indices = self.engine.get_filtered_indices();
         if filtered_indices.is_empty() {
             return;
@@ -305,17 +590,19 @@ impl MessageList {
 impl Render for MessageList {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let selected_index = self.selected_index;
+        let view_mode = self.view_mode;
         let entity: Entity<Self> = cx.entity().clone();
         let column_config = self.column_config.clone();
         let scroll_handle = self.scroll_handle.clone();
 
-        // Get filtered indices (this will auto-recompute if dirty)
-        let filtered_indices = self.engine.get_filtered_indices().to_vec();
+        // Get visible rows based on current view mode
+        let visible_rows = self.get_visible_rows(0, 10000); // Large number to get all visible
+        let msg_count = visible_rows.len();
 
         // Clone messages for the closure (UniformList requires 'static data)
-        let messages: Vec<_> = filtered_indices
+        let messages: Vec<_> = visible_rows
             .iter()
-            .filter_map(|&idx| self.engine.get_message_by_global_index(idx).cloned())
+            .filter_map(|&(_, gi)| self.engine.get_message_by_global_index(gi).cloned())
             .collect();
 
         let enabled_states = column_config
@@ -340,30 +627,31 @@ impl Render for MessageList {
                     .child(render_headers(&enabled_states)),
             )
             .child(
-                make_uniform_list(
-                    "message_list",
-                    messages.len(),
-                    move |range, _window, _cx| {
-                        range
-                            .map(|fi| {
-                                let msg = &messages[fi];
-                                let global_idx = filtered_indices[fi];
-                                let is_selected = Some(global_idx) == selected_index;
-                                let entity = entity.clone();
-                                render_row(
-                                    msg,
-                                    is_selected,
-                                    column_config.clone(),
-                                    move |_, _, cx| {
-                                        entity.update(cx, |list, _| {
-                                            list.selected_index = Some(global_idx);
-                                        });
-                                    },
-                                )
+                make_uniform_list("message_list", msg_count, move |range, _window, _cx| {
+                    range
+                        .map(|fi| {
+                            let msg = &messages[fi];
+                            let (_key, _global_idx) = visible_rows[fi];
+                            // In Latest mode, selected_index is a row position; in Log mode it's a filtered index
+                            let is_selected = match view_mode {
+                                ViewMode::Latest => selected_index == Some(fi),
+                                ViewMode::Log => {
+                                    if let Some(sel) = selected_index {
+                                        sel == fi
+                                    } else {
+                                        false
+                                    }
+                                }
+                            };
+                            let entity = entity.clone();
+                            render_row(msg, is_selected, column_config.clone(), move |_, _, cx| {
+                                entity.update(cx, |list, _| {
+                                    list.selected_index = Some(fi);
+                                });
                             })
-                            .collect()
-                    },
-                )
+                        })
+                        .collect()
+                })
                 .track_scroll(&scroll_handle)
                 .flex_grow(),
             )

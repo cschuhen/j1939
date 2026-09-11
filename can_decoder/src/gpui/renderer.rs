@@ -20,11 +20,11 @@ use tokio::sync::mpsc;
 use super::app_state::AppState;
 use super::components::column_toggle_panel::ColumnConfigPopup;
 use super::components::filter_panel::FilterPanel as NewFilterPanel;
-use super::components::message_list::MessageList;
+use super::components::message_list::{MessageList, ViewMode};
 use super::components::status_bar::StatusBar;
 
 use super::keybindings::{
-    ClearMessages, CloseColumns, PageDown, PageUp, ScrollDown, ScrollUp, SelectRow,
+    ClearMessages, CloseColumns, PageDown, PageUp, ScrollDown, ScrollUp, SelectRow, ToggleMode,
 };
 
 /// Which side's panel an active grab-bar drag is resizing.
@@ -552,9 +552,30 @@ impl Render for MainView {
             self.start_message_receiver(&cx);
         }
 
-        let msg_count = self.message_list.read(cx).total_count();
-        let top_bar = StatusBar::new("can_decoder GPUI | Press Ctrl+Q to quit".into(), true);
-        let bottom_bar = StatusBar::new(format!("{} messages received", msg_count).into(), false);
+        let _msg_count = self.message_list.read(cx).total_count();
+
+        // Build status bar text with view mode indicator
+        let (view_mode, latest_frozen) = {
+            let list = self.message_list.read(cx);
+            (list.view_mode, list.latest_frozen)
+        };
+
+        let view_str = match (view_mode, latest_frozen) {
+            (ViewMode::Log, _) => "LOG",
+            (ViewMode::Latest, true) => "LATEST-FROZEN",
+            (ViewMode::Latest, false) => "LATEST-LIVE",
+        };
+
+        let row_count = self
+            .message_list
+            .update(cx, |list, _cx| list.view_row_count());
+
+        let bottom_text = format!(
+            "View:{} | {} messages | [F6:Mode] [Space:Freeze] [Ctrl+Q:Quit]",
+            view_str, row_count
+        );
+        let top_bar = StatusBar::new("can_decoder GPUI".into(), true);
+        let bottom_bar = StatusBar::new(bottom_text.into(), false);
 
         let filter_panel = self.filter_panel.clone();
 
@@ -710,7 +731,18 @@ impl Render for MainView {
             }))
             .on_action(cx.listener(|this, _: &SelectRow, _window, cx| {
                 this.message_list.update(cx, |list, cx| {
-                    list.toggle_selection(cx);
+                    if list.view_mode == ViewMode::Latest {
+                        list.toggle_freeze();
+                        cx.notify();
+                    } else {
+                        list.toggle_selection(cx);
+                    }
+                });
+            }))
+            .on_action(cx.listener(|this, _: &ToggleMode, _window, cx| {
+                this.message_list.update(cx, |list, cx| {
+                    list.toggle_view_mode();
+                    cx.notify();
                 });
             }))
             .on_action(cx.listener(|_this, _: &ClearMessages, _window, cx| {

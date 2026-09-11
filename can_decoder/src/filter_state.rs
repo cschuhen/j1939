@@ -56,7 +56,9 @@ impl FilterState {
 
     /// True when no widget has an active (enabled + non-empty) filter.
     pub fn is_empty(&self) -> bool {
-        self.filters.iter().all(|f| !f.enabled || f.input_text.trim().is_empty())
+        self.filters
+            .iter()
+            .all(|f| !f.enabled || f.input_text.trim().is_empty())
     }
 
     /// Number of widgets that currently produce a runtime filter.

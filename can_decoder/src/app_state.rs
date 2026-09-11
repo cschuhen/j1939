@@ -2,11 +2,11 @@ use crate::columns::ColumnConfig;
 use crate::device_manager::DeviceManager;
 use crate::filter_editor::{FieldType, FilterEditor, FilterEditorState};
 use crate::filter_engine::FilterEngine;
+use crate::filter_state::FilterState;
 use crate::filters::{
     DestFilter, DestNameFilter, FlagFilter, NumericFilter, PgnFilter, RegexFilter, SeverityFilter,
     SourceFilter, SourceNameFilter, TitleFilter,
 };
-use crate::filter_state::FilterState;
 use crate::latest_index::LatestKey;
 use crate::scroll_manager::MessageScrollManager;
 use crate::types::{DecodedMessage, FlagValue, Severity};

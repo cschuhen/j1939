@@ -110,9 +110,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     app.connection_status = can_decoder::tui::app::ConnectionStatus::Connected;
 
     // Restore persisted filter state (if any) so selections survive restarts.
-    if let Some(state) = can_decoder::filter_state::load_from_disk(
-        &can_decoder::filter_state::filters_path("tui"),
-    ) {
+    if let Some(state) =
+        can_decoder::filter_state::load_from_disk(&can_decoder::filter_state::filters_path("tui"))
+    {
         app.load_filter_state(state);
     }
 
