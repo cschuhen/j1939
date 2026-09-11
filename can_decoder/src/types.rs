@@ -302,10 +302,15 @@ impl DecodedMessage {
     }
 
     pub fn create(msg: AssembledMessage, info: DecodedInfo) -> Self {
+        let topic_id = if info.topic_id == null_topic_id() {
+            topic_id_from_pgn(msg.pgn)
+        } else {
+            info.topic_id
+        };
         DecodedMessage {
             title: info.title,
             outputs: info.outputs,
-            topic_id: topic_id_from_pgn(msg.pgn),
+            topic_id,
             updates: info.updates,
             assembled_message: msg,
         }
@@ -517,5 +522,25 @@ mod tests {
         for i in 4..=255u8 {
             assert_eq!(FlagValue::from(i), FlagValue::Unavailable);
         }
+    }
+
+    #[test]
+    fn decoded_message_create_preserves_decoder_topic_id() {
+        let assembled = AssembledMessage::with_pgn(0x18CB0090, 0xCB00, vec![0xA3], 0);
+        // Sub-topic encodes element/command/DDI (e.g. TaskController process data)
+        let sub_topic: u32 = (10u32 << 4) | 3 | (0xE000u32 << 16);
+        let info = DecodedInfo::new("TC Value".to_string(), create_topic_id(0xCB00, sub_topic));
+
+        let msg = DecodedMessage::create(assembled, info);
+        assert_eq!(msg.topic_id, create_topic_id(0xCB00, sub_topic));
+    }
+
+    #[test]
+    fn decoded_message_create_falls_back_to_pgn_when_null() {
+        let assembled = AssembledMessage::with_pgn(0x18EF4090, 0xEF00, vec![0xA3], 0);
+        let info = DecodedInfo::new("Engine Speed".to_string(), null_topic_id());
+
+        let msg = DecodedMessage::create(assembled, info);
+        assert_eq!(msg.topic_id, topic_id_from_pgn(0xEF00));
     }
 }
